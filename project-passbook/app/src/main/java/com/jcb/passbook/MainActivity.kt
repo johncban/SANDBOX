@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -19,125 +20,33 @@ import com.jcb.passbook.composables.ItemListScreen
 import com.jcb.passbook.composables.firstscreen.LoginScreen
 import com.jcb.passbook.composables.firstscreen.RegistrationScreen
 import com.jcb.passbook.ui.theme.PassBookTheme
-import com.jcb.passbook.util.logging.DebugLogger
-import com.jcb.passbook.util.security.EnhancedSecurityManager
-import com.jcb.passbook.util.security.SecurityDialog
+import com.jcb.passbook.util.security.RootDetector
+import com.jcb.passbook.util.security.SecurityManager
 import com.jcb.passbook.viewmodel.ItemViewModel
 import com.jcb.passbook.viewmodel.UserViewModel
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.delay
-import timber.log.Timber
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    @Inject
-    lateinit var enhancedSecurityManager: EnhancedSecurityManager
-    
-    @Inject
-    lateinit var debugLogger: DebugLogger
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Initialize debug logging
-        debugLogger.initialize(this)
-        debugLogger.logInfo("MainActivity onCreate started")
-        debugLogger.logSecurity("Application startup security check initiated", "INFO")
+        // Persistent Compose states
+        val rootedOnStartup = RootDetector.isDeviceRooted(this)
+        val isCompromised = SecurityManager.isCompromised
 
-        // Enhanced security initialization
-        var securityInitialized by mutableStateOf(false)
-        var shouldExit by mutableStateOf(false)
-        var userOverrodeFirstCheck by mutableStateOf(false)
-
-        // Initialize security monitoring in coroutine
-        LaunchedEffect(Unit) {
-            try {
-                debugLogger.logMethodEntry("initializeSecurityMonitoring", mapOf("context" to "MainActivity"))
-                val startTime = System.currentTimeMillis()
-                
-                enhancedSecurityManager.initializeSecurityMonitoring(this@MainActivity)
-                
-                val endTime = System.currentTimeMillis()
-                debugLogger.logPerformance("Security initialization", endTime - startTime)
-                debugLogger.logSecurity("Enhanced security monitoring initialized successfully", "INFO")
-                
-                securityInitialized = true
-                
-                // Perform immediate security check
-                val result = enhancedSecurityManager.performImmediateSecurityCheck(
-                    context = this@MainActivity,
-                    onSecurityThreat = { threatResult ->
-                        debugLogger.logSecurity(
-                            "Security threat detected in immediate check: ${threatResult.severity}",
-                            threatResult.severity.name
-                        )
-                        
-                        // Handle the threat through security manager
-                        lifecycleScope.launch {
-                            enhancedSecurityManager.handleSecurityThreat(
-                                result = threatResult,
-                                onUserOverride = {
-                                    debugLogger.logSecurity("User overrode security warning", "WARNING")
-                                    userOverrodeFirstCheck = true
-                                },
-                                onSecurityExit = {
-                                    debugLogger.logSecurity("Security exit triggered", "CRITICAL")
-                                    shouldExit = true
-                                }
-                            )
-                        }
-                    }
-                )
-                
-                debugLogger.logSecurity(
-                    "Initial security check completed - Rooted: ${result.isRooted}, Severity: ${result.severity}",
-                    if (result.isRooted) "WARNING" else "INFO"
-                )
-                
-            } catch (e: Exception) {
-                debugLogger.logError("Failed to initialize security monitoring", e)
-                debugLogger.logSecurity("Security initialization failed - CRITICAL", "CRITICAL")
-                shouldExit = true
-            }
+        // Initial security check
+        SecurityManager.checkRootStatus(this) {
+            // Will update Compose observable state, handled in Composables' LaunchedEffect
         }
 
-        // Lifecycle observer for security monitoring
+        // Lifecycle observer for periodic checks
         val lifecycleObserver = LifecycleEventObserver { _, event ->
-            debugLogger.logDebug("Lifecycle event: ${event.name}")
             when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    debugLogger.logSecurity("App resumed - performing security check", "INFO")
-                    if (securityInitialized) {
-                        lifecycleScope.launch {
-                            enhancedSecurityManager.performImmediateSecurityCheck(
-                                context = this@MainActivity,
-                                onSecurityThreat = { threatResult ->
-                                    enhancedSecurityManager.handleSecurityThreat(
-                                        result = threatResult,
-                                        onUserOverride = {
-                                            debugLogger.logSecurity("User overrode security warning on resume", "WARNING")
-                                        },
-                                        onSecurityExit = {
-                                            debugLogger.logSecurity("Security exit triggered on resume", "CRITICAL")
-                                            shouldExit = true
-                                        }
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-                Lifecycle.Event.ON_PAUSE -> {
-                    debugLogger.logDebug("App paused")
-                }
-                Lifecycle.Event.ON_DESTROY -> {
-                    debugLogger.logInfo("MainActivity onDestroy")
-                    enhancedSecurityManager.stopSecurityMonitoring()
-                    debugLogger.close()
-                }
+                Lifecycle.Event.ON_RESUME -> SecurityManager.startPeriodicSecurityCheck(this)
+                Lifecycle.Event.ON_PAUSE -> SecurityManager.stopPeriodicSecurityCheck()
                 else -> {}
             }
         }
@@ -149,54 +58,27 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Handle security exit
-                    LaunchedEffect(shouldExit) {
-                        if (shouldExit) {
-                            debugLogger.logSecurity("App exiting due to security concerns", "CRITICAL")
-                            delay(500) // Brief delay to ensure logging
-                            finish()
+                    // Observe rooted/security state
+                    var shouldFinish by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(rootedOnStartup, isCompromised.value) {
+                        if (rootedOnStartup || isCompromised.value) {
+                            shouldFinish = true
                         }
                     }
 
-                    // Show security dialog if needed
-                    val dialogState = enhancedSecurityManager.getDialogState()
-                    SecurityDialog(state = dialogState.value)
-
-                    // Show main app content if security allows
-                    if (securityInitialized && !shouldExit) {
+                    if (shouldFinish) {
+                        // Show the appropriate dialog before finishing
+                        if (rootedOnStartup) {
+                            RootedDeviceDialog { finish() }
+                        } else {
+                            CompromisedDeviceDialog { finish() }
+                        }
+                    } else {
                         AppNavHost()
-                    } else if (!securityInitialized) {
-                        // Show loading while security initializes
-                        LoadingScreen()
                     }
                 }
             }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        debugLogger.logInfo("MainActivity destroyed")
-        enhancedSecurityManager.stopSecurityMonitoring()
-        debugLogger.close()
-    }
-}
-
-@Composable
-private fun LoadingScreen() {
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = androidx.compose.ui.Alignment.Center
-    ) {
-        androidx.compose.foundation.layout.Column(
-            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
-        ) {
-            androidx.compose.material3.CircularProgressIndicator()
-            androidx.compose.material3.Text(
-                text = "Initializing Security...",
-                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-            )
         }
     }
 }
@@ -249,7 +131,6 @@ private object Destinations {
     const val ITEMLIST = "itemList"
 }
 
-// Legacy dialogs for backwards compatibility (can be removed if not needed)
 @Composable
 fun RootedDeviceDialog(onExit: () -> Unit) {
     androidx.compose.material3.AlertDialog(
