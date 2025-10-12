@@ -1,32 +1,32 @@
 package com.jcb.passbook.data.local.dao
 
 import androidx.room.*
-import com.jcb.passbook.data.local.entities.Audit
+import com.jcb.passbook.data.local.entities.AuditEntry  // FIXED: Changed from Audit to AuditEntry
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AuditDao {
 
     @Insert
-    suspend fun insert(auditEntry: Audit): Long
+    suspend fun insert(auditEntry: AuditEntry): Long  // FIXED: Changed parameter type to AuditEntry
 
     @Insert
-    suspend fun insertAll(auditEntries: List<Audit>)
+    suspend fun insertAll(auditEntries: List<AuditEntry>)  // FIXED: Changed parameter type to List<AuditEntry>
 
     @Query("SELECT * FROM audit_entry WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<Audit>>
+    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     @Query("SELECT * FROM audit_entry WHERE eventType = :eventType ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<Audit>>
+    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     @Query("SELECT * FROM audit_entry WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp DESC")
-    fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<Audit>>
+    fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     @Query("SELECT * FROM audit_entry WHERE outcome = 'FAILURE' OR outcome = 'BLOCKED' ORDER BY timestamp DESC LIMIT :limit")
-    fun getFailedAuditEntries(limit: Int = 500): Flow<List<Audit>>
+    fun getFailedAuditEntries(limit: Int = 500): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     @Query("SELECT * FROM audit_entry WHERE securityLevel = 'CRITICAL' ORDER BY timestamp DESC LIMIT :limit")
-    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<Audit>>
+    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     @Query("SELECT COUNT(*) FROM audit_entry WHERE userId = :userId AND eventType = :eventType AND timestamp >= :since")
     suspend fun countEventsSince(userId: Int?, eventType: String, since: Long): Int
@@ -35,7 +35,7 @@ interface AuditDao {
     suspend fun deleteOldEntries(cutoffTime: Long): Int
 
     @Query("SELECT * FROM audit_entry ORDER BY timestamp DESC LIMIT :limit")
-    fun getAllAuditEntries(limit: Int = 1000): Flow<List<Audit>>
+    fun getAllAuditEntries(limit: Int = 1000): Flow<List<AuditEntry>>  // FIXED: Changed return type
 
     // Integrity verification queries
     @Query("SELECT COUNT(*) FROM audit_entry WHERE checksum IS NULL")
