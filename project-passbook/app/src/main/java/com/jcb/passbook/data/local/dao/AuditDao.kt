@@ -1,11 +1,8 @@
 package com.jcb.passbook.data.local.dao
 
-
 import androidx.room.*
 import com.jcb.passbook.data.local.entities.Audit
 import kotlinx.coroutines.flow.Flow
-
-
 
 @Dao
 interface AuditDao {
@@ -14,22 +11,22 @@ interface AuditDao {
     suspend fun insert(auditEntry: Audit): Long
 
     @Insert
-    suspend fun insertAll(auditEntries: List<AuditEntry>)
+    suspend fun insertAll(auditEntries: List<Audit>)
 
     @Query("SELECT * FROM audit_entry WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<AuditEntry>>
+    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<Audit>>
 
     @Query("SELECT * FROM audit_entry WHERE eventType = :eventType ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<AuditEntry>>
+    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<Audit>>
 
     @Query("SELECT * FROM audit_entry WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp DESC")
-    fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>>
+    fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<Audit>>
 
     @Query("SELECT * FROM audit_entry WHERE outcome = 'FAILURE' OR outcome = 'BLOCKED' ORDER BY timestamp DESC LIMIT :limit")
-    fun getFailedAuditEntries(limit: Int = 500): Flow<List<AuditEntry>>
+    fun getFailedAuditEntries(limit: Int = 500): Flow<List<Audit>>
 
     @Query("SELECT * FROM audit_entry WHERE securityLevel = 'CRITICAL' ORDER BY timestamp DESC LIMIT :limit")
-    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<AuditEntry>>
+    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<Audit>>
 
     @Query("SELECT COUNT(*) FROM audit_entry WHERE userId = :userId AND eventType = :eventType AND timestamp >= :since")
     suspend fun countEventsSince(userId: Int?, eventType: String, since: Long): Int
@@ -38,7 +35,7 @@ interface AuditDao {
     suspend fun deleteOldEntries(cutoffTime: Long): Int
 
     @Query("SELECT * FROM audit_entry ORDER BY timestamp DESC LIMIT :limit")
-    fun getAllAuditEntries(limit: Int = 1000): Flow<List<AuditEntry>>
+    fun getAllAuditEntries(limit: Int = 1000): Flow<List<Audit>>
 
     // Integrity verification queries
     @Query("SELECT COUNT(*) FROM audit_entry WHERE checksum IS NULL")
