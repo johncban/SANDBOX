@@ -35,53 +35,31 @@ data class Audit(
     val timestamp: Long = System.currentTimeMillis(),
 
     // Action details
-    val eventType: String, // LOGIN, LOGOUT, CREATE, READ, UPDATE, DELETE, SECURITY_EVENT
+    val eventType: AuditEventType, // USE ENUM TYPE, NOT STRING
     val action: String,    // Detailed description
     val resourceType: String? = null, // USER, ITEM, SYSTEM
     val resourceId: String? = null,   // Resource identifier
 
     // Context information
-    val deviceInfo: String? = null,   // Device model, OS version
-    val appVersion: String? = null,   // App version
-    val sessionId: String? = null,    // Session identifier
+    val deviceInfo: String? = null,
+    val appVersion: String? = null,
+    val sessionId: String? = null,
 
     // Outcome
-    val outcome: String, // SUCCESS, FAILURE, WARNING
+    val outcome: AuditOutcome, // USE ENUM TYPE, NOT STRING
     val errorMessage: String? = null,
 
     // Security context
-    val securityLevel: String = "NORMAL", // NORMAL, ELEVATED, CRITICAL
-    val ipAddress: String? = null,        // For future network features
+    val securityLevel: SecurityLevel = SecurityLevel.NORMAL,
+    val ipAddress: String? = null,
 
     // Integrity protection
     val checksum: String? = null  // SHA-256 hash for tampering detection
 ) {
-    // Generate integrity checksum
     fun generateChecksum(): String {
         val data = "$userId$timestamp$eventType$action$resourceType$resourceId$outcome"
         return MessageDigest.getInstance("SHA-256")
             .digest(data.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }
-}
-
-enum class AuditEventType(val value: String) {
-    LOGIN("LOGIN"),
-    LOGOUT("LOGOUT"),
-    REGISTER("REGISTER"),
-    CREATE("CREATE"),
-    READ("READ"),
-    UPDATE("UPDATE"),
-    DELETE("DELETE"),
-    SECURITY_EVENT("SECURITY_EVENT"),
-    SYSTEM_EVENT("SYSTEM_EVENT"),
-    KEY_ROTATION("KEY_ROTATION"),
-    AUTHENTICATION_FAILURE("AUTH_FAILURE")
-}
-
-enum class AuditOutcome(val value: String) {
-    SUCCESS("SUCCESS"),
-    FAILURE("FAILURE"),
-    WARNING("WARNING"),
-    BLOCKED("BLOCKED")
 }
