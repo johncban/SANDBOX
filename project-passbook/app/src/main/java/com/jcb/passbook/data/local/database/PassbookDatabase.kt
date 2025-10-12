@@ -15,7 +15,7 @@ import net.sqlcipher.database.SupportFactory
     entities = [
         Item::class,
         User::class,
-        Audit::class
+        AuditEntry::class
     ],
     version = 1,
     exportSchema = false

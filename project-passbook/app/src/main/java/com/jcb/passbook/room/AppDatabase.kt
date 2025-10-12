@@ -9,6 +9,7 @@ import com.jcb.passbook.data.local.dao.AuditDao
 import com.jcb.passbook.data.local.dao.ItemDao
 import com.jcb.passbook.data.local.dao.UserDao
 import com.jcb.passbook.data.local.entities.Audit
+import com.jcb.passbook.data.local.entities.AuditEntry
 import com.jcb.passbook.data.local.entities.Item
 import com.jcb.passbook.data.local.entities.User
 
@@ -43,7 +44,7 @@ return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "ite
 --------------------------------------  DO NOT DELETE  --------------------------------------      ***/
 
 @Database(
-    entities = [Item::class, User::class, Audit::class],
+    entities = [Item::class, User::class, AuditEntry::class],
     version = 3,
     exportSchema = false
 )
