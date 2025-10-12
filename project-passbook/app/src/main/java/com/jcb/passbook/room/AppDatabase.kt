@@ -9,38 +9,38 @@ import com.jcb.passbook.data.local.dao.AuditDao
 import com.jcb.passbook.data.local.dao.ItemDao
 import com.jcb.passbook.data.local.dao.UserDao
 import com.jcb.passbook.data.local.entities.AuditEntry
+import com.jcb.passbook.data.local.entities.Item
+import com.jcb.passbook.data.local.entities.User
 
 import net.sqlcipher.database.SupportFactory
-
 
 /***    --------------------------------------  DO NOT DELETE  --------------------------------------
 @Database(entities = [Item::class, User::class], version = 2, exportSchema = false)
 
 abstract class AppDatabase : RoomDatabase() {
 
-    abstract fun itemDao(): ItemDao
-    abstract fun userDao(): UserDao
+abstract fun itemDao(): ItemDao
+abstract fun userDao(): UserDao
 
-    companion object {
-        // Migration object to handle database schema changes
-        val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Define the migration logic here.  Example:
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
-            }
-        }
+companion object {
+// Migration object to handle database schema changes
+val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
+override fun migrate(database: SupportSQLiteDatabase) {
+// Define the migration logic here.  Example:
+database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+}
+}
 
-        fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
-            return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
-                .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2) // Use proper migration
-                .build()
-        }
-    }
+fun create(context: Context, passphrase: ByteArray): AppDatabase {
+val factory = SupportFactory(passphrase)
+return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
+.openHelperFactory(factory)
+.addMigrations(MIGRATION_1_2) // Use proper migration
+.build()
+}
+}
 }
 --------------------------------------  DO NOT DELETE  --------------------------------------      ***/
-
 
 @Database(
     entities = [Item::class, User::class, AuditEntry::class],
@@ -57,7 +57,7 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Example migration (already in your codebase)
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+                database.execSQL("ALTER TABLE item ADD COLUMN new_column INTEGER DEFAULT 0")
             }
         }
 
@@ -82,7 +82,7 @@ abstract class AppDatabase : RoomDatabase() {
                         securityLevel TEXT NOT NULL DEFAULT 'NORMAL',
                         ipAddress TEXT,
                         checksum TEXT,
-                        FOREIGN KEY(userId) REFERENCES User(id) ON DELETE SET NULL
+                        FOREIGN KEY(userId) REFERENCES user(id) ON DELETE SET NULL
                     )
                 """.trimIndent())
 

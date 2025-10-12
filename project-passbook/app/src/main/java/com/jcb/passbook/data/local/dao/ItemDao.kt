@@ -6,6 +6,7 @@ import androidx.room.Update
 import androidx.room.Delete
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
+import com.jcb.passbook.data.local.entities.Item
 
 @Dao
 interface ItemDao {
@@ -19,13 +20,13 @@ interface ItemDao {
     @Delete
     suspend fun delete(item: Item)
 
-    @Query("SELECT * FROM Item WHERE userId = :userId")
+    @Query("SELECT * FROM item WHERE userId = :userId")
     fun getItemsForUser(userId: Int): Flow<List<Item>>
 
-    @Query("SELECT * FROM Item WHERE id = :id AND userId = :userId")
+    @Query("SELECT * FROM item WHERE id = :id AND userId = :userId")
     fun getItem(id: Int, userId: Int): Flow<Item?> // Ensure only the user's item is fetched
 
-    // Removed or restricted:  Comment out or remove in production
+    // Removed or restricted: Comment out or remove in production
     //@Query("SELECT * FROM Item")
-    //fun getAllItems(): Flow<List<Item>> //Potentially remove this, or restrict access
+    //fun getAllItems(): Flow<List<Item>> // Potentially remove this, or restrict access
 }

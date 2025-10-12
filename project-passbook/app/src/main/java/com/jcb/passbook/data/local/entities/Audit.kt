@@ -1,9 +1,9 @@
 package com.jcb.passbook.data.local.entities
 
-
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import androidx.room.Index
 import java.security.MessageDigest
 
 @Entity(
@@ -15,6 +15,12 @@ import java.security.MessageDigest
             childColumns = ["userId"],
             onDelete = ForeignKey.SET_NULL
         )
+    ],
+    indices = [
+        Index(value = ["userId"], name = "index_audit_entry_userId"),
+        Index(value = ["timestamp"], name = "index_audit_entry_timestamp"),
+        Index(value = ["eventType"], name = "index_audit_entry_eventType"),
+        Index(value = ["outcome"], name = "index_audit_entry_outcome")
     ]
 )
 data class Audit(
