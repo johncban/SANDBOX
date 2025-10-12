@@ -1,7 +1,8 @@
-package com.jcb.passbook.room
+package com.jcb.passbook.data.local.dao
 
 
 import androidx.room.*
+import com.jcb.passbook.data.local.entities.Audit
 import kotlinx.coroutines.flow.Flow
 
 
@@ -10,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 interface AuditDao {
 
     @Insert
-    suspend fun insert(auditEntry: AuditEntry): Long
+    suspend fun insert(auditEntry: Audit): Long
 
     @Insert
     suspend fun insertAll(auditEntries: List<AuditEntry>)

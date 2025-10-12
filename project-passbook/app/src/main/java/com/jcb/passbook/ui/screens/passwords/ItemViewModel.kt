@@ -1,14 +1,14 @@
-package com.jcb.passbook.viewmodel
+package com.jcb.passbook.ui.screens.passwords
 
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jcb.passbook.repository.ItemRepository
-import com.jcb.passbook.repository.UserRepository
-import com.jcb.passbook.room.AuditEventType
-import com.jcb.passbook.room.AuditOutcome
-import com.jcb.passbook.room.Item
+import com.jcb.passbook.domain.entities.repositories.ItemRepository
+import com.jcb.passbook.domain.entities.repositories.UserRepository
+import com.jcb.passbook.data.local.entities.AuditEventType
+import com.jcb.passbook.data.local.entities.AuditOutcome
+import com.jcb.passbook.domain.Item
 import com.jcb.passbook.util.CryptoManager
 import com.jcb.passbook.util.audit.AuditLogger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
-import com.jcb.passbook.viewmodel.ItemOperationState
+import com.jcb.passbook.ui.viewmodel.ItemOperationState
 
 
 

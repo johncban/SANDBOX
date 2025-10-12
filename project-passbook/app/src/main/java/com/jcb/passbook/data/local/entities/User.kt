@@ -1,7 +1,4 @@
-package com.jcb.passbook.room
-
-import androidx.room.Entity
-import androidx.room.PrimaryKey
+package com.jcb.passbook.data.local.entities
 
 @Entity
 data class User(

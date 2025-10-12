@@ -1,9 +1,10 @@
-package com.jcb.passbook.room
+package com.jcb.passbook.data.local.entities
 
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import java.security.MessageDigest
 
 @Entity(
     tableName = "audit_entry",
@@ -16,7 +17,7 @@ import androidx.room.ForeignKey
         )
     ]
 )
-data class AuditEntry(
+data class Audit(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
 
@@ -52,7 +53,7 @@ data class AuditEntry(
     // Generate integrity checksum
     fun generateChecksum(): String {
         val data = "$userId$timestamp$eventType$action$resourceType$resourceId$outcome"
-        return java.security.MessageDigest.getInstance("SHA-256")
+        return MessageDigest.getInstance("SHA-256")
             .digest(data.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }

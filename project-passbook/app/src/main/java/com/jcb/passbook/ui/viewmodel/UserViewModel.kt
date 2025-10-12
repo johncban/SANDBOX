@@ -1,4 +1,4 @@
-package com.jcb.passbook.viewmodel
+package com.jcb.passbook.ui.viewmodel
 
 import android.content.Context
 import android.os.Build
@@ -6,13 +6,12 @@ import androidx.annotation.RequiresApi
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import coil.util.CoilUtils.result
 import com.jcb.passbook.R
-import com.jcb.passbook.repository.UserRepository
+import com.jcb.passbook.domain.entities.repositories.UserRepository
 import com.jcb.passbook.room.AppDatabase
-import com.jcb.passbook.room.AuditEventType
-import com.jcb.passbook.room.AuditOutcome
-import com.jcb.passbook.room.User
+import com.jcb.passbook.data.local.entities.AuditEventType
+import com.jcb.passbook.data.local.entities.AuditOutcome
+import com.jcb.passbook.domain.User
 import com.jcb.passbook.util.audit.AuditLogger
 import com.jcb.passbook.util.security.KeystorePassphraseManager
 import com.lambdapioneer.argon2kt.Argon2Kt
@@ -28,9 +27,8 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import java.util.Arrays
 import javax.inject.Inject
-import com.jcb.passbook.viewmodel.ItemOperationState
-
 
 
 sealed interface AuthState {
@@ -88,7 +86,7 @@ class UserViewModel @Inject constructor(
                 val newPassphrase = KeystorePassphraseManager.rotatePassphrase(context)
                 val supportDb = db.openHelper.writableDatabase
                 supportDb.query("PRAGMA rekey = '$newPassphrase';").close()
-                java.util.Arrays.fill(newPassphrase.toCharArray(), ' ')
+                Arrays.fill(newPassphrase.toCharArray(), ' ')
                 _keyRotationState.value = ItemOperationState.Success
             } catch (e: Exception) {
                 Timber.e(e, "Database key rotation failed")

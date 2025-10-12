@@ -1,4 +1,4 @@
-package com.jcb.passbook.viewmodel
+package com.jcb.passbook.ui.viewmodel
 
 sealed class ItemOperationState {
     object Idle : ItemOperationState()

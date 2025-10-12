@@ -1,15 +1,15 @@
-package com.jcb.passbook.room
+package com.jcb.passbook.data.local.entities
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import androidx.room.PrimaryKey
 
 @Entity(foreignKeys = [ForeignKey(
     entity = User::class,
     parentColumns = ["id"],
     childColumns = ["userId"],
     onDelete = ForeignKey.CASCADE
-    )]
+)]
 )
 data class Item(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -26,8 +26,6 @@ data class Item(
     override fun hashCode(): Int = 31 * id + name.hashCode() +
             encryptedPasswordData.contentHashCode() + userId
 }
-
-
 
 
 /***

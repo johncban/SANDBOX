@@ -1,7 +1,7 @@
-package com.jcb.passbook.repository
+package com.jcb.passbook.domain.repository
 
-import com.jcb.passbook.room.AuditDao
-import com.jcb.passbook.room.AuditEntry
+import com.jcb.passbook.data.local.dao.AuditDao
+import com.jcb.passbook.data.local.entities.Audit
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -12,16 +12,16 @@ class AuditRepository @Inject constructor(
     private val auditDao: AuditDao
 ) {
 
-    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<AuditEntry>> =
+    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<Audit>> =
         auditDao.getAuditEntriesForUser(userId, limit)
 
-    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<AuditEntry>> =
+    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<Audit>> =
         auditDao.getAuditEntriesByType(eventType, limit)
 
-    fun getFailedAuditEntries(limit: Int = 500): Flow<List<AuditEntry>> =
+    fun getFailedAuditEntries(limit: Int = 500): Flow<List<Audit>> =
         auditDao.getFailedAuditEntries(limit)
 
-    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<AuditEntry>> =
+    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<Audit>> =
         auditDao.getCriticalSecurityEvents(limit)
 
     suspend fun getRecentFailedLogins(username: String, withinHours: Int = 24): Int {

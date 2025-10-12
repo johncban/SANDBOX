@@ -1,8 +1,8 @@
 package com.jcb.passbook
 
 import android.app.Application
-import com.jcb.passbook.room.AuditEventType
-import com.jcb.passbook.room.AuditOutcome
+import com.jcb.passbook.data.local.entities.AuditEventType
+import com.jcb.passbook.data.local.entities.AuditOutcome
 import com.jcb.passbook.util.audit.AuditLogger
 import com.jcb.passbook.util.audit.SecurityAuditManager
 import com.jcb.passbook.util.security.RestrictiveReleaseTree

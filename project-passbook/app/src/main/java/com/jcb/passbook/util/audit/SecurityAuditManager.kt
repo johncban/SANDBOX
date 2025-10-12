@@ -1,9 +1,9 @@
 package com.jcb.passbook.util.audit
 
 import android.content.Context
-import com.jcb.passbook.room.AuditDao
-import com.jcb.passbook.room.AuditEventType
-import com.jcb.passbook.room.AuditOutcome
+import com.jcb.passbook.data.local.dao.AuditDao
+import com.jcb.passbook.data.local.entities.AuditEventType
+import com.jcb.passbook.data.local.entities.AuditOutcome
 import com.jcb.passbook.util.security.RootDetector
 import com.jcb.passbook.util.security.SecurityManager
 import dagger.hilt.android.qualifiers.ApplicationContext

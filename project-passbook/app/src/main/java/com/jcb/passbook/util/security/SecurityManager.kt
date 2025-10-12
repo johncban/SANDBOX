@@ -2,15 +2,11 @@ package com.jcb.passbook.util.security
 
 import android.content.Context
 import android.os.Debug
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
 import androidx.compose.runtime.mutableStateOf
-import com.jcb.passbook.room.AuditOutcome
+import com.jcb.passbook.data.local.entities.AuditOutcome
 import com.jcb.passbook.util.audit.AuditLogger
 import com.scottyab.rootbeer.RootBeer
 import kotlinx.coroutines.*
-import timber.log.Timber
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader

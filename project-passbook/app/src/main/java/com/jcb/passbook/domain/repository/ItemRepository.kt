@@ -1,7 +1,7 @@
-package com.jcb.passbook.repository
+package com.jcb.passbook.domain.repository
 
 import com.jcb.passbook.room.Item
-import com.jcb.passbook.room.ItemDao
+import com.jcb.passbook.data.local.dao.ItemDao
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 

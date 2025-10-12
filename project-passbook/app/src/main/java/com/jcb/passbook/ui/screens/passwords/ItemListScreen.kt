@@ -1,11 +1,10 @@
-package com.jcb.passbook.composables
+package com.jcb.passbook.ui.screens.passwords
 
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,16 +18,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.jcb.passbook.room.Item
-import com.jcb.passbook.viewmodel.ItemOperationState
-import com.jcb.passbook.viewmodel.ItemViewModel
-import com.jcb.passbook.viewmodel.UserViewModel
+import com.jcb.passbook.ui.viewmodel.ItemOperationState
+import com.jcb.passbook.ui.viewmodel.UserViewModel
 import kotlinx.coroutines.launch
 import java.util.Arrays
 
 import androidx.compose.ui.platform.LocalContext
-import com.jcb.passbook.util.ClipboardHelper
-import androidx.compose.ui.platform.LocalContext
-
+import androidx.compose.ui.text.font.FontWeight
 
 
 @RequiresApi(Build.VERSION_CODES.M)
@@ -250,7 +246,7 @@ fun ItemRow(item: Item, onClick: () -> Unit) {
             Text(
                 text = item.name,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
             Icon(

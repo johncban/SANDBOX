@@ -5,6 +5,10 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import android.content.Context
+import com.jcb.passbook.data.local.dao.AuditDao
+import com.jcb.passbook.data.local.dao.ItemDao
+import com.jcb.passbook.data.local.dao.UserDao
+import com.jcb.passbook.data.local.entities.AuditEntry
 
 import net.sqlcipher.database.SupportFactory
 

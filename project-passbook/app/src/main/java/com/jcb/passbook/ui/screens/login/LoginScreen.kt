@@ -1,4 +1,4 @@
-package com.jcb.passbook.composables.firstscreen
+package com.jcb.passbook.ui.screens.login
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.*
@@ -14,9 +14,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.R
-import com.jcb.passbook.viewmodel.AuthState
-import com.jcb.passbook.viewmodel.ItemViewModel
-import com.jcb.passbook.viewmodel.UserViewModel
+import com.jcb.passbook.ui.viewmodel.AuthState
+import com.jcb.passbook.ui.screens.passwords.ItemViewModel
+import com.jcb.passbook.ui.viewmodel.UserViewModel
 
 @Composable
 fun LoginScreen(
