@@ -12,18 +12,17 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.jcb.passbook.composables.ItemListScreen
-import com.jcb.passbook.composables.firstscreen.LoginScreen
-import com.jcb.passbook.composables.firstscreen.RegistrationScreen
-import com.jcb.passbook.ui.theme.PassBookTheme
-import com.jcb.passbook.util.security.RootDetector
-import com.jcb.passbook.util.security.SecurityManager
-import com.jcb.passbook.viewmodel.ItemViewModel
-import com.jcb.passbook.viewmodel.UserViewModel
+import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
+import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
+import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
+import com.jcb.passbook.presentation.ui.theme.PassBookTheme
+import com.jcb.passbook.security.detection.RootDetector
+import com.jcb.passbook.security.detection.SecurityManager
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
