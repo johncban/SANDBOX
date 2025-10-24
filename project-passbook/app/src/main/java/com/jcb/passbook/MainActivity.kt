@@ -15,14 +15,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.jcb.passbook.ui.screens.passwords.ItemListScreen
-import com.jcb.passbook.ui.screens.login.LoginScreen
-import com.jcb.passbook.ui.screens.login.RegistrationScreen
-import com.jcb.passbook.ui.theme.PassBookTheme
-import com.jcb.passbook.util.security.RootDetector
-import com.jcb.passbook.util.security.SecurityManager
-import com.jcb.passbook.ui.screens.passwords.ItemViewModel
-import com.jcb.passbook.ui.viewmodel.UserViewModel
+import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
+import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
+import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
+import com.jcb.passbook.presentation.ui.theme.PassBookTheme
+import com.jcb.passbook.security.detection.RootDetector
+import com.jcb.passbook.security.detection.SecurityManager
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint

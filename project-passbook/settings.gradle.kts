@@ -21,6 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PassBook"
 include(":app")
-include(":domain")
-include(":data")
-include(":security")
+ 
