@@ -50,6 +50,8 @@ object AppModule {
         )
             .openHelperFactory(factory)
             .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_3_2)
+
 
         // Enable fallback only for debug builds to ease development
         if (BuildConfig.DEBUG) {
