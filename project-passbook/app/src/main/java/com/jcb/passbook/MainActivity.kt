@@ -1,7 +1,7 @@
 package com.jcb.passbook
 
+
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,7 +27,7 @@ import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() { // Changed from ComponentActivity to FragmentActivity
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,6 +97,8 @@ private fun AppNavHost() {
                 onLoginSuccess = { userId ->
                     itemViewModel.setUserId(userId)
                     userViewModel.setUserId(userId)
+                    // Save the logged in user ID for biometric login
+                    userViewModel.saveLastLoggedInUserId(userId)
                     navController.navigate(Destinations.ITEMLIST) {
                         popUpTo(Destinations.LOGIN) { inclusive = true }
                     }
