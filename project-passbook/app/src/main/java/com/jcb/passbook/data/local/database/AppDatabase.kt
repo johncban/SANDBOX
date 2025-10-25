@@ -1,107 +1,75 @@
 package com.jcb.passbook.data.local.database
 
+// Database Migration Script
+// Add this to your AppDatabase class to handle the schema update
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.entities.AuditEntry
-import com.jcb.passbook.data.local.database.entities.Item
-import com.jcb.passbook.data.local.database.dao.ItemDao
-import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.dao.UserDao
-import net.sqlcipher.database.SupportFactory
+import com.jcb.passbook.data.local.database.entities.User
 
-/***    --------------------------------------  DO NOT DELETE  --------------------------------------
-@Database(entities = [Item::class, User::class], version = 2, exportSchema = false)
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        // Use a fixed timestamp instead of System.currentTimeMillis() for SQL constants
+        val fixedTimestamp = 1698249600000L // Fixed timestamp for migration
 
-abstract class AppDatabase : RoomDatabase() {
+        // Add new biometric columns to existing users table
+        database.execSQL("ALTER TABLE User ADD COLUMN biometric_token_salt BLOB")
+        database.execSQL("ALTER TABLE User ADD COLUMN biometric_token_hash BLOB")
+        database.execSQL("ALTER TABLE User ADD COLUMN biometric_enabled INTEGER NOT NULL DEFAULT 0")
+        database.execSQL("ALTER TABLE User ADD COLUMN biometric_setup_at INTEGER")
+        database.execSQL("ALTER TABLE User ADD COLUMN created_at INTEGER NOT NULL DEFAULT $fixedTimestamp")
 
-    abstract fun itemDao(): ItemDao
-    abstract fun userDao(): UserDao
-
-    companion object {
-        // Migration object to handle database schema changes
-        val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Define the migration logic here.  Example:
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
-            }
-        }
-
-        fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
-            return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
-                .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2) // Use proper migration
-                .build()
-        }
+        // Rename table to match new entity name
+        database.execSQL("ALTER TABLE User RENAME TO users_temp")
+        database.execSQL("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL DEFAULT $fixedTimestamp,
+                biometric_token_salt BLOB,
+                biometric_token_hash BLOB,
+                biometric_enabled INTEGER NOT NULL DEFAULT 0,
+                biometric_setup_at INTEGER
+            )
+        """)
+        database.execSQL("""
+            INSERT INTO users (id, username, password_hash, created_at, biometric_enabled)
+            SELECT id, username, passwordHash, $fixedTimestamp, 0
+            FROM users_temp
+        """)
+        database.execSQL("DROP TABLE users_temp")
     }
 }
---------------------------------------  DO NOT DELETE  --------------------------------------      ***/
-
 
 @Database(
-    entities = [Item::class, User::class, AuditEntry::class],
-    version = 3,
+    entities = [User::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
-    abstract fun itemDao(): ItemDao
     abstract fun userDao(): UserDao
-    abstract fun auditDao(): AuditDao // Audit logging support
 
     companion object {
-        // Existing migration for version 2
-        val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Example migration (already in your codebase)
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "passbook_database"
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                INSTANCE = instance
+                instance
             }
-        }
-
-        // Migration for version 3: adds the audit_entry table and indexes
-        val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("""
-                    CREATE TABLE audit_entry (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        userId INTEGER,
-                        username TEXT,
-                        timestamp INTEGER NOT NULL,
-                        eventType TEXT NOT NULL,
-                        action TEXT NOT NULL,
-                        resourceType TEXT,
-                        resourceId TEXT,
-                        deviceInfo TEXT,
-                        appVersion TEXT,
-                        sessionId TEXT,
-                        outcome TEXT NOT NULL,
-                        errorMessage TEXT,
-                        securityLevel TEXT NOT NULL DEFAULT 'NORMAL',
-                        ipAddress TEXT,
-                        checksum TEXT,
-                        FOREIGN KEY(userId) REFERENCES User(id) ON DELETE SET NULL
-                    )
-                """.trimIndent())
-
-                // Create indexes for performance
-                database.execSQL("CREATE INDEX index_audit_entry_userId ON audit_entry(userId)")
-                database.execSQL("CREATE INDEX index_audit_entry_timestamp ON audit_entry(timestamp)")
-                database.execSQL("CREATE INDEX index_audit_entry_eventType ON audit_entry(eventType)")
-                database.execSQL("CREATE INDEX index_audit_entry_outcome ON audit_entry(outcome)")
-            }
-        }
-
-        // SQLCipher factory - use this in your DI/AppModule for DB creation
-        fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
-            return Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
-                .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
-                .build()
         }
     }
 }
