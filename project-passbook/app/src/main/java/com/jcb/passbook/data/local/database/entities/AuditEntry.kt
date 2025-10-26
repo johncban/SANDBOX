@@ -1,6 +1,5 @@
 package com.jcb.passbook.data.local.database.entities
 
-
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
@@ -47,7 +46,8 @@ data class AuditEntry(
     val ipAddress: String? = null,        // For future network features
 
     // Integrity protection
-    val checksum: String? = null  // SHA-256 hash for tampering detection
+    val checksum: String? = null,  // SHA-256 hash for tampering detection
+    val keyId: String? = null      // Key identifier for HMAC verification
 ) {
     // Generate integrity checksum
     fun generateChecksum(): String {
