@@ -9,6 +9,8 @@ import com.jcb.passbook.security.biometric.BiometricHelper
 import com.jcb.passbook.security.crypto.SessionPassphraseManager
 import com.jcb.passbook.security.session.SessionManager
 import com.jcb.passbook.security.audit.AuditLogger
+import com.jcb.passbook.data.local.database.entities.AuditEventType
+import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,11 +52,11 @@ class UnlockViewModel @Inject constructor(
         sessionManager.startUnlock()
         
         // Log unlock attempt
-        auditLogger.logSecurityEvent(
-            eventType = "AUTH",
-            action = "UNLOCK_ATTEMPT",
-            outcome = "STARTED",
-            securityLevel = "HIGH"
+        auditLogger.logAuthentication(
+            username = "SYSTEM",
+            eventType = AuditEventType.LOGIN,
+            outcome = AuditOutcome.WARNING,
+            errorMessage = "Vault unlock attempt started"
         )
     }
 
@@ -120,11 +122,10 @@ class UnlockViewModel @Inject constructor(
                         // Complete session unlock
                         sessionManager.completeUnlock(result.sessionKey, result.salt)
                         
-                        auditLogger.logSecurityEvent(
-                            eventType = "AUTH",
-                            action = "BIOMETRIC_UNLOCK",
-                            outcome = "SUCCESS",
-                            securityLevel = "HIGH"
+                        auditLogger.logAuthentication(
+                            username = "BIOMETRIC_USER",
+                            eventType = AuditEventType.LOGIN,
+                            outcome = AuditOutcome.SUCCESS
                         )
                         
                         _uiState.value = _uiState.value.copy(
@@ -136,12 +137,11 @@ class UnlockViewModel @Inject constructor(
                         Log.d(TAG, "Biometric unlock successful")
                     }
                     is SessionPassphraseManager.DerivationResult.Error -> {
-                        auditLogger.logSecurityEvent(
-                            eventType = "AUTH",
-                            action = "BIOMETRIC_UNLOCK",
-                            outcome = "FAILURE",
-                            errorMessage = result.message,
-                            securityLevel = "HIGH"
+                        auditLogger.logAuthentication(
+                            username = "BIOMETRIC_USER",
+                            eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                            outcome = AuditOutcome.FAILURE,
+                            errorMessage = result.message
                         )
                         
                         _uiState.value = _uiState.value.copy(
@@ -155,12 +155,11 @@ class UnlockViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Biometric unlock error", e)
                 
-                auditLogger.logSecurityEvent(
-                    eventType = "AUTH",
-                    action = "BIOMETRIC_UNLOCK",
-                    outcome = "ERROR",
-                    errorMessage = e.message,
-                    securityLevel = "HIGH"
+                auditLogger.logAuthentication(
+                    username = "BIOMETRIC_USER",
+                    eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                    outcome = AuditOutcome.FAILURE,
+                    errorMessage = e.message
                 )
                 
                 _uiState.value = _uiState.value.copy(
@@ -191,11 +190,10 @@ class UnlockViewModel @Inject constructor(
                         // Complete session unlock
                         sessionManager.completeUnlock(result.sessionKey, result.salt)
                         
-                        auditLogger.logSecurityEvent(
-                            eventType = "AUTH",
-                            action = "PASSWORD_UNLOCK",
-                            outcome = "SUCCESS",
-                            securityLevel = "MEDIUM"
+                        auditLogger.logAuthentication(
+                            username = "PASSWORD_USER",
+                            eventType = AuditEventType.LOGIN,
+                            outcome = AuditOutcome.SUCCESS
                         )
                         
                         _uiState.value = _uiState.value.copy(
@@ -207,12 +205,11 @@ class UnlockViewModel @Inject constructor(
                         Log.d(TAG, "Password unlock successful")
                     }
                     is SessionPassphraseManager.DerivationResult.Error -> {
-                        auditLogger.logSecurityEvent(
-                            eventType = "AUTH",
-                            action = "PASSWORD_UNLOCK",
-                            outcome = "FAILURE",
-                            errorMessage = result.message,
-                            securityLevel = "MEDIUM"
+                        auditLogger.logAuthentication(
+                            username = "PASSWORD_USER",
+                            eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                            outcome = AuditOutcome.FAILURE,
+                            errorMessage = result.message
                         )
                         
                         _uiState.value = _uiState.value.copy(
@@ -226,12 +223,11 @@ class UnlockViewModel @Inject constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Password unlock error", e)
                 
-                auditLogger.logSecurityEvent(
-                    eventType = "AUTH",
-                    action = "PASSWORD_UNLOCK",
-                    outcome = "ERROR",
-                    errorMessage = e.message,
-                    securityLevel = "MEDIUM"
+                auditLogger.logAuthentication(
+                    username = "PASSWORD_USER",
+                    eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                    outcome = AuditOutcome.FAILURE,
+                    errorMessage = e.message
                 )
                 
                 _uiState.value = _uiState.value.copy(
@@ -258,12 +254,11 @@ class UnlockViewModel @Inject constructor(
             else -> "Biometric authentication failed: $errorMessage"
         }
         
-        auditLogger.logSecurityEvent(
-            eventType = "AUTH",
-            action = "BIOMETRIC_ERROR",
-            outcome = "FAILURE",
-            errorMessage = "Error $errorCode: $errorMessage",
-            securityLevel = "MEDIUM"
+        auditLogger.logAuthentication(
+            username = "BIOMETRIC_USER",
+            eventType = AuditEventType.AUTHENTICATION_FAILURE,
+            outcome = AuditOutcome.FAILURE,
+            errorMessage = "Biometric error $errorCode: $errorMessage"
         )
         
         _uiState.value = _uiState.value.copy(
