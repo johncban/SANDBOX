@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("kotlin-kapt")
-    // id("kotlin-android") // Redundant if alias(libs.plugins.kotlin.android) is present
     id("dagger.hilt.android.plugin")
 }
 
@@ -19,13 +18,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // vectorDrawables {
-        //     useSupportLibrary = true
-        // }
     }
 
     buildTypes {
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -33,143 +37,104 @@ android {
             )
         }
     }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    
     kotlinOptions {
         jvmTarget = "11"
     }
+    
     buildFeatures {
         compose = true
     }
-    // composeOptions {
-    //     kotlinCompilerExtensionVersion = "1.5.1" // Example, ensure it matches your Compose BOM
-    // }
-    // packaging {
-    //     resources {
-    //         excludes += "/META-INF/{AL2.0,LGPL2.1}"
-    //     }
-    // }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 dependencies {
+    // Core AndroidX
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    
+    // Compose BOM - use single BOM for all Compose dependencies
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    // implementation(libs.androidx.espresso.core) // Typically for androidTestImplementation
-    // implementation(libs.androidx.animation.core.lint) // Check usage, often not needed directly
+    
+    // Material Icons Extended
+    implementation("androidx.compose.material:material-icons-extended:1.7.0")
 
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
-    debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
-
-    implementation("androidx.compose.material:material-icons-extended:1.7.0") // Version from original was 1.7.6, using 1.7.0 as an example if libs maps to it. Or use "1.7.0" directly.
-
-    // Room
+    // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
-    // annotationProcessor("androidx.room:room-compiler:2.6.1") // Not needed if using KAPT
-    kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
 
-    // Dagger Hilt
-    implementation("com.google.dagger:hilt-android:2.50") // Original was 2.50
-    kapt("com.google.dagger:hilt-compiler:2.50") // Original was 2.50
+    // Dagger Hilt - use consistent version
+    implementation("com.google.dagger:hilt-android:2.50")
+    kapt("com.google.dagger:hilt-compiler:2.50")
 
-    // Coroutine support (Coil is for image loading, not directly coroutine support for Retrofit)
-    implementation("io.coil-kt:coil-compose:2.5.0") // Original was 1.3.2, common current is higher like 2.5.0
-
-    // Lifecycle and ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0") // Original had 2.8.7, typical version could be 2.8.0 or latest stable
-    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.0") // Original had 2.8.7
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0") // Original had 2.8.7
+    // Lifecycle and ViewModel - use consistent 2.8.0 version
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
 
     // Navigation Compose
-    implementation("androidx.navigation:navigation-compose:2.7.7") // Original had 2.8.5, typical version
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 
-    // SQLCipher
+    // SQLCipher for encrypted database
     implementation("net.zetetic:android-database-sqlcipher:4.5.4")
 
-    // Security Crypto
-    implementation("androidx.security:security-crypto:1.1.0-alpha06") { // Original had 1.0.0 and 1.1.0-alpha06. Consolidate to one.
+    // Security Crypto - use stable version
+    implementation("androidx.security:security-crypto:1.1.0-alpha06") {
         exclude(group = "com.google.code.gson", module = "gson")
     }
 
     // Argon2 for password hashing
     implementation("com.lambdapioneer.argon2kt:argon2kt:1.6.0")
 
-    // REMOVED Credential Manager dependencies
-    // implementation("androidx.credentials:credentials:1.5.0")
-    // implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    // Biometric authentication
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
-
+    // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
 
+    // Root detection
+    implementation("com.scottyab:rootbeer-lib:0.1.0")
 
-
-
-    implementation("com.scottyab:rootbeer-lib:0.1.1")
-
-
-
-    /***
-    // Add Firebase Crashlytics dependency
-    implementation("com.google.firebase:firebase-crashlytics-ktx:18.4.1")
-    implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
-    // Google Services
-    apply(plugin = "com.google.gms.google-services")
-    ***/
-
-
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
-    //testImplementation("io.mockk:mockk:1.13.7")
-    testImplementation("com.google.truth:truth:1.4.2")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.0")
-    testImplementation("app.cash.turbine:turbine:1.0.0")
-
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.56.2")
-    kaptAndroidTest("com.google.dagger:hilt-compiler:2.56.2")
-
-
-
-
-    // Core testing libraries
+    // Testing dependencies - consolidated and organized
+    testImplementation(libs.junit)
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
-    // Jetpack Compose UI Testing
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.03.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-
-    // MockK for mocking in unit tests (a modern alternative to Mockito for Kotlin)
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
+    testImplementation("com.google.truth:truth:1.4.2")
     testImplementation("io.mockk:mockk:1.13.5")
-
-    // Turbine for testing Kotlin Flows
-    //testImplementation("app.cash.turbine:turbine:1.0.0")
-
-    // Coroutines testing
+    testImplementation("app.cash.turbine:turbine:1.0.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-
-    // Hilt for dependency injection in tests
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.48")
-    kaptAndroidTest("com.google.dagger:hilt-android-compiler:2.48")
     testImplementation(kotlin("test"))
 
+    // Android testing - use single BOM
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
+    kaptAndroidTest("com.google.dagger:hilt-compiler:2.50")
 
+    // Debug dependencies
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.test.manifest)
+}
 
-    implementation("androidx.biometric:biometric:1.4.0-alpha02")
-
-
+// Ensure all Hilt processors run correctly
+kapt {
+    correctErrorTypes = true
 }
