@@ -2,12 +2,13 @@ package com.jcb.passbook.utils.testing
 
 import com.jcb.passbook.security.crypto.CryptoManager
 
-// Does NOT use keystore, produces non-secret deterministic output for test
 class MockCryptoManager : CryptoManager() {
-    override fun encrypt(plainText: String): ByteArray {
-        return "[encrypted:$plainText]".toByteArray()
+
+    override fun encrypt(plaintext: ByteArray, key: ByteArray): ByteArray {
+        return plaintext // No encryption in mock
     }
-    override fun decrypt(data: ByteArray): String {
-        return String(data).removePrefix("[encrypted:").removeSuffix("]")
+
+    override fun decrypt(data: ByteArray, key: ByteArray): ByteArray {
+        return data // No decryption in mock
     }
 }

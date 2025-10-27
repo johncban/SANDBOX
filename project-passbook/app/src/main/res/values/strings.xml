@@ -1,54 +1,23 @@
 <resources>
     <string name="app_name">PassBook</string>
-
-
-    <!-- Auth: core -->
+    <!-- Login & Registration -->
     <string name="login">Login</string>
     <string name="register">Register</string>
     <string name="username">Username</string>
     <string name="password">Password</string>
     <string name="back">Back</string>
-    <string name="back_to_login">Back to Login</string>
-    <string name="create_account">Create Account</string>
-    <string name="password_requirements">Minimum 8 characters required</string>
-
-    <!-- Auth: errors (normalized, single source of truth) -->
-    <string name="error_credentials_empty">Please enter username and password</string>
-    <string name="error_invalid_credentials">Invalid username or password</string>
-    <string name="error_login_failed">Login failed. Please try again.</string>
-    <string name="error_empty_username">Username cannot be empty</string>
-    <string name="error_empty_password">Password cannot be empty</string>
-    <string name="error_username_exists">Username already exists</string>
-    <string name="error_password_length">Password must be at least 8 characters</string>
+    <string name="error_credentials_empty">Username and password cannot be empty.</string>
+    <string name="error_invalid_credentials">Invalid username or password.</string>
+    <string name="error_login_failed">Login Failed. Please try again.</string>
+    <string name="error_empty_username">Username cannot be empty.</string>
+    <string name="error_empty_password">Password cannot be empty.</string>
+    <string name="error_username_exists">Username already exists.</string>
+    <string name="error_password_length">Password must be at least 8 characters.</string>
     <string name="registration_success">Registration successful.</string>
     <string name="registration_failed">Registration failed. Please try again.</string>
 
-    <!-- Biometric: errors (required by UserViewModel) -->
-    <string name="biometric_error_no_token">No biometric login data found</string>
-    <string name="biometric_error_decrypt_failed">Failed to decrypt biometric data</string>
-    <string name="biometric_error_unavailable">Biometric authentication is not available</string>
-    <string name="biometric_error_no_hardware">No biometric hardware found</string>
-    <string name="biometric_error_hw_unavailable">Biometric hardware is unavailable</string>
-    <string name="biometric_error_none_enrolled">No biometrics enrolled</string>
-    <string name="biometric_error_security_update">Security update required</string>
-    <string name="biometric_error_key_unavailable">Biometric key is unavailable</string>
 
-    <!-- Biometric: setup UI -->
-    <string name="biometric_setup_title">Enable Biometric Login?</string>
-    <string name="biometric_setup_description">Use your fingerprint or face to sign in securely without entering your password.</string>
-    <string name="biometric_setup_benefits">Your biometric data stays on your device and is protected by hardware security.</string>
-    <string name="biometric_enable">Enable</string>
-    <string name="biometric_skip">Not Now</string>
-    <string name="biometric_setup_failed">Failed to set up biometric login. You can enable it later in settings.</string>
-    <string name="biometric_setup_error">Biometric setup error. Please try again later.</string>
-
-    <!-- Biometric: login UI -->
-    <string name="biometric_sign_in">Sign in with biometrics</string>
-    <string name="biometric_login_title">Sign in with Biometrics</string>
-    <string name="biometric_login_subtitle">Use your fingerprint or face to unlock</string>
-    <string name="biometric_use_password">Use Password</string>
-
-    <!-- Items and dialogs -->
+    <!-- Item List & Dialogs -->
     <string name="my_items">My Items</string>
     <string name="logout">Logout</string>
     <string name="no_items">No items found. Add some!</string>
@@ -59,12 +28,6 @@
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="confirm_delete">Confirm Delete</string>
-    <string name="delete_confirmation_message">Are you sure you want to delete %1$s?</string>
+    <string name="delete_confirmation_message">Are you sure you want to delete \'%1$s\'?</string>
     <string name="error_decryption_failed">[Decryption Failed]</string>
-
-    <!-- General UI -->
-    <string name="dismiss">Dismiss</string>
-    <string name="or">OR</string>
-
-
 </resources>

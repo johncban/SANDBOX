@@ -1,107 +1,107 @@
 package com.jcb.passbook.data.local.database
 
+import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.dao.ItemDao
-import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.entities.Item
+import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.entities.User
+import com.jcb.passbook.data.local.database.dao.UserDao
+import net.sqlcipher.database.SupportFactory
 
-// Database Migration from version 1 to 2
-val MIGRATION_1_2 = object : Migration(1, 2) {
-    override fun migrate(database: SupportSQLiteDatabase) {
-        val fixedTimestamp = 1698249600000L // Fixed timestamp for migration
+/***    --------------------------------------  DO NOT DELETE  --------------------------------------
+@Database(entities = [Item::class, User::class], version = 2, exportSchema = false)
 
-        // Add new biometric columns to existing users table
-        database.execSQL("ALTER TABLE User ADD COLUMN biometric_token_salt BLOB")
-        database.execSQL("ALTER TABLE User ADD COLUMN biometric_token_hash BLOB")
-        database.execSQL("ALTER TABLE User ADD COLUMN biometric_enabled INTEGER NOT NULL DEFAULT 0")
-        database.execSQL("ALTER TABLE User ADD COLUMN biometric_setup_at INTEGER")
-        database.execSQL("ALTER TABLE User ADD COLUMN created_at INTEGER NOT NULL DEFAULT $fixedTimestamp")
+abstract class AppDatabase : RoomDatabase() {
 
-        // Create audit_entry table
-        database.execSQL("""
-            CREATE TABLE IF NOT EXISTS audit_entry (
-                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                userId INTEGER,
-                username TEXT,
-                timestamp INTEGER NOT NULL,
-                eventType TEXT NOT NULL,
-                action TEXT NOT NULL,
-                resourceType TEXT,
-                resourceId TEXT,
-                deviceInfo TEXT,
-                appVersion TEXT,
-                sessionId TEXT,
-                outcome TEXT NOT NULL,
-                errorMessage TEXT,
-                securityLevel TEXT NOT NULL DEFAULT 'NORMAL',
-                ipAddress TEXT,
-                checksum TEXT,
-                FOREIGN KEY(userId) REFERENCES User(id) ON DELETE SET NULL
-            )
-        """)
+    abstract fun itemDao(): ItemDao
+    abstract fun userDao(): UserDao
 
-        // Rename User table to match new schema if needed
-        database.execSQL("CREATE TABLE IF NOT EXISTS users_temp AS SELECT * FROM User")
-        database.execSQL("DROP TABLE User")
-        database.execSQL("""
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                username TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at INTEGER NOT NULL DEFAULT $fixedTimestamp,
-                biometric_token_salt BLOB,
-                biometric_token_hash BLOB,
-                biometric_enabled INTEGER NOT NULL DEFAULT 0,
-                biometric_setup_at INTEGER
-            )
-        """)
-        database.execSQL("""
-            INSERT INTO users (id, username, password_hash, created_at, biometric_enabled)
-            SELECT id, username, passwordHash, $fixedTimestamp, 0
-            FROM users_temp
-        """)
-        database.execSQL("DROP TABLE users_temp")
+    companion object {
+        // Migration object to handle database schema changes
+        val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Define the migration logic here.  Example:
+                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+            }
+        }
+
+        fun create(context: Context, passphrase: ByteArray): AppDatabase {
+            val factory = SupportFactory(passphrase)
+            return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
+                .openHelperFactory(factory)
+                .addMigrations(MIGRATION_1_2) // Use proper migration
+                .build()
+        }
     }
 }
+--------------------------------------  DO NOT DELETE  --------------------------------------      ***/
 
-val MIGRATION_3_2 = object : Migration(3, 2) {
-    override fun migrate(database: SupportSQLiteDatabase) {
-        // Handle downgrade from version 3 to 2
-        // Drop any columns/tables added in version 3
-        // This is a destructive operation - data will be lost
-        database.execSQL("DROP TABLE IF EXISTS some_v3_table") // Example
-
-        // Recreate tables to match version 2 schema
-        // Add specific SQL commands based on what changed between v2 and v3
-    }
-}
 
 @Database(
-    entities = [
-        User::class,
-        Item::class,
-        AuditEntry::class
-    ],
-    version = 2,
+    entities = [Item::class, User::class, AuditEntry::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
-
-    // Abstract DAO methods
-    abstract fun userDao(): UserDao
     abstract fun itemDao(): ItemDao
-    abstract fun auditDao(): AuditDao
+    abstract fun userDao(): UserDao
+    abstract fun auditDao(): AuditDao // Audit logging support
 
     companion object {
-        // Migration constant for DI module
-        val MIGRATION_1_2 = com.jcb.passbook.data.local.database.MIGRATION_1_2
-        val MIGRATION_3_2 = com.jcb.passbook.data.local.database.MIGRATION_3_2
+        // Existing migration for version 2
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Example migration (already in your codebase)
+                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+            }
+        }
+
+        // Migration for version 3: adds the audit_entry table and indexes
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE audit_entry (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        userId INTEGER,
+                        username TEXT,
+                        timestamp INTEGER NOT NULL,
+                        eventType TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        resourceType TEXT,
+                        resourceId TEXT,
+                        deviceInfo TEXT,
+                        appVersion TEXT,
+                        sessionId TEXT,
+                        outcome TEXT NOT NULL,
+                        errorMessage TEXT,
+                        securityLevel TEXT NOT NULL DEFAULT 'NORMAL',
+                        ipAddress TEXT,
+                        checksum TEXT,
+                        FOREIGN KEY(userId) REFERENCES User(id) ON DELETE SET NULL
+                    )
+                """.trimIndent())
+
+                // Create indexes for performance
+                database.execSQL("CREATE INDEX index_audit_entry_userId ON audit_entry(userId)")
+                database.execSQL("CREATE INDEX index_audit_entry_timestamp ON audit_entry(timestamp)")
+                database.execSQL("CREATE INDEX index_audit_entry_eventType ON audit_entry(eventType)")
+                database.execSQL("CREATE INDEX index_audit_entry_outcome ON audit_entry(outcome)")
+            }
+        }
+
+        // SQLCipher factory - use this in your DI/AppModule for DB creation
+        fun create(context: Context, passphrase: ByteArray): AppDatabase {
+            val factory = SupportFactory(passphrase)
+            return Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
+                .openHelperFactory(factory)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .build()
+        }
     }
 }
