@@ -8,21 +8,19 @@ import com.jcb.passbook.data.repository.AuditRepository
 import com.jcb.passbook.data.repository.ItemRepository
 import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.data.local.database.AppDatabase
+import com.jcb.passbook.data.local.database.DatabaseProvider
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.audit.SecurityAuditManager
-import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.lambdapioneer.argon2kt.Argon2Kt
-import com.lambdapioneer.argon2kt.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import net.sqlcipher.database.SupportFactory
 import javax.inject.Singleton
 
 @Module
@@ -33,36 +31,98 @@ object AppModule {
     @Singleton
     fun provideArgon2Kt(): Argon2Kt = Argon2Kt()
 
+    // Note: AppDatabase is now provided through DatabaseProvider
+    // which handles session-gated access and SQLCipher encryption
+
     @Provides
-    @Singleton
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
-        // The passphrase is securely managed by KeystorePassphraseManager,
-        // which uses EncryptedSharedPreferences and MasterKey for security.
-        val passphrase = KeystorePassphraseManager.getOrCreatePassphrase(context)
-        val passphraseBytes = passphrase.toByteArray(Charsets.UTF_8)
-        val factory = SupportFactory(passphraseBytes)
+    fun provideItemDao(databaseProvider: DatabaseProvider): ItemDao {
+        return object : ItemDao {
+            private fun getDao() = databaseProvider.getDatabase().itemDao()
 
-        val builder = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "item_database"
-        )
-            .openHelperFactory(factory)
-            .addMigrations(AppDatabase.MIGRATION_1_2)
+            override suspend fun insert(item: com.jcb.passbook.data.local.database.entities.Item): Long {
+                return getDao().insert(item)
+            }
 
-        // Enable fallback only for debug builds to ease development
-        if (BuildConfig.DEBUG) {
-            builder.fallbackToDestructiveMigration()
+            override suspend fun update(item: com.jcb.passbook.data.local.database.entities.Item) {
+                getDao().update(item)
+            }
+
+            override suspend fun delete(item: com.jcb.passbook.data.local.database.entities.Item) {
+                getDao().delete(item)
+            }
+
+            override suspend fun getAllItems(): List<com.jcb.passbook.data.local.database.entities.Item> {
+                return getDao().getAllItems()
+            }
+
+            override suspend fun getItemsByUserId(userId: Int): List<com.jcb.passbook.data.local.database.entities.Item> {
+                return getDao().getItemsByUserId(userId)
+            }
+
+            override suspend fun getItemById(id: Long): com.jcb.passbook.data.local.database.entities.Item? {
+                return getDao().getItemById(id)
+            }
         }
-        return builder.build()
     }
 
     @Provides
-    fun provideItemDao(db: AppDatabase): ItemDao = db.itemDao()
+    fun provideUserDao(databaseProvider: DatabaseProvider): UserDao {
+        return object : UserDao {
+            private fun getDao() = databaseProvider.getDatabase().userDao()
+
+            override suspend fun insert(user: com.jcb.passbook.data.local.database.entities.User): Long {
+                return getDao().insert(user)
+            }
+
+            override suspend fun getUserByUsername(username: String): com.jcb.passbook.data.local.database.entities.User? {
+                return getDao().getUserByUsername(username)
+            }
+
+            override suspend fun getUserById(id: Int): com.jcb.passbook.data.local.database.entities.User? {
+                return getDao().getUserById(id)
+            }
+
+            override suspend fun updateUser(user: com.jcb.passbook.data.local.database.entities.User) {
+                getDao().updateUser(user)
+            }
+
+            override suspend fun deleteUser(user: com.jcb.passbook.data.local.database.entities.User) {
+                getDao().deleteUser(user)
+            }
+        }
+    }
 
     @Provides
-    fun provideUserDao(db: AppDatabase): UserDao = db.userDao()
+    fun provideAuditDao(databaseProvider: DatabaseProvider): AuditDao {
+        return object : AuditDao {
+            private fun getDao() = databaseProvider.getDatabaseOrNull()?.auditDao()
+                ?: throw IllegalStateException("Audit access requires active session")
+
+            override suspend fun insert(auditEntry: com.jcb.passbook.data.local.database.entities.AuditEntry): Long {
+                return getDao().insert(auditEntry)
+            }
+
+            override suspend fun insertAuditEntry(auditEntry: com.jcb.passbook.data.local.database.entities.AuditEntry): Long {
+                return getDao().insertAuditEntry(auditEntry)
+            }
+
+            override suspend fun getAllAuditEntries(): List<com.jcb.passbook.data.local.database.entities.AuditEntry> {
+                return getDao().getAllAuditEntries()
+            }
+
+            override suspend fun getAuditEntriesByUserId(userId: Int): List<com.jcb.passbook.data.local.database.entities.AuditEntry> {
+                return getDao().getAuditEntriesByUserId(userId)
+            }
+
+            override suspend fun getAuditEntriesByEventType(eventType: String): List<com.jcb.passbook.data.local.database.entities.AuditEntry> {
+                return getDao().getAuditEntriesByEventType(eventType)
+            }
+
+            override suspend fun getRecentAuditEntries(limit: Int): List<com.jcb.passbook.data.local.database.entities.AuditEntry> {
+                return getDao().getRecentAuditEntries(limit)
+            }
+        }
+    }
 
     @Provides
     @Singleton
@@ -77,22 +137,10 @@ object AppModule {
     @RequiresApi(Build.VERSION_CODES.M)
     fun provideCryptoManager(): CryptoManager = CryptoManager()
 
-
-    // -------------------------------------    SECURITY AUDIT  ----------------------------------------------  //
-    @Provides
-    fun provideAuditDao(db: AppDatabase): AuditDao = db.auditDao()
-
     @Provides
     @Singleton
     fun provideAuditRepository(auditDao: AuditDao): AuditRepository =
         AuditRepository(auditDao)
-
-    @Provides
-    @Singleton
-    fun provideAuditLogger(
-        auditDao: AuditDao,                      // FIRST: AuditDao
-        @ApplicationContext context: Context     // SECOND: Context
-    ): AuditLogger = AuditLogger(auditDao, context)
 
     @Provides
     @Singleton
