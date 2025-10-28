@@ -5,10 +5,10 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.util.Log
 import androidx.annotation.RequiresApi
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
+import timber.log.Timber
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -35,7 +35,7 @@ class SessionPassphraseManager @Inject constructor(
         private const val ENCRYPTED_SEED_KEY = "encrypted_master_seed"
         private const val SEED_SIZE_BYTES = 32
         private const val SALT_SIZE_BYTES = 32
-        
+
         // Argon2 parameters - balanced for mobile security vs performance
         private const val ARGON2_MEMORY_KB = 65536 // 64MB
         private const val ARGON2_ITERATIONS = 3
@@ -59,31 +59,27 @@ class SessionPassphraseManager @Inject constructor(
     fun initializeMasterSeed(): Boolean {
         return try {
             val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            
             if (!prefs.contains(ENCRYPTED_SEED_KEY)) {
-                Log.d(TAG, "Generating new master seed")
+                Timber.d("Generating new master seed")
                 val masterSeed = generateRandomSeed()
                 val encryptedSeed = encryptMasterSeed(masterSeed)
-                
                 prefs.edit()
                     .putString(ENCRYPTED_SEED_KEY, encryptedSeed)
                     .apply()
-                
+
                 // Clear plaintext seed from memory
                 masterSeed.fill(0)
-                Log.d(TAG, "Master seed initialized and encrypted")
+                Timber.d("Master seed initialized and encrypted")
             }
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize master seed", e)
+            Timber.e(e, "Failed to initialize master seed")
             false
         }
     }
 
     /**
      * Derives ephemeral session passphrase from master seed using biometric authentication
-     * @param biometricCipher Cipher initialized with biometric authentication
-     * @return DerivationResult with session key and salt, or error
      */
     fun deriveSessionPassphrase(biometricCipher: Cipher?): DerivationResult {
         return try {
@@ -100,22 +96,21 @@ class SessionPassphraseManager @Inject constructor(
 
             // Generate fresh salt for this session
             val sessionSalt = generateRandomSalt()
-            
+
             // Derive session key using Argon2
             val sessionKey = deriveKeyWithArgon2(masterSeed, sessionSalt)
-            
+
             // Clear master seed from memory immediately
             masterSeed.fill(0)
-            
+
             if (sessionKey != null) {
-                Log.d(TAG, "Session passphrase derived successfully")
+                Timber.d("Session passphrase derived successfully")
                 DerivationResult.Success(sessionKey, sessionSalt)
             } else {
                 DerivationResult.Error("Argon2 key derivation failed")
             }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Session passphrase derivation failed", e)
+            Timber.e(e, "Session passphrase derivation failed")
             DerivationResult.Error("Derivation failed: ${e.message}")
         }
     }
@@ -125,30 +120,23 @@ class SessionPassphraseManager @Inject constructor(
      */
     fun deriveSessionFromPassword(password: String): DerivationResult {
         return try {
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val encryptedSeed = prefs.getString(ENCRYPTED_SEED_KEY, null)
-                ?: return DerivationResult.Error("No master seed found")
-
-            // For password fallback, we need a different approach since the keystore key
-            // requires biometric. This should derive from password directly.
             val passwordBytes = password.toByteArray(StandardCharsets.UTF_8)
             val sessionSalt = generateRandomSalt()
-            
+
             // Derive session key directly from password + salt
             val sessionKey = deriveKeyWithArgon2(passwordBytes, sessionSalt)
-            
+
             // Clear password bytes
             passwordBytes.fill(0)
-            
+
             if (sessionKey != null) {
-                Log.d(TAG, "Session passphrase derived from password")
+                Timber.d("Session passphrase derived from password")
                 DerivationResult.Success(sessionKey, sessionSalt)
             } else {
                 DerivationResult.Error("Password-based derivation failed")
             }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Password-based derivation failed", e)
+            Timber.e(e, "Password-based derivation failed")
             DerivationResult.Error("Password derivation failed: ${e.message}")
         }
     }
@@ -159,21 +147,19 @@ class SessionPassphraseManager @Inject constructor(
     fun rotateMasterSeed(): Boolean {
         return try {
             val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            
             val newMasterSeed = generateRandomSeed()
             val encryptedSeed = encryptMasterSeed(newMasterSeed)
-            
+
             prefs.edit()
                 .putString(ENCRYPTED_SEED_KEY, encryptedSeed)
                 .apply()
-            
+
             // Clear new seed from memory
             newMasterSeed.fill(0)
-            
-            Log.w(TAG, "Master seed rotated")
+            Timber.w("Master seed rotated")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to rotate master seed", e)
+            Timber.e(e, "Failed to rotate master seed")
             false
         }
     }
@@ -200,7 +186,6 @@ class SessionPassphraseManager @Inject constructor(
 
     private fun getBiometricRequiredKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-
         val existingKey = keyStore.getKey(MASTER_SEED_KEY_ALIAS, null) as? SecretKey
         if (existingKey != null) return existingKey
 
@@ -216,7 +201,7 @@ class SessionPassphraseManager @Inject constructor(
             .setUserAuthenticationValidityDurationSeconds(0) // Require auth for each use
             .setInvalidatedByBiometricEnrollment(true)
             .build()
-        
+
         keyGenerator.init(keyGenParameterSpec)
         return keyGenerator.generateKey()
     }
@@ -225,10 +210,9 @@ class SessionPassphraseManager @Inject constructor(
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val key = getBiometricRequiredKey()
         cipher.init(Cipher.ENCRYPT_MODE, key)
-        
         val iv = cipher.iv
         val encrypted = cipher.doFinal(seed)
-        
+
         // Combine IV + encrypted data
         val combined = iv + encrypted
         return Base64.encodeToString(combined, Base64.NO_WRAP)
@@ -238,16 +222,15 @@ class SessionPassphraseManager @Inject constructor(
         return try {
             val data = Base64.decode(encryptedSeed, Base64.NO_WRAP)
             if (data.size <= 12) return null
-            
+
             val iv = data.copyOfRange(0, 12)
             val encrypted = data.copyOfRange(12, data.size)
-            
+
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getBiometricRequiredKey(), GCMParameterSpec(128, iv))
-            
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt master seed", e)
+            Timber.e(e, "Failed to decrypt master seed")
             null
         }
     }
@@ -256,11 +239,11 @@ class SessionPassphraseManager @Inject constructor(
         return try {
             val data = Base64.decode(encryptedSeed, Base64.NO_WRAP)
             if (data.size <= 12) return null
-            
+
             val encrypted = data.copyOfRange(12, data.size)
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decrypt master seed with biometric cipher", e)
+            Timber.e(e, "Failed to decrypt master seed with biometric cipher")
             null
         }
     }
@@ -278,7 +261,7 @@ class SessionPassphraseManager @Inject constructor(
             )
             result.rawHashAsByteArray()
         } catch (e: Exception) {
-            Log.e(TAG, "Argon2 derivation failed", e)
+            Timber.e(e, "Argon2 derivation failed")
             null
         }
     }

@@ -1,60 +1,121 @@
 package com.jcb.passbook.security.session
 
+import androidx.annotation.GuardedBy
+import com.jcb.passbook.security.crypto.CryptoManager
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Provides access to session keys for database and encryption operations
- * Enforces session state validation before returning sensitive material
- */
 @Singleton
 class SessionKeyProvider @Inject constructor(
-    private val sessionManager: SessionManager
+    private val cryptoManager: CryptoManager
 ) {
-    /**
-     * Exception thrown when attempting to access vault data without valid session
-     */
-    class SessionLockedException(message: String) : SecurityException(message)
+    companion object {
+        private const val SESSION_TIMEOUT_MS = 15 * 60 * 1000L // 15 minutes
+    }
+
+    @GuardedBy("this")
+    private var currentSessionId: String? = null
+
+    @GuardedBy("this")
+    private var sessionPassphrase: ByteArray? = null
+
+    @GuardedBy("this")
+    private var sessionStartTime: Long = 0L
+
+    class SessionLockedException(message: String) : Exception(message)
 
     /**
-     * Gets the current session passphrase for SQLCipher database access
-     * @throws SessionLockedException if session is not unlocked
+     * Creates a new session with the provided passphrase
      */
-    @Throws(SessionLockedException::class)
-    fun requireSessionPassphrase(): CharArray {
-        return sessionManager.getSessionPassphrase()
-            ?: throw SessionLockedException("Vault access requires active session. Please unlock.")
+    @Synchronized
+    fun createSession(userPassphrase: ByteArray): String {
+        // Generate session ID
+        val sessionId = cryptoManager.generateRandomKey().joinToString("") {
+            "%02x".format(it)
+        }.take(16)
+
+        // Derive session passphrase from user passphrase
+        val salt = cryptoManager.generateDerivationSalt()
+        val derivedPassphrase = cryptoManager.deriveKeyArgon2id(userPassphrase, salt)
+
+        // Store session data
+        currentSessionId = sessionId
+        sessionPassphrase = derivedPassphrase
+        sessionStartTime = System.currentTimeMillis()
+
+        Timber.d("Session created: $sessionId")
+        return sessionId
     }
 
     /**
-     * Gets the current session passphrase if available, null if locked
+     * Gets current session ID if session is active
      */
-    fun getSessionPassphraseOrNull(): CharArray? {
-        return sessionManager.getSessionPassphrase()
-    }
-
-    /**
-     * Gets current session ID for audit logging
-     */
+    @Synchronized
     fun getCurrentSessionId(): String? {
-        return sessionManager.getCurrentSessionId()
+        if (isSessionExpired()) {
+            clearSession()
+            return null
+        }
+        return currentSessionId
     }
 
     /**
-     * Checks if session is currently active
+     * Gets session passphrase, throws if session is not active
      */
-    fun isSessionActive(): Boolean {
-        return sessionManager.isUnlocked()
+    @Synchronized
+    @Throws(SessionLockedException::class)
+    fun requireSessionPassphrase(): ByteArray {
+        if (isSessionExpired()) {
+            clearSession()
+            throw SessionLockedException("Session expired")
+        }
+
+        return sessionPassphrase?.copyOf()
+            ?: throw SessionLockedException("No active session")
     }
 
     /**
-     * Validates session state and throws if not unlocked
-     * @throws SessionLockedException if session is locked
+     * Validates active session exists
      */
+    @Synchronized
     @Throws(SessionLockedException::class)
     fun requireActiveSession() {
-        if (!sessionManager.isUnlocked()) {
-            throw SessionLockedException("Operation requires active session. Current state: ${sessionManager.sessionState.value}")
+        if (isSessionExpired()) {
+            clearSession()
+            throw SessionLockedException("Session expired")
         }
+
+        if (currentSessionId == null) {
+            throw SessionLockedException("No active session")
+        }
+    }
+
+    /**
+     * Clears current session
+     */
+    @Synchronized
+    fun clearSession() {
+        currentSessionId = null
+        sessionPassphrase?.fill(0.toByte())
+        sessionPassphrase = null
+        sessionStartTime = 0L
+        Timber.d("Session cleared")
+    }
+
+    /**
+     * Extends current session timeout
+     */
+    @Synchronized
+    fun extendSession() {
+        if (currentSessionId != null && !isSessionExpired()) {
+            sessionStartTime = System.currentTimeMillis()
+            Timber.d("Session extended")
+        }
+    }
+
+    private fun isSessionExpired(): Boolean {
+        return currentSessionId != null &&
+                (System.currentTimeMillis() - sessionStartTime) > SESSION_TIMEOUT_MS
     }
 }

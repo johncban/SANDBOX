@@ -1,10 +1,10 @@
 package com.jcb.passbook.security.session
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,9 +18,9 @@ class SessionManager @Inject constructor(
     private val context: Context
 ) {
     enum class SessionState {
-        LOCKED,      // No access - require unlock
-        UNLOCKING,   // In progress - biometric/password prompt
-        UNLOCKED     // Active session - vault accessible
+        LOCKED,     // No access - require unlock
+        UNLOCKING,  // In progress - biometric/password prompt
+        UNLOCKED    // Active session - vault accessible
     }
 
     enum class LockTrigger {
@@ -33,7 +33,6 @@ class SessionManager @Inject constructor(
     }
 
     companion object {
-        private const val TAG = "SessionManager"
         private const val BACKGROUND_TIMEOUT_MS = 30_000L // 30 seconds
     }
 
@@ -46,10 +45,10 @@ class SessionManager @Inject constructor(
     // Ephemeral session data - never persisted
     @Volatile
     private var sessionKey: ByteArray? = null
-    
+
     @Volatile
     private var sessionSalt: ByteArray? = null
-    
+
     @Volatile
     private var sessionId: String? = null
 
@@ -63,39 +62,36 @@ class SessionManager @Inject constructor(
      * Starts an unlock attempt - sets state to UNLOCKING
      */
     fun startUnlock() {
-        Log.d(TAG, "Starting unlock process")
+        Timber.d("Starting unlock process")
         _sessionState.value = SessionState.UNLOCKING
         _lockTrigger.value = null
     }
 
     /**
      * Completes unlock with derived session material
-     * @param derivedKey The ephemeral session key from biometric/password derivation
-     * @param salt The per-session salt used in derivation
      */
     fun completeUnlock(derivedKey: ByteArray, salt: ByteArray) {
-        Log.d(TAG, "Completing unlock with ephemeral session key")
-        
+        Timber.d("Completing unlock with ephemeral session key")
+
         // Clear any existing session first
         clearSessionMaterial()
-        
+
         // Set new ephemeral session data
         sessionKey = derivedKey.copyOf()
         sessionSalt = salt.copyOf()
         sessionId = UUID.randomUUID().toString()
-        
+
         _sessionState.value = SessionState.UNLOCKED
         _lockTrigger.value = null
-        
-        Log.d(TAG, "Session unlocked with ID: $sessionId")
+
+        Timber.d("Session unlocked with ID: $sessionId")
     }
 
     /**
      * Locks the session and clears all ephemeral data
      */
     fun lock(trigger: LockTrigger) {
-        Log.d(TAG, "Locking session due to: $trigger")
-        
+        Timber.d("Locking session due to: $trigger")
         clearSessionMaterial()
         _sessionState.value = SessionState.LOCKED
         _lockTrigger.value = trigger
@@ -106,7 +102,7 @@ class SessionManager @Inject constructor(
      */
     fun onAppBackground() {
         backgroundTime = System.currentTimeMillis()
-        Log.d(TAG, "App backgrounded at: $backgroundTime")
+        Timber.d("App backgrounded at: $backgroundTime")
     }
 
     /**
@@ -115,21 +111,20 @@ class SessionManager @Inject constructor(
     fun onAppForeground(): Boolean {
         val currentTime = System.currentTimeMillis()
         val backgroundDuration = currentTime - backgroundTime
-        
+
         if (backgroundTime > 0 && backgroundDuration > BACKGROUND_TIMEOUT_MS && isUnlocked()) {
-            Log.w(TAG, "Background timeout exceeded: ${backgroundDuration}ms")
+            Timber.w("Background timeout exceeded: ${backgroundDuration}ms")
             lock(LockTrigger.BACKGROUND_TIMEOUT)
             return false
         }
-        
-        Log.d(TAG, "App foregrounded, background duration: ${backgroundDuration}ms")
+
+        Timber.d("App foregrounded, background duration: ${backgroundDuration}ms")
         backgroundTime = 0
         return true
     }
 
     /**
      * Gets the current session passphrase for database access
-     * Returns null if session is locked
      */
     fun getSessionPassphrase(): CharArray? {
         return if (isUnlocked() && sessionKey != null) {
@@ -183,23 +178,22 @@ class SessionManager @Inject constructor(
             key.fill(0)
         }
         sessionKey = null
-        
+
         sessionSalt?.let { salt ->
             salt.fill(0)
         }
         sessionSalt = null
-        
+
         sessionId = null
         isSecureWindowActive = false
-        
-        Log.d(TAG, "Session material cleared")
+        Timber.d("Session material cleared")
     }
 
     /**
      * Force immediate lock for security events
      */
     fun emergencyLock() {
-        Log.w(TAG, "Emergency lock triggered")
+        Timber.w("Emergency lock triggered")
         lock(LockTrigger.SECURITY_EVENT)
     }
 }
