@@ -43,7 +43,7 @@ android {
         jvmTarget = "11"
         freeCompilerArgs = listOf(
             "-Xjvm-default=all",
-            "-Xopt-in=kotlin.RequiresOptIn"
+            "-opt-in=kotlin.RequiresOptIn" // FIXED: Changed from -Xopt-in to -opt-in
         )
     }
     buildFeatures {

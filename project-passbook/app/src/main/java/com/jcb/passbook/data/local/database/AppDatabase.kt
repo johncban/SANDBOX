@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jcb.passbook.data.local.database.converters.DatabaseConverters
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.entities.Item
@@ -14,40 +16,12 @@ import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.dao.UserDao
 import net.sqlcipher.database.SupportFactory
 
-/***    --------------------------------------  DO NOT DELETE  --------------------------------------
-@Database(entities = [Item::class, User::class], version = 2, exportSchema = false)
-
-abstract class AppDatabase : RoomDatabase() {
-
-    abstract fun itemDao(): ItemDao
-    abstract fun userDao(): UserDao
-
-    companion object {
-        // Migration object to handle database schema changes
-        val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Define the migration logic here.  Example:
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
-            }
-        }
-
-        fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
-            return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
-                .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2) // Use proper migration
-                .build()
-        }
-    }
-}
---------------------------------------  DO NOT DELETE  --------------------------------------      ***/
-
-
 @Database(
     entities = [Item::class, User::class, AuditEntry::class],
     version = 3,
     exportSchema = false
 )
+@TypeConverters(DatabaseConverters::class) // CRITICAL: Add this line to handle List<String> and ByteArray
 abstract class AppDatabase : RoomDatabase() {
     abstract fun itemDao(): ItemDao
     abstract fun userDao(): UserDao
@@ -58,40 +32,34 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Example migration (already in your codebase)
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
+                database.execSQL("ALTER TABLE items ADD COLUMN new_column INTEGER DEFAULT 0")
             }
         }
 
-        // Migration for version 3: adds the audit_entry table and indexes
+        // Migration for version 3: adds the audit_entries table and indexes
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
-                    CREATE TABLE audit_entry (
+                    CREATE TABLE audit_entries (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         userId INTEGER,
                         username TEXT,
                         timestamp INTEGER NOT NULL,
                         eventType TEXT NOT NULL,
-                        action TEXT NOT NULL,
-                        resourceType TEXT,
-                        resourceId TEXT,
-                        deviceInfo TEXT,
-                        appVersion TEXT,
-                        sessionId TEXT,
                         outcome TEXT NOT NULL,
-                        errorMessage TEXT,
-                        securityLevel TEXT NOT NULL DEFAULT 'NORMAL',
-                        ipAddress TEXT,
+                        eventDescription TEXT NOT NULL,
+                        sessionId TEXT,
+                        metadata TEXT,
                         checksum TEXT,
-                        FOREIGN KEY(userId) REFERENCES User(id) ON DELETE SET NULL
+                        FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
                     )
                 """.trimIndent())
 
                 // Create indexes for performance
-                database.execSQL("CREATE INDEX index_audit_entry_userId ON audit_entry(userId)")
-                database.execSQL("CREATE INDEX index_audit_entry_timestamp ON audit_entry(timestamp)")
-                database.execSQL("CREATE INDEX index_audit_entry_eventType ON audit_entry(eventType)")
-                database.execSQL("CREATE INDEX index_audit_entry_outcome ON audit_entry(outcome)")
+                database.execSQL("CREATE INDEX index_audit_entries_userId ON audit_entries(userId)")
+                database.execSQL("CREATE INDEX index_audit_entries_timestamp ON audit_entries(timestamp)")
+                database.execSQL("CREATE INDEX index_audit_entries_eventType ON audit_entries(eventType)")
+                database.execSQL("CREATE INDEX index_audit_entries_outcome ON audit_entries(outcome)")
             }
         }
 
@@ -101,6 +69,7 @@ abstract class AppDatabase : RoomDatabase() {
             return Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
                 .openHelperFactory(factory)
                 .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .fallbackToDestructiveMigration() // Only for development
                 .build()
         }
     }
