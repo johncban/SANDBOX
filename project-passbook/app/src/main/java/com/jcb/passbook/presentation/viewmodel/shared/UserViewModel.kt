@@ -1,327 +1,377 @@
 package com.jcb.passbook.presentation.viewmodel.shared
 
 import android.content.Context
-import android.os.Build
-import androidx.annotation.RequiresApi
-import androidx.annotation.StringRes
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jcb.passbook.R
-import com.jcb.passbook.presentation.viewmodel.vault.ItemOperationState
 import com.jcb.passbook.data.repository.UserRepository
-import com.jcb.passbook.data.local.database.AppDatabase
+import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
-import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.security.audit.AuditLogger
-import com.jcb.passbook.security.crypto.KeystorePassphraseManager
-import com.lambdapioneer.argon2kt.Argon2Kt
-import com.lambdapioneer.argon2kt.Argon2Mode
-import com.lambdapioneer.argon2kt.Argon2Version
+import com.jcb.passbook.security.crypto.CryptoManager
+import com.jcb.passbook.security.session.SessionKeyProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import javax.inject.Inject
-import java.util.Arrays
-
-
-sealed interface AuthState {
-    object Idle : AuthState
-    object Loading : AuthState
-    data class Success(val userId: Int) : AuthState
-    data class Error(@StringRes val messageId: Int, val details: String? = null) : AuthState
-}
-sealed interface RegistrationState {
-    object Idle : RegistrationState
-    object Loading : RegistrationState
-    object Success : RegistrationState
-    data class Error(@StringRes val messageId: Int, val details: String? = null) : RegistrationState
-}
-
-/***
-sealed class ItemOperationState {
-    object Idle : ItemOperationState()
-    object Loading : ItemOperationState()
-    object Success : ItemOperationState()
-    data class Error(val message: String) : ItemOperationState()
-}
-***/
-
 
 @HiltViewModel
 class UserViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val db: AppDatabase,
     private val userRepository: UserRepository,
-    private val argon2Kt: Argon2Kt,
-    private val auditLogger: AuditLogger
+    private val sessionKeyProvider: SessionKeyProvider,
+    private val auditLogger: AuditLogger,
+    private val cryptoManager: CryptoManager,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
-    val authState = _authState.asStateFlow()
-
-    private val _registrationState = MutableStateFlow<RegistrationState>(RegistrationState.Idle)
-    val registrationState = _registrationState.asStateFlow()
-
-    private val _userId = MutableStateFlow(-1)
-    val userId = _userId.asStateFlow()
-
-    private val _keyRotationState = MutableStateFlow<ItemOperationState>(ItemOperationState.Idle)
-    val keyRotationState = _keyRotationState.asStateFlow()
-
-    fun setUserId(userId: Int) { _userId.value = userId }
-    fun clearKeyRotationState() { _keyRotationState.value = ItemOperationState.Idle }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun rotateDatabaseKey() {
-        _keyRotationState.value = ItemOperationState.Loading
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val newPassphrase = KeystorePassphraseManager.rotatePassphrase(context)
-                val supportDb = db.openHelper.writableDatabase
-                supportDb.query("PRAGMA rekey = '$newPassphrase';").close()
-                Arrays.fill(newPassphrase.toCharArray(), ' ')
-                _keyRotationState.value = ItemOperationState.Success
-            } catch (e: Exception) {
-                Timber.e(e, "Database key rotation failed")
-                _keyRotationState.value = ItemOperationState.Error("Key rotation failed: ${e.message}")
-            }
-        }
+    companion object {
+        private const val PREF_NAME = "user_session_prefs"
+        private const val KEY_CURRENT_USER_ID = "current_user_id"
+        private const val SALT_LENGTH = 32
+        private const val PBKDF2_ITERATIONS = 100000
+        private const val KEY_LENGTH = 32
     }
 
-    private fun verifyPassword(password: String, encodedHash: String): Boolean {
-        return argon2Kt.verify(
-            mode = Argon2Mode.ARGON2_ID,
-            encoded = encodedHash,
-            password = password.toByteArray(StandardCharsets.UTF_8)
-        )
+    private val sharedPrefs: SharedPreferences by lazy {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
 
-    /***    ------------   HOLD BEFORE DELETION    ------------
-    fun login(username: String, password: String) {
-        if (username.isBlank() || password.isBlank()) {
-            _authState.value = AuthState.Error(R.string.error_credentials_empty)
-            return
-        }
-        _authState.value = AuthState.Loading
+    private val _uiState = MutableStateFlow(UserUiState())
+    val uiState: StateFlow<UserUiState> = _uiState.asStateFlow()
+
+    private val _currentUser = MutableStateFlow<User?>(null)
+    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+
+    data class UserUiState(
+        val isLoading: Boolean = false,
+        val errorMessage: String? = null,
+        val isUserAuthenticated: Boolean = false
+    )
+
+    init {
+        checkUserAuthentication()
+    }
+
+    /**
+     * Check if user is authenticated based on active session
+     */
+    private fun checkUserAuthentication() {
         viewModelScope.launch {
             try {
-                val user = userRepository.getUserByUsername(username)
-                if (user != null && verifyPassword(password, user.passwordHash)) {
-                    _userId.value = user.id
-                    _authState.value = AuthState.Success(user.id)
-                } else {
-                    _authState.value = AuthState.Error(R.string.error_invalid_credentials)
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Login failed")
-                _authState.value = AuthState.Error(R.string.error_login_failed, e.localizedMessage)
-            }
-        }
-    }
-    ------------   HOLD BEFORE DELETION    ------------     ***/
-
-
-    fun login(username: String, password: String) {
-        if (username.isBlank() || password.isBlank()) {
-            auditLogger.logAuthentication(
-                username = username.takeIf { it.isNotBlank() } ?: "UNKNOWN",
-                eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                outcome = AuditOutcome.FAILURE,
-                errorMessage = "Empty credentials provided"
-            )
-            _authState.value = AuthState.Error(R.string.error_credentials_empty)
-            return
-        }
-
-        _authState.value = AuthState.Loading
-        viewModelScope.launch {
-            try {
-                val user = userRepository.getUserByUsername(username)
-                if (user != null && verifyPassword(password, user.passwordHash)) {
-                    // Successful login
-                    _userId.value = user.id
-                    auditLogger.logAuthentication(
-                        username = username,
-                        eventType = AuditEventType.LOGIN,
-                        outcome = AuditOutcome.SUCCESS
-                    )
-                    _authState.value = AuthState.Success(user.id)
-                } else {
-                    // Failed login
-                    auditLogger.logAuthentication(
-                        username = username,
-                        eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = "Invalid username or password"
-                    )
-                    _authState.value = AuthState.Error(R.string.error_invalid_credentials)
-                }
-            } catch (e: Exception) {
-                auditLogger.logAuthentication(
-                    username = username,
-                    eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                    outcome = AuditOutcome.FAILURE,
-                    errorMessage = "Login exception: ${e.message}"
+                _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+                val isAuthenticated = sessionKeyProvider.hasActiveSession()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isUserAuthenticated = isAuthenticated
                 )
-                Timber.e(e, "Login failed")
-                _authState.value = AuthState.Error(R.string.error_login_failed, e.localizedMessage)
+
+                if (isAuthenticated) {
+                    loadCurrentUser()
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Error checking user authentication")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = "Authentication check failed: ${e.message}",
+                    isUserAuthenticated = false
+                )
             }
         }
     }
 
-
-
-    fun register(username: String, password: String) {
-        when {
-            username.isBlank() -> {
-                _registrationState.value = RegistrationState.Error(R.string.error_empty_username)
-                return
-            }
-            password.isBlank() -> {
-                _registrationState.value = RegistrationState.Error(R.string.error_empty_password)
-                return
-            }
-            password.length < 8 -> {
-                _registrationState.value = RegistrationState.Error(R.string.error_password_length)
-                return
-            }
-        }
-
-        /***    ------------   HOLD BEFORE DELETION    ------------
-        _registrationState.value = RegistrationState.Loading
+    /**
+     * Load current user data if session is active
+     */
+    private fun loadCurrentUser() {
         viewModelScope.launch {
             try {
-                if (userRepository.getUserByUsername(username) != null) {
-                    _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
-                    return@launch
+                sessionKeyProvider.requireActiveSession()
+                val currentUserId = getCurrentUserId()
+                if (currentUserId != null) {
+                    userRepository.getUser(currentUserId)
+                        .catch { e ->
+                            Timber.e(e, "Error loading current user")
+                            _uiState.value = _uiState.value.copy(
+                                errorMessage = "Failed to load user data"
+                            )
+                        }
+                        .collect { user ->
+                            _currentUser.value = user
+                        }
                 }
-                val passwordHash = hashPassword(password)
-                val newUser = User(username = username, passwordHash = passwordHash)
-                userRepository.insert(newUser)
-                _registrationState.value = RegistrationState.Success
+            } catch (e: SessionKeyProvider.SessionLockedException) {
+                Timber.w("Session expired while loading user")
+                _uiState.value = _uiState.value.copy(isUserAuthenticated = false)
             } catch (e: Exception) {
-                Timber.e(e, "Registration failed")
-                _registrationState.value = RegistrationState.Error(R.string.registration_failed, e.localizedMessage)
+                Timber.e(e, "Error loading current user")
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "Failed to load user: ${e.message}"
+                )
             }
         }
-        ------------   HOLD BEFORE DELETION    ------------   ***/
+    }
 
-        _registrationState.value = RegistrationState.Loading
+    /**
+     * Create a new user
+     */
+    fun createUser(username: String, masterPassword: ByteArray) {
         viewModelScope.launch {
             try {
-                if (userRepository.getUserByUsername(username) != null) {
-                    auditLogger.logAuthentication(
-                        username = username,
-                        eventType = AuditEventType.REGISTER,
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = "Username already exists"
-                    )
-                    _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
-                    return@launch
-                }
+                _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
 
-                val passwordHash = hashPassword(password)
-                val newUser = User(username = username, passwordHash = passwordHash)
-                userRepository.insert(newUser)
+                // Generate salt for password hashing
+                val salt = generateSalt()
 
-                auditLogger.logAuthentication(
+                // Hash the password
+                val passwordHash = hashPassword(masterPassword, salt)
+
+                val user = User(
                     username = username,
-                    eventType = AuditEventType.REGISTER,
+                    passwordHash = passwordHash,
+                    salt = salt,
+                    createdAt = System.currentTimeMillis(),
+                    lastLogin = System.currentTimeMillis()
+                )
+
+                val userId = userRepository.insert(user)
+
+                // Create session after successful user creation
+                sessionKeyProvider.createSession(masterPassword)
+
+                // Store current user ID for future reference
+                storeCurrentUserId(userId.toInt())
+
+                // Log audit event
+                auditLogger.logSecurityEvent(
+                    eventDescription = "New user account created",
+                    severity = "INFO",
                     outcome = AuditOutcome.SUCCESS
                 )
 
-                _registrationState.value = RegistrationState.Success
-            } catch (e: Exception) {
-                auditLogger.logAuthentication(
-                    username = username,
-                    eventType = AuditEventType.REGISTER,
-                    outcome = AuditOutcome.FAILURE,
-                    errorMessage = "Registration failed: ${e.message}"
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    isUserAuthenticated = true
                 )
-                Timber.e(e, "Registration failed")
-                _registrationState.value = RegistrationState.Error(R.string.registration_failed, e.localizedMessage)
+
+                loadCurrentUser()
+
+            } catch (e: Exception) {
+                Timber.e(e, "Error creating user")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = "Failed to create user: ${e.message}"
+                )
+
+                // Log failed creation
+                auditLogger.logSecurityEvent(
+                    eventDescription = "Failed to create user account: ${e.message}",
+                    severity = "ERROR",
+                    outcome = AuditOutcome.FAILURE
+                )
+            } finally {
+                // Clear sensitive data
+                masterPassword.fill(0)
             }
         }
-
     }
 
-
-
-    /***    ------------   HOLD BEFORE DELETION    ------------
-    fun logout() {
-        _userId.value = -1
-        _authState.value = AuthState.Idle
-    }
-
-    fun clearAuthState() {
-        _authState.value = AuthState.Idle
-    }
-    fun clearRegistrationState() {
-        _registrationState.value = RegistrationState.Idle
-    }
-
-    private fun verifyPassword(password: String, encodedHash: String): Boolean {
-        return argon2Kt.verify(
-            mode = Argon2Mode.ARGON2_ID,
-            encoded = encodedHash,
-            password = password.toByteArray(StandardCharsets.UTF_8)
-        )
-
-    }
-            ------------   HOLD BEFORE DELETION    ------------   ***/
-
-
-    fun clearAuthState() {
-        _authState.value = AuthState.Idle
-    }
-
-    fun clearRegistrationState() {
-        _registrationState.value = RegistrationState.Idle
-    }
-
-
-
-    fun logout() {
+    /**
+     * Authenticate user with password
+     */
+    fun authenticateUser(username: String, password: ByteArray) {
         viewModelScope.launch {
             try {
-                val currentUserId = _userId.value
-                if (currentUserId != -1) {
-                    val user = userRepository.getUser(currentUserId).first()
-                    auditLogger.logAuthentication(
-                        username = user?.username ?: "UNKNOWN",
-                        eventType = AuditEventType.LOGOUT,
+                _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+
+                val user = userRepository.getUserByUsername(username)
+                if (user != null && validatePassword(password, user.passwordHash, user.salt)) {
+                    // Create session
+                    sessionKeyProvider.createSession(password)
+
+                    // Store current user ID
+                    storeCurrentUserId(user.id)
+
+                    // Update last login
+                    val updatedUser = user.copy(lastLogin = System.currentTimeMillis())
+                    userRepository.update(updatedUser)
+
+                    // Log successful login
+                    auditLogger.logSecurityEvent(
+                        eventDescription = "User successfully authenticated: $username",
+                        severity = "INFO",
                         outcome = AuditOutcome.SUCCESS
+                    )
+
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        isUserAuthenticated = true
+                    )
+
+                    _currentUser.value = updatedUser
+
+                } else {
+                    // Log failed login attempt
+                    auditLogger.logSecurityEvent(
+                        eventDescription = "Failed login attempt for user: $username",
+                        severity = "WARNING",
+                        outcome = AuditOutcome.FAILURE
+                    )
+
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        errorMessage = "Invalid credentials"
                     )
                 }
             } catch (e: Exception) {
-                Timber.e(e, "Error during logout audit logging")
+                Timber.e(e, "Error authenticating user")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    errorMessage = "Authentication failed: ${e.message}"
+                )
+
+                // Log authentication error
+                auditLogger.logSecurityEvent(
+                    eventDescription = "Authentication error for user $username: ${e.message}",
+                    severity = "ERROR",
+                    outcome = AuditOutcome.FAILURE
+                )
+            } finally {
+                // Clear sensitive data
+                password.fill(0)
             }
         }
-        _userId.value = -1
-        _authState.value = AuthState.Idle
     }
 
+    /**
+     * Logout current user
+     */
+    fun logout() {
+        viewModelScope.launch {
+            try {
+                val currentUserId = getCurrentUserId()
+                val currentUsername = _currentUser.value?.username
 
+                // Clear session
+                sessionKeyProvider.clearSession()
 
-    private fun hashPassword(password: String): String {
-        val salt = ByteArray(16).apply { SecureRandom().nextBytes(this) }
-        val hashResult = argon2Kt.hash(
-            mode = Argon2Mode.ARGON2_ID,
-            password = password.toByteArray(StandardCharsets.UTF_8),
-            salt = salt,
-            tCostInIterations = 5,
-            mCostInKibibyte = 65536,
-            parallelism = 2,
-            version = Argon2Version.V13
-        )
-        return hashResult.encodedOutputAsString()
+                // Clear current user data
+                _currentUser.value = null
+                clearCurrentUserId()
+
+                _uiState.value = _uiState.value.copy(isUserAuthenticated = false)
+
+                // Log logout
+                auditLogger.logSecurityEvent(
+                    eventDescription = "User logged out: ${currentUsername ?: "unknown"}",
+                    severity = "INFO",
+                    outcome = AuditOutcome.SUCCESS
+                )
+
+                Timber.d("User logged out successfully")
+            } catch (e: Exception) {
+                Timber.e(e, "Error during logout")
+            }
+        }
+    }
+
+    /**
+     * Update user profile
+     */
+    fun updateUser(updatedUser: User) {
+        viewModelScope.launch {
+            try {
+                sessionKeyProvider.requireActiveSession()
+                userRepository.update(updatedUser)
+                _currentUser.value = updatedUser
+
+                // Log user update
+                auditLogger.logSecurityEvent(
+                    eventDescription = "User profile updated: ${updatedUser.username}",
+                    severity = "INFO",
+                    outcome = AuditOutcome.SUCCESS
+                )
+
+            } catch (e: SessionKeyProvider.SessionLockedException) {
+                _uiState.value = _uiState.value.copy(
+                    isUserAuthenticated = false,
+                    errorMessage = "Session expired"
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "Error updating user")
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = "Failed to update user: ${e.message}"
+                )
+
+                // Log failed update
+                auditLogger.logSecurityEvent(
+                    eventDescription = "Failed to update user ${updatedUser.username}: ${e.message}",
+                    severity = "ERROR",
+                    outcome = AuditOutcome.FAILURE
+                )
+            }
+        }
+    }
+
+    // Helper methods
+
+    private fun getCurrentUserId(): Int? {
+        val userId = sharedPrefs.getInt(KEY_CURRENT_USER_ID, -1)
+        return if (userId != -1) userId else null
+    }
+
+    private fun storeCurrentUserId(userId: Int) {
+        sharedPrefs.edit()
+            .putInt(KEY_CURRENT_USER_ID, userId)
+            .apply()
+    }
+
+    private fun clearCurrentUserId() {
+        sharedPrefs.edit()
+            .remove(KEY_CURRENT_USER_ID)
+            .apply()
+    }
+
+    private fun generateSalt(): ByteArray {
+        val salt = ByteArray(SALT_LENGTH)
+        SecureRandom().nextBytes(salt)
+        return salt
+    }
+
+    private fun hashPassword(password: ByteArray, salt: ByteArray): String {
+        return try {
+            val spec = PBEKeySpec(
+                password.toString(Charsets.UTF_8).toCharArray(),
+                salt,
+                PBKDF2_ITERATIONS,
+                KEY_LENGTH * 8
+            )
+            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val key = factory.generateSecret(spec)
+
+            // Convert to hex string for storage
+            key.encoded.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Timber.e(e, "Error hashing password")
+            throw IllegalStateException("Password hashing failed", e)
+        }
+    }
+
+    private fun validatePassword(password: ByteArray, storedHash: String, salt: ByteArray): Boolean {
+        return try {
+            val computedHash = hashPassword(password, salt)
+            computedHash == storedHash
+        } catch (e: Exception) {
+            Timber.e(e, "Error validating password")
+            false
+        }
     }
 }

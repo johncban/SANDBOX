@@ -229,9 +229,20 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
 
+    // Gson for type conversion
+    implementation("com.google.code.gson:gson:2.10.1")
+
+
 }
 
 // Kapt configuration
 kapt {
     correctErrorTypes = true
+    useBuildCache = false // Force fresh compilation
+
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "false") // Disable incremental for now
+        arg("room.expandProjection", "true")
+    }
 }

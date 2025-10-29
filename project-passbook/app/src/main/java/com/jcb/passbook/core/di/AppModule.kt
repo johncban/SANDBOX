@@ -13,9 +13,9 @@ import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.User
-import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.audit.SecurityAuditManager
+import com.jcb.passbook.security.crypto.CryptoManager
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
@@ -38,117 +38,54 @@ object AppModule {
     @RequiresApi(Build.VERSION_CODES.M)
     fun provideCryptoManager(): CryptoManager = CryptoManager()
 
-    // REMOVED: SessionKeyProvider and DatabaseProvider are now provided by SecurityModule
+    // Room DAO adapters that read the current session database lazily each call
+    @Provides
+    fun provideItemDao(databaseProvider: DatabaseProvider): ItemDao =
+        object : ItemDao {
+            private fun real() = databaseProvider.getDatabase().itemDao()
+
+            override suspend fun insert(item: Item): Long = real().insert(item)
+            override suspend fun update(item: Item) = real().update(item)
+            override suspend fun delete(item: Item) = real().delete(item)
+            override fun getItemsForUser(userId: Int): Flow<List<Item>> = real().getItemsForUser(userId)
+            override fun getItem(id: Int, userId: Int): Flow<Item?> = real().getItem(id, userId)
+        }
 
     @Provides
-    fun provideItemDao(databaseProvider: DatabaseProvider): ItemDao {
-        return object : ItemDao {
-            private fun getDao() = databaseProvider.getDatabase().itemDao()
+    fun provideUserDao(databaseProvider: DatabaseProvider): UserDao =
+        object : UserDao {
+            private fun real() = databaseProvider.getDatabase().userDao()
 
-            override suspend fun insert(item: Item): Long {
-                return getDao().insert(item)
-            }
-
-            override suspend fun update(item: Item) {
-                getDao().update(item)
-            }
-
-            override suspend fun delete(item: Item) {
-                getDao().delete(item)
-            }
-
-            override fun getItemsForUser(userId: Int): Flow<List<Item>> {
-                return getDao().getItemsForUser(userId)
-            }
-
-            override fun getItem(id: Int, userId: Int): Flow<Item?> {
-                return getDao().getItem(id, userId)
-            }
+            override suspend fun insert(user: User): Long = real().insert(user)
+            override suspend fun update(user: User) = real().update(user)
+            override suspend fun delete(user: User) = real().delete(user)
+            override fun getUser(id: Int): Flow<User> = real().getUser(id)
+            override suspend fun getUserByUsername(username: String): User? =
+                real().getUserByUsername(username)
         }
-    }
 
     @Provides
-    fun provideUserDao(databaseProvider: DatabaseProvider): UserDao {
-        return object : UserDao {
-            private fun getDao() = databaseProvider.getDatabase().userDao()
+    fun provideAuditDao(databaseProvider: DatabaseProvider): AuditDao =
+        object : AuditDao {
+            private fun real() = databaseProvider.getDatabase().auditDao()
 
-            override suspend fun insert(user: User): Long {
-                return getDao().insert(user)
-            }
-
-            override suspend fun update(user: User) {
-                getDao().update(user)
-            }
-
-            override suspend fun delete(user: User) {
-                getDao().delete(user)
-            }
-
-            override fun getUser(id: Int): Flow<User> {
-                return getDao().getUser(id)
-            }
-
-            override suspend fun getUserByUsername(username: String): User? {
-                return getDao().getUserByUsername(username)
-            }
+            override suspend fun insert(auditEntry: AuditEntry): Long = real().insert(auditEntry)
+            override suspend fun insertAll(auditEntries: List<AuditEntry>) = real().insertAll(auditEntries)
+            override fun getAuditEntriesForUser(userId: Int, limit: Int) =
+                real().getAuditEntriesForUser(userId, limit)
+            override fun getAuditEntriesByType(eventType: String, limit: Int) =
+                real().getAuditEntriesByType(eventType, limit)
+            override fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long) =
+                real().getAuditEntriesInTimeRange(startTime, endTime)
+            override fun getFailedAuditEntries(limit: Int) = real().getFailedAuditEntries(limit)
+            override fun getCriticalSecurityEvents(limit: Int) = real().getCriticalSecurityEvents(limit)
+            override suspend fun countEventsSince(userId: Int?, eventType: String, since: Long) =
+                real().countEventsSince(userId, eventType, since)
+            override suspend fun deleteOldEntries(cutoffTime: Long) = real().deleteOldEntries(cutoffTime)
+            override fun getAllAuditEntries(limit: Int) = real().getAllAuditEntries(limit)
+            override suspend fun countEntriesWithoutChecksum(): Int = real().countEntriesWithoutChecksum()
+            override suspend fun updateChecksum(id: Long, checksum: String) = real().updateChecksum(id, checksum)
         }
-    }
-
-    @Provides
-    fun provideAuditDao(databaseProvider: DatabaseProvider): AuditDao {
-        return object : AuditDao {
-            private fun getDao() = databaseProvider.getDatabaseOrNull()?.auditDao()
-                ?: throw IllegalStateException("Audit access requires active session")
-
-            override suspend fun insert(auditEntry: AuditEntry): Long {
-                return getDao().insert(auditEntry)
-            }
-
-            override suspend fun insertAll(auditEntries: List<AuditEntry>) {
-                getDao().insertAll(auditEntries)
-            }
-
-            override fun getAuditEntriesForUser(userId: Int, limit: Int): Flow<List<AuditEntry>> {
-                return getDao().getAuditEntriesForUser(userId, limit)
-            }
-
-            override fun getAuditEntriesByType(eventType: String, limit: Int): Flow<List<AuditEntry>> {
-                return getDao().getAuditEntriesByType(eventType, limit)
-            }
-
-            override fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>> {
-                return getDao().getAuditEntriesInTimeRange(startTime, endTime)
-            }
-
-            override fun getFailedAuditEntries(limit: Int): Flow<List<AuditEntry>> {
-                return getDao().getFailedAuditEntries(limit)
-            }
-
-            override fun getCriticalSecurityEvents(limit: Int): Flow<List<AuditEntry>> {
-                return getDao().getCriticalSecurityEvents(limit)
-            }
-
-            override suspend fun countEventsSince(userId: Int?, eventType: String, since: Long): Int {
-                return getDao().countEventsSince(userId, eventType, since)
-            }
-
-            override suspend fun deleteOldEntries(cutoffTime: Long): Int {
-                return getDao().deleteOldEntries(cutoffTime)
-            }
-
-            override fun getAllAuditEntries(limit: Int): Flow<List<AuditEntry>> {
-                return getDao().getAllAuditEntries(limit)
-            }
-
-            override suspend fun countEntriesWithoutChecksum(): Int {
-                return getDao().countEntriesWithoutChecksum()
-            }
-
-            override suspend fun updateChecksum(id: Long, checksum: String) {
-                getDao().updateChecksum(id, checksum)
-            }
-        }
-    }
 
     @Provides
     @Singleton
@@ -160,8 +97,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAuditRepository(auditDao: AuditDao): AuditRepository =
-        AuditRepository(auditDao)
+    fun provideAuditRepository(auditDao: AuditDao): AuditRepository = AuditRepository(auditDao)
 
     @Provides
     @Singleton
@@ -176,5 +112,5 @@ object AppModule {
         auditLogger: AuditLogger,
         auditDao: AuditDao,
         @ApplicationContext context: Context
-    ): SecurityAuditManager = SecurityAuditManager(auditLogger, auditLogger, context)
+    ): SecurityAuditManager = SecurityAuditManager(auditLogger, auditDao, context)
 }

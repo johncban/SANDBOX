@@ -1,6 +1,8 @@
 package com.jcb.passbook.presentation.ui.screens.auth
 
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
@@ -25,12 +27,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.jcb.passbook.presentation.viewmodel.auth.UnlockViewModel
-import com.jcb.passbook.security.biometric.BiometricHelper
+import com.jcb.passbook.security.biometric.BiometricHelper // updated package
 
-/**
- * Unlock screen that enforces biometric or password authentication before vault access
- * Implements session-gated security model with ephemeral key derivation
- */
+@RequiresApi(Build.VERSION_CODES.P)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnlockScreen(
@@ -43,20 +42,15 @@ fun UnlockScreen(
     val uiState by unlockViewModel.uiState.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
     val passwordFocusRequester = remember { FocusRequester() }
-    
+
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var showPasswordFallback by remember { mutableStateOf(false) }
 
-    // Handle unlock success
     LaunchedEffect(uiState.isUnlocked) {
-        if (uiState.isUnlocked) {
-            Log.d("UnlockScreen", "Unlock successful, navigating to vault")
-            onUnlockSuccess()
-        }
+        if (uiState.isUnlocked) onUnlockSuccess()
     }
 
-    // Auto-prompt biometric if available and not already shown
     LaunchedEffect(uiState.biometricAvailable) {
         if (uiState.biometricAvailable && !uiState.biometricPrompted && !showPasswordFallback) {
             promptBiometric(unlockViewModel, activity)
@@ -64,40 +58,27 @@ fun UnlockScreen(
     }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier = modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // App icon/title
         Icon(
             imageVector = Icons.Default.Lock,
             contentDescription = "Vault Locked",
             modifier = Modifier.size(80.dp),
             tint = MaterialTheme.colorScheme.primary
         )
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
+        Spacer(Modifier.height(24.dp))
+        Text("Unlock Your Vault", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = "Unlock Your Vault",
-            style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Text(
-            text = "Your vault is locked for security. Please authenticate to continue.",
+            "Your vault is locked for security. Please authenticate to continue.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(Modifier.height(32.dp))
 
-        // Biometric unlock button
         if (uiState.biometricAvailable && !showPasswordFallback) {
             Button(
                 onClick = { promptBiometric(unlockViewModel, activity) },
@@ -105,47 +86,31 @@ fun UnlockScreen(
                 enabled = !uiState.isLoading
             ) {
                 if (uiState.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
                 }
-                Icon(
-                    imageVector = Icons.Default.Fingerprint,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.Default.Fingerprint, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
                 Text("Unlock with Biometric")
             }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            TextButton(
-                onClick = { showPasswordFallback = true },
-                enabled = !uiState.isLoading
-            ) {
+            Spacer(Modifier.height(16.dp))
+            TextButton(onClick = { showPasswordFallback = true }, enabled = !uiState.isLoading) {
                 Text("Use Password Instead")
             }
         }
 
-        // Password fallback
         if (!uiState.biometricAvailable || showPasswordFallback) {
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
                 label = { Text("Master Password") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(passwordFocusRequester),
+                modifier = Modifier.fillMaxWidth().focusRequester(passwordFocusRequester),
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        keyboardController?.hide()
-                        unlockWithPassword(unlockViewModel, password) { password = "" }
-                    }
-                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    keyboardController?.hide()
+                    unlockWithPassword(unlockViewModel, password) { password = "" }
+                }),
                 trailingIcon = {
                     IconButton(onClick = { showPassword = !showPassword }) {
                         Icon(
@@ -157,9 +122,7 @@ fun UnlockScreen(
                 enabled = !uiState.isLoading,
                 singleLine = true
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
+            Spacer(Modifier.height(16.dp))
             Button(
                 onClick = {
                     keyboardController?.hide()
@@ -169,31 +132,22 @@ fun UnlockScreen(
                 enabled = !uiState.isLoading && password.isNotBlank()
             ) {
                 if (uiState.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
+                    CircularProgressIndicator(Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
                 }
                 Text("Unlock")
             }
-            
             if (uiState.biometricAvailable) {
-                Spacer(modifier = Modifier.height(16.dp))
-                TextButton(
-                    onClick = { showPasswordFallback = false },
-                    enabled = !uiState.isLoading
-                ) {
+                Spacer(Modifier.height(16.dp))
+                TextButton(onClick = { showPasswordFallback = false }, enabled = !uiState.isLoading) {
                     Text("Use Biometric Instead")
                 }
             }
         }
 
-        // Error message
         uiState.errorMessage?.let { error ->
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
+            Spacer(Modifier.height(16.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Text(
                     text = error,
                     modifier = Modifier.padding(16.dp),
@@ -203,26 +157,18 @@ fun UnlockScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Exit button
-        OutlinedButton(
-            onClick = onExit,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !uiState.isLoading
-        ) {
+        Spacer(Modifier.height(32.dp))
+        OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth(), enabled = !uiState.isLoading) {
             Text("Exit App")
         }
     }
 
-    // Focus password field when shown
     LaunchedEffect(showPasswordFallback) {
-        if (showPasswordFallback) {
-            passwordFocusRequester.requestFocus()
-        }
+        if (showPasswordFallback) passwordFocusRequester.requestFocus()
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.P)
 private fun promptBiometric(
     unlockViewModel: UnlockViewModel,
     activity: FragmentActivity
@@ -248,14 +194,10 @@ private fun promptBiometric(
         negative = "Use Password"
     )
 
-    // Create cipher for biometric authentication
+    // Prefer cryptographic prompt; fallback to non-crypto prompt if cipher cannot be created
     unlockViewModel.createBiometricCipher()?.let { cipher ->
-        val cryptoObject = BiometricPrompt.CryptoObject(cipher)
-        biometricPrompt.authenticate(promptInfo, cryptoObject)
-    } ?: run {
-        // Fallback to non-crypto biometric
-        biometricPrompt.authenticate(promptInfo)
-    }
+        biometricPrompt.authenticate(promptInfo, BiometricPrompt.CryptoObject(cipher))
+    } ?: biometricPrompt.authenticate(promptInfo)
 }
 
 private fun unlockWithPassword(

@@ -1,175 +1,144 @@
 package com.jcb.passbook.security.audit
 
 import android.content.Context
-import android.os.Build
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class AuditLogger @Inject constructor(
     private val auditDao: AuditDao,
-    @ApplicationContext private val context: Context
+    private val context: Context
 ) {
     private val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val sessionId = UUID.randomUUID().toString()
-
-    // Device information for audit context
-    private val deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
-    private val appVersion = try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName
-    } catch (e: Exception) {
-        "Unknown"
-    }
 
     /**
-     * Log a user action with comprehensive audit details
+     * Log a general audit event
      */
-    fun logUserAction(
-        userId: Int?,
-        username: String?,
+    fun logEvent(
         eventType: AuditEventType,
-        action: String,
-        resourceType: String? = null,
-        resourceId: String? = null,
-        outcome: AuditOutcome = AuditOutcome.SUCCESS,
-        errorMessage: String? = null,
-        securityLevel: String = "NORMAL"
+        userId: Int? = null,
+        outcome: AuditOutcome,
+        eventDescription: String,
+        username: String? = null,
+        sessionId: String? = null,
+        metadata: String? = null
     ) {
         auditScope.launch {
             try {
                 val auditEntry = AuditEntry(
                     userId = userId,
+                    eventType = eventType.name,
+                    outcome = outcome.name,
+                    eventDescription = eventDescription,
                     username = username,
-                    timestamp = System.currentTimeMillis(),
-                    eventType = eventType.value,
-                    action = action,
-                    resourceType = resourceType,
-                    resourceId = resourceId,
-                    deviceInfo = deviceInfo,
-                    appVersion = appVersion,
                     sessionId = sessionId,
-                    outcome = outcome.value,
-                    errorMessage = errorMessage,
-                    securityLevel = securityLevel
+                    metadata = metadata,
+                    timestamp = System.currentTimeMillis(),
+                    checksum = null // Will be calculated if needed
                 )
 
-                // Generate integrity checksum
-                val checksum = auditEntry.generateChecksum()
-                val auditWithChecksum = auditEntry.copy(checksum = checksum)
-
-                // Insert audit entry
-                val auditId = auditDao.insert(auditWithChecksum)
-
-                // Log to Timber for development/debugging (will be filtered in production)
-                Timber.Forest.d("Audit: [$auditId] User=$username, Action=$action, Outcome=${outcome.value}")
-
+                auditDao.insert(auditEntry)
+                Timber.d("Audit event logged: $eventType - $outcome")
             } catch (e: Exception) {
-                // Never let audit logging crash the app, but log the failure
-                Timber.Forest.e(e, "Failed to log audit entry: $action")
-
-                // Try to log the audit failure itself
-                try {
-                    val failureEntry = AuditEntry(
-                        userId = userId,
-                        username = username,
-                        timestamp = System.currentTimeMillis(),
-                        eventType = AuditEventType.SYSTEM_EVENT.value,
-                        action = "AUDIT_LOG_FAILURE",
-                        deviceInfo = deviceInfo,
-                        appVersion = appVersion,
-                        sessionId = sessionId,
-                        outcome = AuditOutcome.FAILURE.value,
-                        errorMessage = "Audit logging failed: ${e.message}",
-                        securityLevel = "CRITICAL"
-                    )
-                    auditDao.insert(failureEntry.copy(checksum = failureEntry.generateChecksum()))
-                } catch (innerE: Exception) {
-                    Timber.Forest.e(innerE, "Critical: Failed to log audit failure")
-                }
+                Timber.e(e, "Failed to log audit event: $eventType")
             }
         }
     }
 
     /**
-     * Log security events (root detection, tampering, etc.)
+     * Log a security-specific event
      */
     fun logSecurityEvent(
         eventDescription: String,
-        severity: String = "CRITICAL",
-        outcome: AuditOutcome = AuditOutcome.WARNING
+        severity: String,
+        outcome: AuditOutcome,
+        userId: Int? = null,
+        username: String? = null,
+        sessionId: String? = null,
+        metadata: String? = null
     ) {
-        logUserAction(
-            userId = null,
-            username = "SYSTEM",
+        logEvent(
             eventType = AuditEventType.SECURITY_EVENT,
-            action = eventDescription,
-            resourceType = "SYSTEM",
-            resourceId = "DEVICE",
+            userId = userId,
             outcome = outcome,
-            securityLevel = severity
+            eventDescription = eventDescription,
+            username = username,
+            sessionId = sessionId,
+            metadata = "severity:$severity${if (metadata != null) ";$metadata" else ""}"
         )
     }
 
     /**
      * Log authentication events
      */
-    fun logAuthentication(
-        username: String,
+    fun logAuthenticationEvent(
         eventType: AuditEventType,
+        username: String,
         outcome: AuditOutcome,
+        userId: Int? = null,
         errorMessage: String? = null
     ) {
-        logUserAction(
-            userId = null, // Will be set after successful login
-            username = username,
+        val description = when (eventType) {
+            AuditEventType.LOGIN -> "User login attempt"
+            AuditEventType.LOGOUT -> "User logout"
+            AuditEventType.AUTHENTICATION_FAILURE -> "Authentication failed${if (errorMessage != null) ": $errorMessage" else ""}"
+            else -> "Authentication event"
+        }
+
+        logEvent(
             eventType = eventType,
-            action = when (eventType) {
-                AuditEventType.LOGIN -> "User login attempt"
-                AuditEventType.LOGOUT -> "User logout"
-                AuditEventType.REGISTER -> "User registration"
-                AuditEventType.AUTHENTICATION_FAILURE -> "Authentication failure"
-                else -> "Authentication event"
-            },
-            resourceType = "USER",
-            resourceId = username,
+            userId = userId,
             outcome = outcome,
-            errorMessage = errorMessage,
-            securityLevel = if (outcome == AuditOutcome.FAILURE) "ELEVATED" else "NORMAL"
+            eventDescription = description,
+            username = username
         )
     }
 
     /**
-     * Log data access events (CRUD operations)
+     * Log CRUD operations
      */
-    fun logDataAccess(
-        userId: Int,
-        username: String?,
+    fun logCrudEvent(
         eventType: AuditEventType,
-        resourceType: String,
-        resourceId: String,
-        action: String,
-        outcome: AuditOutcome = AuditOutcome.SUCCESS
+        userId: Int,
+        entityType: String,
+        entityId: String? = null,
+        outcome: AuditOutcome,
+        details: String? = null
     ) {
-        logUserAction(
-            userId = userId,
-            username = username,
+        val description = "${eventType.name.lowercase()} operation on $entityType${if (entityId != null) " (ID: $entityId)" else ""}${if (details != null) " - $details" else ""}"
+
+        logEvent(
             eventType = eventType,
-            action = action,
-            resourceType = resourceType,
-            resourceId = resourceId,
+            userId = userId,
             outcome = outcome,
-            securityLevel = "NORMAL"
+            eventDescription = description,
+            metadata = "entityType:$entityType${if (entityId != null) ";entityId:$entityId" else ""}"
+        )
+    }
+
+    /**
+     * Log system events
+     */
+    fun logSystemEvent(
+        eventDescription: String,
+        outcome: AuditOutcome = AuditOutcome.SUCCESS,
+        metadata: String? = null
+    ) {
+        logEvent(
+            eventType = AuditEventType.SYSTEM_EVENT,
+            userId = null,
+            outcome = outcome,
+            eventDescription = eventDescription,
+            metadata = metadata
         )
     }
 }

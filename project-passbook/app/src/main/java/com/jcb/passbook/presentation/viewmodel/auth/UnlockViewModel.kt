@@ -1,7 +1,7 @@
 package com.jcb.passbook.presentation.viewmodel.auth
 
+
 import android.content.Context
-import android.util.Log
 import androidx.biometric.BiometricPrompt
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.crypto.Cipher
 import javax.inject.Inject
 
@@ -50,12 +51,13 @@ class UnlockViewModel @Inject constructor(
         checkBiometricAvailability()
         initializeMasterSeed()
         sessionManager.startUnlock()
-        
-        // Log unlock attempt
-        auditLogger.logAuthentication(
-            username = "SYSTEM",
+
+        // Log unlock attempt using proper method
+        auditLogger.logAuthenticationEvent(
             eventType = AuditEventType.LOGIN,
+            username = "SYSTEM",
             outcome = AuditOutcome.WARNING,
+            userId = null,
             errorMessage = "Vault unlock attempt started"
         )
     }
@@ -63,23 +65,23 @@ class UnlockViewModel @Inject constructor(
     private fun checkBiometricAvailability() {
         val availability = BiometricHelper.checkAvailability(context)
         val biometricAvailable = availability == BiometricHelper.Availability.AVAILABLE
-        
+
         _uiState.value = _uiState.value.copy(
             biometricAvailable = biometricAvailable
         )
-        
-        Log.d(TAG, "Biometric availability: $availability")
+
+        Timber.d("Biometric availability: $availability")
     }
 
     private fun initializeMasterSeed() {
         viewModelScope.launch {
             try {
                 if (!sessionPassphraseManager.isMasterSeedInitialized()) {
-                    Log.d(TAG, "Initializing master seed")
+                    Timber.d("Initializing master seed")
                     sessionPassphraseManager.initializeMasterSeed()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize master seed", e)
+                Timber.e(e, "Failed to initialize master seed")
                 _uiState.value = _uiState.value.copy(
                     errorMessage = "Failed to initialize security components"
                 )
@@ -96,7 +98,7 @@ class UnlockViewModel @Inject constructor(
             // In production, this should create a cipher with the biometric key
             null
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create biometric cipher", e)
+            Timber.e(e, "Failed to create biometric cipher")
             null
         }
     }
@@ -113,55 +115,55 @@ class UnlockViewModel @Inject constructor(
             )
 
             try {
-                Log.d(TAG, "Attempting biometric unlock")
-                
+                Timber.d("Attempting biometric unlock")
+
                 val result = sessionPassphraseManager.deriveSessionPassphrase(cipher)
-                
+
                 when (result) {
                     is SessionPassphraseManager.DerivationResult.Success -> {
                         // Complete session unlock
                         sessionManager.completeUnlock(result.sessionKey, result.salt)
-                        
-                        auditLogger.logAuthentication(
-                            username = "BIOMETRIC_USER",
+
+                        auditLogger.logAuthenticationEvent(
                             eventType = AuditEventType.LOGIN,
+                            username = "BIOMETRIC_USER",
                             outcome = AuditOutcome.SUCCESS
                         )
-                        
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             isUnlocked = true,
                             errorMessage = null
                         )
-                        
-                        Log.d(TAG, "Biometric unlock successful")
+
+                        Timber.d("Biometric unlock successful")
                     }
                     is SessionPassphraseManager.DerivationResult.Error -> {
-                        auditLogger.logAuthentication(
-                            username = "BIOMETRIC_USER",
+                        auditLogger.logAuthenticationEvent(
                             eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                            username = "BIOMETRIC_USER",
                             outcome = AuditOutcome.FAILURE,
                             errorMessage = result.message
                         )
-                        
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             errorMessage = "Biometric unlock failed: ${result.message}"
                         )
-                        
-                        Log.w(TAG, "Biometric unlock failed: ${result.message}")
+
+                        Timber.w("Biometric unlock failed: ${result.message}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Biometric unlock error", e)
-                
-                auditLogger.logAuthentication(
-                    username = "BIOMETRIC_USER",
+                Timber.e(e, "Biometric unlock error")
+
+                auditLogger.logAuthenticationEvent(
                     eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                    username = "BIOMETRIC_USER",
                     outcome = AuditOutcome.FAILURE,
                     errorMessage = e.message
                 )
-                
+
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     errorMessage = "Biometric authentication error: ${e.message}"
@@ -181,55 +183,55 @@ class UnlockViewModel @Inject constructor(
             )
 
             try {
-                Log.d(TAG, "Attempting password unlock")
-                
+                Timber.d("Attempting password unlock")
+
                 val result = sessionPassphraseManager.deriveSessionFromPassword(password)
-                
+
                 when (result) {
                     is SessionPassphraseManager.DerivationResult.Success -> {
                         // Complete session unlock
                         sessionManager.completeUnlock(result.sessionKey, result.salt)
-                        
-                        auditLogger.logAuthentication(
-                            username = "PASSWORD_USER",
+
+                        auditLogger.logAuthenticationEvent(
                             eventType = AuditEventType.LOGIN,
+                            username = "PASSWORD_USER",
                             outcome = AuditOutcome.SUCCESS
                         )
-                        
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             isUnlocked = true,
                             errorMessage = null
                         )
-                        
-                        Log.d(TAG, "Password unlock successful")
+
+                        Timber.d("Password unlock successful")
                     }
                     is SessionPassphraseManager.DerivationResult.Error -> {
-                        auditLogger.logAuthentication(
-                            username = "PASSWORD_USER",
+                        auditLogger.logAuthenticationEvent(
                             eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                            username = "PASSWORD_USER",
                             outcome = AuditOutcome.FAILURE,
                             errorMessage = result.message
                         )
-                        
+
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             errorMessage = "Password unlock failed: ${result.message}"
                         )
-                        
-                        Log.w(TAG, "Password unlock failed: ${result.message}")
+
+                        Timber.w("Password unlock failed: ${result.message}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Password unlock error", e)
-                
-                auditLogger.logAuthentication(
-                    username = "PASSWORD_USER",
+                Timber.e(e, "Password unlock error")
+
+                auditLogger.logAuthenticationEvent(
                     eventType = AuditEventType.AUTHENTICATION_FAILURE,
+                    username = "PASSWORD_USER",
                     outcome = AuditOutcome.FAILURE,
                     errorMessage = e.message
                 )
-                
+
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     errorMessage = "Password authentication error: ${e.message}"
@@ -242,8 +244,8 @@ class UnlockViewModel @Inject constructor(
      * Handles biometric authentication errors
      */
     fun handleBiometricError(errorCode: Int, errorMessage: String) {
-        Log.w(TAG, "Biometric error: $errorCode - $errorMessage")
-        
+        Timber.w("Biometric error: $errorCode - $errorMessage")
+
         val userMessage = when (errorCode) {
             BiometricPrompt.ERROR_USER_CANCELED -> "Biometric authentication was canceled"
             BiometricPrompt.ERROR_NO_BIOMETRICS -> "No biometric credentials enrolled"
@@ -253,14 +255,14 @@ class UnlockViewModel @Inject constructor(
             BiometricPrompt.ERROR_LOCKOUT -> "Too many failed attempts. Try again later."
             else -> "Biometric authentication failed: $errorMessage"
         }
-        
-        auditLogger.logAuthentication(
-            username = "BIOMETRIC_USER",
+
+        auditLogger.logAuthenticationEvent(
             eventType = AuditEventType.AUTHENTICATION_FAILURE,
+            username = "BIOMETRIC_USER",
             outcome = AuditOutcome.FAILURE,
             errorMessage = "Biometric error $errorCode: $errorMessage"
         )
-        
+
         _uiState.value = _uiState.value.copy(
             isLoading = false,
             errorMessage = userMessage,

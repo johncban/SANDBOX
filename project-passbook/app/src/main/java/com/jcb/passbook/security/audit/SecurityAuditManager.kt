@@ -21,12 +21,11 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.collections.get
 
 @Singleton
 class SecurityAuditManager @Inject constructor(
     private val auditLogger: AuditLogger,
-    private val auditDao: AuditDao, // Inject your Room AuditDao
+    private val auditDao: AuditDao, // Fixed: Use AuditDao instead of AuditLogger
     @ApplicationContext private val context: Context
 ) {
     private val monitoringScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -90,9 +89,10 @@ class SecurityAuditManager @Inject constructor(
         val since = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1)
         val failedLogins = auditDao.countEventsSince(
             userId = null, // Optionally loop per user
-            eventType = AuditEventType.AUTHENTICATION_FAILURE.value,
+            eventType = AuditEventType.AUTHENTICATION_FAILURE.name, // Fixed: Use .name instead of .value
             since = since
         )
+
         if (failedLogins > 10) { // Threshold, adjust as needed
             auditLogger.logSecurityEvent(
                 "High volume of authentication failures ($failedLogins in last hour)",
@@ -107,14 +107,16 @@ class SecurityAuditManager @Inject constructor(
         val since = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(10)
         val recentCreates = auditDao.countEventsSince(
             userId = null,
-            eventType = AuditEventType.CREATE.value,
+            eventType = AuditEventType.CREATE.name, // Fixed: Use .name instead of .value
             since = since
         )
+
         val recentReads = auditDao.countEventsSince(
             userId = null,
-            eventType = AuditEventType.READ.value,
+            eventType = AuditEventType.READ.name, // Fixed: Use .name instead of .value
             since = since
         )
+
         if (recentCreates > 20 || recentReads > 50) {
             auditLogger.logSecurityEvent(
                 "Possible brute-force or automated activity detected (CRUD ops)",
@@ -126,16 +128,16 @@ class SecurityAuditManager @Inject constructor(
 
     // 3. Detect abnormal session durations (very long or very short)
     private suspend fun detectSessionAnomalies() {
-        val lastHour = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1)
-        // Query audit entries for session events, analyze durations
         val suspiciousSessions = auditDao.getAuditEntriesByType(
-            eventType = AuditEventType.SYSTEM_EVENT.value,
+            eventType = AuditEventType.SYSTEM_EVENT.name, // Fixed: Use .name instead of .value
             limit = 100
         ).first().filter {
             // Suppose AuditEntry has sessionId, timestamp fields
-            val duration = it.timestamp - (activeSessions[it.sessionId] ?: it.timestamp)
+            val sessionId = it.sessionId ?: return@filter false
+            val duration = it.timestamp - (activeSessions[sessionId] ?: it.timestamp)
             duration > TimeUnit.HOURS.toMillis(12) || duration < TimeUnit.SECONDS.toMillis(10)
         }
+
         if (suspiciousSessions.isNotEmpty()) {
             auditLogger.logSecurityEvent(
                 "Abnormal session duration detected",
@@ -152,9 +154,11 @@ class SecurityAuditManager @Inject constructor(
             startTime = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(2),
             endTime = System.currentTimeMillis()
         ).first()
+
         val nightLogins = entries.count {
-            it.eventType == AuditEventType.LOGIN.value && (nowHour < 6 || nowHour > 22)
+            it.eventType == AuditEventType.LOGIN.name && (nowHour < 6 || nowHour > 22) // Fixed: Use .name instead of .value
         }
+
         if (nightLogins > 3) { // Threshold for abnormal usage
             auditLogger.logSecurityEvent(
                 "Unusual app usage hours detected ($nightLogins logins at late hours)",
