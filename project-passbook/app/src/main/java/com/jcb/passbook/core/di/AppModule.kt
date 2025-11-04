@@ -14,6 +14,7 @@ import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.audit.SecurityAuditManager
+import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.BuildConfig
@@ -22,12 +23,27 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.runBlocking
 import net.sqlcipher.database.SupportFactory
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+
+
+    @Provides
+    @Singleton
+    fun provideAppDatabase(
+        @ApplicationContext context: Context,
+        databaseKeyManager: DatabaseKeyManager
+    ): AppDatabase {
+        return runBlocking {
+            AppDatabase.createWithKeyManager(context, databaseKeyManager)
+                ?: throw IllegalStateException("Failed to create database - no session active")
+        }
+    }
+
 
     @Provides
     @Singleton

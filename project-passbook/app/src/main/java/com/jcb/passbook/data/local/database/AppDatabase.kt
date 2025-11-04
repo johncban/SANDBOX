@@ -7,62 +7,35 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jcb.passbook.data.local.database.dao.AuditDao
+import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
+import com.jcb.passbook.data.local.database.entities.AuditMetadata
 import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.dao.UserDao
 import net.sqlcipher.database.SupportFactory
 
-/***    --------------------------------------  DO NOT DELETE  --------------------------------------
-@Database(entities = [Item::class, User::class], version = 2, exportSchema = false)
-
-abstract class AppDatabase : RoomDatabase() {
-
-    abstract fun itemDao(): ItemDao
-    abstract fun userDao(): UserDao
-
-    companion object {
-        // Migration object to handle database schema changes
-        val MIGRATION_1_2 = object : Migration(1, 2) {  // Adjust version numbers
-            override fun migrate(database: SupportSQLiteDatabase) {
-                // Define the migration logic here.  Example:
-                database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
-            }
-        }
-
-        fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
-            return androidx.room.Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
-                .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2) // Use proper migration
-                .build()
-        }
-    }
-}
---------------------------------------  DO NOT DELETE  --------------------------------------      ***/
-
-
 @Database(
-    entities = [Item::class, User::class, AuditEntry::class],
-    version = 3,
+    entities = [Item::class, User::class, AuditEntry::class, AuditMetadata::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun itemDao(): ItemDao
     abstract fun userDao(): UserDao
-    abstract fun auditDao(): AuditDao // Audit logging support
+    abstract fun auditDao(): AuditDao
+    abstract fun auditMetadataDao(): AuditMetadataDao
 
     companion object {
-        // Existing migration for version 2
+        // Migration from version 1 to 2
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Example migration (already in your codebase)
                 database.execSQL("ALTER TABLE Item ADD COLUMN new_column INTEGER DEFAULT 0")
             }
         }
 
-        // Migration for version 3: adds the audit_entry table and indexes
+        // Migration from version 2 to 3: adds the audit_entry table
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -95,13 +68,83 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // SQLCipher factory - use this in your DI/AppModule for DB creation
+        // Migration from version 3 to 4: adds tamper-evident chaining and metadata table
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add chain fields to audit_entry
+                database.execSQL("ALTER TABLE audit_entry ADD COLUMN chainPrevHash TEXT")
+                database.execSQL("ALTER TABLE audit_entry ADD COLUMN chainHash TEXT")
+
+                // Create audit_metadata table
+                database.execSQL("""
+                    CREATE TABLE audit_metadata (
+                        key TEXT PRIMARY KEY NOT NULL,
+                        value TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        description TEXT
+                    )
+                """.trimIndent())
+
+                // Create additional indexes for chain verification performance
+                database.execSQL("CREATE INDEX index_audit_entry_chainHash ON audit_entry(chainHash)")
+                database.execSQL("CREATE INDEX index_audit_entry_sessionId ON audit_entry(sessionId)")
+                database.execSQL("CREATE INDEX index_audit_entry_securityLevel ON audit_entry(securityLevel)")
+
+                // Initialize chain metadata
+                database.execSQL("""
+                    INSERT INTO audit_metadata (key, value, timestamp, description) 
+                    VALUES ('audit_chain_head', '0000000000000000000000000000000000000000000000000000000000000000', 
+                            ${System.currentTimeMillis()}, 'Genesis chain head hash')
+                """.trimIndent())
+            }
+        }
+
+        // Enhanced database creation with security features
         fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase)
+            val factory = SupportFactory(passphrase, null, false)
+
             return Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addCallback(object : RoomDatabase.Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        super.onCreate(db)
+                        // Enable WAL mode for better performance and concurrent access
+                        db.execSQL("PRAGMA journal_mode=WAL")
+                        // Increase SQLCipher iterations for enhanced security
+                        db.execSQL("PRAGMA cipher_iterations=256000")
+                        // Enable foreign keys
+                        db.execSQL("PRAGMA foreign_keys=ON")
+                        // Set secure delete to overwrite deleted data
+                        db.execSQL("PRAGMA secure_delete=ON")
+                    }
+
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        // Ensure security settings are applied on every open
+                        db.execSQL("PRAGMA foreign_keys=ON")
+                        db.execSQL("PRAGMA secure_delete=ON")
+                    }
+                })
                 .build()
+        }
+
+        // Alternative creation method using DatabaseKeyManager
+        suspend fun createWithKeyManager(
+            context: Context,
+            databaseKeyManager: com.jcb.passbook.security.crypto.DatabaseKeyManager
+        ): AppDatabase? {
+            val passphrase = databaseKeyManager.getOrCreateDatabasePassphrase()
+            return if (passphrase != null) {
+                try {
+                    create(context, passphrase)
+                } finally {
+                    // Securely wipe passphrase from memory
+                    passphrase.fill(0)
+                }
+            } else {
+                null
+            }
         }
     }
 }

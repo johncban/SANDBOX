@@ -1,6 +1,5 @@
 package com.jcb.passbook.data.local.database.entities
 
-
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
@@ -39,22 +38,44 @@ data class AuditEntry(
     val sessionId: String? = null,    // Session identifier
 
     // Outcome
-    val outcome: String, // SUCCESS, FAILURE, WARNING
+    val outcome: String, // SUCCESS, FAILURE, WARNING, BLOCKED
     val errorMessage: String? = null,
 
     // Security context
     val securityLevel: String = "NORMAL", // NORMAL, ELEVATED, CRITICAL
     val ipAddress: String? = null,        // For future network features
 
-    // Integrity protection
-    val checksum: String? = null  // SHA-256 hash for tampering detection
+    // Integrity protection and tamper-evident chaining
+    val checksum: String? = null,      // SHA-256 hash for tampering detection
+    val chainPrevHash: String? = null, // Hash of previous entry in chain
+    val chainHash: String? = null      // This entry's position in chain
 ) {
     // Generate integrity checksum
     fun generateChecksum(): String {
-        val data = "$userId$timestamp$eventType$action$resourceType$resourceId$outcome"
+        val data = "$userId$timestamp$eventType$action$resourceType$resourceId$outcome$securityLevel"
         return java.security.MessageDigest.getInstance("SHA-256")
             .digest(data.toByteArray())
             .joinToString("") { "%02x".format(it) }
+    }
+
+    // Generate canonical data for chain verification
+    fun generateCanonicalData(): String {
+        return buildString {
+            append("userId:${userId ?: "null"};")
+            append("username:${username ?: "null"};")
+            append("timestamp:$timestamp;")
+            append("eventType:$eventType;")
+            append("action:$action;")
+            append("resourceType:${resourceType ?: "null"};")
+            append("resourceId:${resourceId ?: "null"};")
+            append("deviceInfo:${deviceInfo ?: "null"};")
+            append("appVersion:${appVersion ?: "null"};")
+            append("sessionId:${sessionId ?: "null"};")
+            append("outcome:$outcome;")
+            append("errorMessage:${errorMessage ?: "null"};")
+            append("securityLevel:$securityLevel;")
+            append("ipAddress:${ipAddress ?: "null"};")
+        }
     }
 }
 
@@ -69,12 +90,24 @@ enum class AuditEventType(val value: String) {
     SECURITY_EVENT("SECURITY_EVENT"),
     SYSTEM_EVENT("SYSTEM_EVENT"),
     KEY_ROTATION("KEY_ROTATION"),
-    AUTHENTICATION_FAILURE("AUTH_FAILURE")
+    AUTHENTICATION_FAILURE("AUTH_FAILURE"),
+    SESSION_START("SESSION_START"),
+    SESSION_END("SESSION_END"),
+    DATABASE_OPEN("DB_OPEN"),
+    DATABASE_CLOSE("DB_CLOSE"),
+    BIOMETRIC_AUTH("BIOMETRIC_AUTH"),
+    SETTINGS_CHANGE("SETTINGS_CHANGE"),
+    EXPORT("EXPORT"),
+    IMPORT("IMPORT"),
+    BACKUP("BACKUP"),
+    RESTORE("RESTORE")
 }
 
 enum class AuditOutcome(val value: String) {
     SUCCESS("SUCCESS"),
     FAILURE("FAILURE"),
     WARNING("WARNING"),
-    BLOCKED("BLOCKED")
+    BLOCKED("BLOCKED"),
+    PENDING("PENDING"),
+    CANCELLED("CANCELLED")
 }

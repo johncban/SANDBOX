@@ -11,10 +11,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.jcb.passbook.core.di.SecurityInitializer
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
 import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
@@ -23,14 +25,32 @@ import com.jcb.passbook.security.detection.RootDetector
 import com.jcb.passbook.security.detection.SecurityManager
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
+import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject
+    lateinit var securityInitializer: SecurityInitializer
+
+    @Inject
+    lateinit var sessionManager: SessionManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Initialize security system
+        lifecycleScope.launch {
+            if (!securityInitializer.initialize()) {
+                // Handle security initialization failure
+                finish()
+                return@launch
+            }
+        }
 
         // Persistent Compose states
         val rootedOnStartup = RootDetector.isDeviceRooted(this)
@@ -80,6 +100,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        securityInitializer.shutdown()
+        super.onDestroy()
+    }
+
+
 }
 
 @Composable
