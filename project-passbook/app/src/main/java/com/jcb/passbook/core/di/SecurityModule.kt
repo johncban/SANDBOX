@@ -1,7 +1,6 @@
 package com.jcb.passbook.core.di
 
 import android.content.Context
-import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
 import com.jcb.passbook.security.audit.*
@@ -16,6 +15,7 @@ import javax.inject.Singleton
 
 /**
  * SecurityModule provides dependency injection for security-related components.
+ * FIXED: Consistent AuditLogger type throughout
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -98,7 +98,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideEnhancedAuditLogger(
+    fun provideAuditLogger( // Fixed: Consistent naming and return type
         auditQueue: AuditQueue,
         auditChainManager: AuditChainManager,
         @ApplicationContext context: Context
@@ -111,9 +111,9 @@ object SecurityModule {
     fun provideAuditVerificationService(
         auditDao: AuditDao,
         auditChainManager: AuditChainManager,
-        enhancedAuditLogger: AuditLogger
+        auditLogger: AuditLogger // Fixed: Consistent type
     ): AuditVerificationService {
-        return AuditVerificationService(auditDao, auditChainManager, enhancedAuditLogger)
+        return AuditVerificationService(auditDao, auditChainManager, auditLogger)
     }
 
     @Provides
@@ -137,7 +137,7 @@ object SecurityModule {
         biometricEnrollmentMonitor: BiometricEnrollmentMonitor,
         auditVerificationService: AuditVerificationService,
         securityAuditManager: SecurityAuditManager,
-        enhancedAuditLogger: AuditLogger
+        auditLogger: AuditLogger // Fixed: Consistent type
     ): SecurityInitializer {
         return SecurityInitializer(
             masterKeyManager,
@@ -145,13 +145,14 @@ object SecurityModule {
             biometricEnrollmentMonitor,
             auditVerificationService,
             securityAuditManager,
-            enhancedAuditLogger
+            auditLogger
         )
     }
 }
 
 /**
  * SecurityInitializer coordinates the initialization of security components
+ * FIXED: Added session cleanup in shutdown
  */
 class SecurityInitializer(
     private val masterKeyManager: MasterKeyManager,
@@ -159,13 +160,13 @@ class SecurityInitializer(
     private val biometricEnrollmentMonitor: BiometricEnrollmentMonitor,
     private val auditVerificationService: AuditVerificationService,
     private val securityAuditManager: SecurityAuditManager,
-    private val enhancedAuditLogger: AuditLogger
+    private val auditLogger: AuditLogger // Fixed: Consistent type
 ) {
 
     suspend fun initialize(): Boolean {
         return try {
             // Initialize audit logging first
-            SecurityManager.initializeAuditing(enhancedAuditLogger)
+            SecurityManager.initializeAuditing(auditLogger)
 
             // Initialize master key infrastructure
             masterKeyManager.initializeMasterKey()
@@ -175,14 +176,14 @@ class SecurityInitializer(
             auditVerificationService.startPeriodicVerification()
             securityAuditManager.startSecurityMonitoring()
 
-            enhancedAuditLogger.logAppLifecycle(
+            auditLogger.logAppLifecycle(
                 "Security system initialized",
                 mapOf("components" to "all")
             )
 
             true
         } catch (e: Exception) {
-            enhancedAuditLogger.logSecurityEvent(
+            auditLogger.logSecurityEvent(
                 "Failed to initialize security system: ${e.message}",
                 "CRITICAL",
                 com.jcb.passbook.data.local.database.entities.AuditOutcome.FAILURE
@@ -193,11 +194,18 @@ class SecurityInitializer(
 
     fun shutdown() {
         try {
+            // Fixed: End session to zeroize keys
+            kotlinx.coroutines.runBlocking {
+                if (sessionManager.isSessionActive()) {
+                    sessionManager.endSession("Application shutdown")
+                }
+            }
+
             biometricEnrollmentMonitor.stopMonitoring()
             auditVerificationService.stopPeriodicVerification()
             securityAuditManager.stopSecurityMonitoring()
 
-            enhancedAuditLogger.logAppLifecycle(
+            auditLogger.logAppLifecycle(
                 "Security system shutdown",
                 mapOf("reason" to "application_exit")
             )

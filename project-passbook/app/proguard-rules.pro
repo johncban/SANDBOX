@@ -1,72 +1,67 @@
-# Add project specific ProGuard rules here.
+# Security components
+-keep class com.jcb.passbook.security.** { *; }
+-keep class com.jcb.passbook.data.local.database.entities.** { *; }
 
-# Keep all classes in the main package
--keep class com.jcb.passbook.** { *; }
+# SQLCipher
+-keep class net.sqlcipher.** { *; }
+-dontwarn net.sqlcipher.**
 
-# Hilt
--dontwarn com.google.dagger.hilt.**
--keep class * extends dagger.hilt.android.HiltAndroidApp
--keep class dagger.hilt.android.** { *; }
+# Kotlinx Serialization
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keep,includedescriptorclasses class com.jcb.passbook.**$$serializer { *; }
+-keepclassmembers class com.jcb.passbook.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.jcb.passbook.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
 
-# Room
+# Keep audit entity serialization
+-keep class com.jcb.passbook.data.local.database.entities.AuditEntry { *; }
+-keep class com.jcb.passbook.data.local.database.entities.AuditEventType { *; }
+-keep class com.jcb.passbook.data.local.database.entities.AuditOutcome { *; }
+
+# Android Keystore
+-keep class android.security.keystore.** { *; }
+-dontwarn android.security.keystore.**
+
+# Biometric
+-keep class androidx.biometric.** { *; }
+-dontwarn androidx.biometric.**
+
+# Room database
 -keep class * extends androidx.room.RoomDatabase
--dontwarn androidx.room.paging.**
-
-# Security & Cryptography
--keep class androidx.security.crypto.** { *; }
--keep class com.lambdapioneer.argon2kt.** { *; }
--keep class net.zetetic.database.** { *; }
-
-# Google Tink Cryptography - COMPLETE FIX FOR ALL R8 BUILD FAILURES
--dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
--dontwarn com.google.errorprone.annotations.CheckReturnValue
--dontwarn com.google.errorprone.annotations.Immutable
--dontwarn com.google.errorprone.annotations.RestrictedApi
--dontwarn com.google.errorprone.annotations.**
-
-# Keep Tink classes for proper crypto functionality
--keep class com.google.crypto.tink.** { *; }
-
-# Google API Client HTTP (Optional Tink dependency - suppress warnings)
--dontwarn com.google.api.client.http.GenericUrl
--dontwarn com.google.api.client.http.HttpHeaders
--dontwarn com.google.api.client.http.HttpRequest
--dontwarn com.google.api.client.http.HttpRequestFactory
--dontwarn com.google.api.client.http.HttpResponse
--dontwarn com.google.api.client.http.HttpTransport
--dontwarn com.google.api.client.http.javanet.NetHttpTransport$Builder
--dontwarn com.google.api.client.http.javanet.NetHttpTransport
--dontwarn com.google.api.client.http.**
-
-# Google GSON (Optional Tink dependency - suppress warnings)
--dontwarn com.google.gson.JsonArray
--dontwarn com.google.gson.JsonElement
--dontwarn com.google.gson.JsonNull
--dontwarn com.google.gson.JsonObject
--dontwarn com.google.gson.JsonParseException
--dontwarn com.google.gson.JsonPrimitive
--dontwarn com.google.gson.TypeAdapter
--dontwarn com.google.gson.internal.Streams
--dontwarn com.google.gson.stream.JsonReader
--dontwarn com.google.gson.stream.JsonToken
--dontwarn com.google.gson.stream.JsonWriter
--dontwarn com.google.gson.**
-
-# Joda Time (Optional Tink dependency - suppress warnings)
--dontwarn org.joda.time.Instant
--dontwarn org.joda.time.**
+-keep @androidx.room.Entity class *
+-keep @androidx.room.Dao class *
 
 # Timber
 -dontwarn org.jetbrains.annotations.**
 
-# Compose
--keep class androidx.compose.runtime.** { *; }
--dontwarn androidx.compose.runtime.**
+# Hilt
+-dontwarn dagger.hilt.**
+-keep class dagger.hilt.** { *; }
+-keep class * extends dagger.hilt.InstallIn
 
-# Root detection
--keep class com.scottyab.rootbeer.** { *; }
+# Coroutines
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 
-# General Android
--keepattributes *Annotation*
--keepattributes SourceFile,LineNumberTable
--keep public class * extends java.lang.Exception
+# Keep enum classes
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Security-specific rules
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+}
+
+# Keep integrity checking methods
+-keepclassmembers class com.jcb.passbook.data.local.database.entities.AuditEntry {
+    public *** generateChecksum();
+    public *** generateCanonicalData();
+}

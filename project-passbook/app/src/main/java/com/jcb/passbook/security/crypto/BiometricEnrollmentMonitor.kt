@@ -1,7 +1,6 @@
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
-import android.hardware.biometrics.BiometricManager
 import androidx.biometric.BiometricManager as AndroidXBiometricManager
 import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
@@ -10,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +24,8 @@ import javax.inject.Singleton
 /**
  * BiometricEnrollmentMonitor tracks changes in biometric enrollment
  * and triggers key regeneration when enrollment changes are detected.
+ *
+ * FIXED: Removed platform BiometricManager import, using only androidx.biometric
  */
 @Singleton
 class BiometricEnrollmentMonitor @Inject constructor(
@@ -118,6 +120,7 @@ class BiometricEnrollmentMonitor @Inject constructor(
 
     /**
      * Get current biometric enrollment hash
+     * FIXED: Only use androidx.biometric.BiometricManager for compatibility
      */
     private fun getCurrentEnrollmentHash(): String {
         return try {
@@ -132,10 +135,11 @@ class BiometricEnrollmentMonitor @Inject constructor(
             val deviceCredentialStatus = biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL)
             enrollmentInfo.append("device_credential_status:$deviceCredentialStatus;")
 
-            // Try to get additional enrollment info (this is a simplified approach)
-            // In a production app, you might want to use more sophisticated methods
-            val hasFingerprint = biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG) == AndroidXBiometricManager.BIOMETRIC_SUCCESS
-            enrollmentInfo.append("has_biometric:$hasFingerprint;")
+            // Add combined authentication status
+            val combinedStatus = biometricManager.canAuthenticate(
+                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            enrollmentInfo.append("combined_status:$combinedStatus;")
 
             // Create hash of enrollment info
             val digest = MessageDigest.getInstance("SHA-256")
@@ -154,7 +158,10 @@ class BiometricEnrollmentMonitor @Inject constructor(
     fun isBiometricAvailable(): Boolean {
         return try {
             val biometricManager = AndroidXBiometricManager.from(context)
-            biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL) == AndroidXBiometricManager.BIOMETRIC_SUCCESS
+            biometricManager.canAuthenticate(
+                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
+            ) == AndroidXBiometricManager.BIOMETRIC_SUCCESS
         } catch (e: Exception) {
             Timber.e(e, "Error checking biometric availability")
             false
@@ -167,7 +174,10 @@ class BiometricEnrollmentMonitor @Inject constructor(
     fun getBiometricStatusInfo(): String {
         return try {
             val biometricManager = AndroidXBiometricManager.from(context)
-            val status = biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            val status = biometricManager.canAuthenticate(
+                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
 
             when (status) {
                 AndroidXBiometricManager.BIOMETRIC_SUCCESS -> "Available"

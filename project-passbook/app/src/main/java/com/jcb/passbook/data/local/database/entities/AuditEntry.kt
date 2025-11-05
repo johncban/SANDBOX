@@ -3,7 +3,9 @@ package com.jcb.passbook.data.local.database.entities
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import kotlinx.serialization.Serializable
 
+@Serializable // Fixed: Added serialization annotation
 @Entity(
     tableName = "audit_entry",
     foreignKeys = [
@@ -79,6 +81,7 @@ data class AuditEntry(
     }
 }
 
+@Serializable // Fixed: Added serialization annotation
 enum class AuditEventType(val value: String) {
     LOGIN("LOGIN"),
     LOGOUT("LOGOUT"),
@@ -103,6 +106,7 @@ enum class AuditEventType(val value: String) {
     RESTORE("RESTORE")
 }
 
+@Serializable // Fixed: Added serialization annotation
 enum class AuditOutcome(val value: String) {
     SUCCESS("SUCCESS"),
     FAILURE("FAILURE"),

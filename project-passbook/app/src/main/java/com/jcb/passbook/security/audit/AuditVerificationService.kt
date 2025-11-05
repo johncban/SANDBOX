@@ -6,10 +6,12 @@ import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -25,7 +27,7 @@ import javax.inject.Singleton
 class AuditVerificationService @Inject constructor(
     private val auditDao: AuditDao,
     private val auditChainManager: AuditChainManager,
-    private val AuditLogger: AuditLogger
+    private val auditLogger: AuditLogger // Fixed: lowercase parameter name
 ) {
     companion object {
         private const val VERIFICATION_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
@@ -124,7 +126,7 @@ class AuditVerificationService @Inject constructor(
                 else -> AuditOutcome.WARNING
             }
 
-            AuditLogger.logAuditVerification(
+            auditLogger.logAuditVerification( // Fixed: lowercase auditLogger
                 result = result.javaClass.simpleName,
                 entriesVerified = when (result) {
                     is VerificationResult.Success -> result.entriesVerified
@@ -239,8 +241,8 @@ class AuditVerificationService @Inject constructor(
                 )
             }
 
-            // Check for gaps in timestamps (potential deletion)
-            val entries = auditDao.getAuditEntriesInTimeRange(startTime, endTime).value
+            // Fixed: Use .first() instead of .value
+            val entries = auditDao.getAuditEntriesInTimeRange(startTime, endTime).first()
                 .sortedBy { it.timestamp }
 
             var expectedSequentialGaps = 0
@@ -278,7 +280,7 @@ class AuditVerificationService @Inject constructor(
             val totalEntries = auditDao.getTotalEntryCount()
             val entriesWithoutChecksum = auditDao.countEntriesWithoutChecksum()
             val entriesWithoutChain = auditDao.countEntriesWithoutChainHash()
-            val criticalEvents = auditDao.getCriticalSecurityEvents(100).value.size
+            val criticalEvents = auditDao.getCriticalSecurityEvents(100).first().size // Fixed: Use .first()
 
             VerificationStatistics(
                 totalEntries = totalEntries,

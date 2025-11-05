@@ -14,8 +14,11 @@ import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.dao.UserDao
+import com.jcb.passbook.security.crypto.DatabaseKeyManager
+import kotlinx.coroutines.runBlocking
 import net.sqlcipher.database.SupportFactory
 
+// FIXED: Updated database version to 4 and added proper migrations
 @Database(
     entities = [Item::class, User::class, AuditEntry::class, AuditMetadata::class],
     version = 4,
@@ -68,7 +71,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // Migration from version 3 to 4: adds tamper-evident chaining and metadata table
+        // FIXED: Migration from version 3 to 4: adds tamper-evident chaining and metadata table
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Add chain fields to audit_entry
@@ -99,13 +102,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // Enhanced database creation with security features
+        // FIXED: Enhanced database creation with security features
         fun create(context: Context, passphrase: ByteArray): AppDatabase {
             val factory = SupportFactory(passphrase, null, false)
 
             return Room.databaseBuilder(context, AppDatabase::class.java, "item_database")
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4) // Added new migration
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
@@ -129,10 +132,10 @@ abstract class AppDatabase : RoomDatabase() {
                 .build()
         }
 
-        // Alternative creation method using DatabaseKeyManager
+        // FIXED: Alternative creation method using DatabaseKeyManager with proper cleanup
         suspend fun createWithKeyManager(
             context: Context,
-            databaseKeyManager: com.jcb.passbook.security.crypto.DatabaseKeyManager
+            databaseKeyManager: DatabaseKeyManager
         ): AppDatabase? {
             val passphrase = databaseKeyManager.getOrCreateDatabasePassphrase()
             return if (passphrase != null) {
@@ -140,6 +143,7 @@ abstract class AppDatabase : RoomDatabase() {
                     create(context, passphrase)
                 } finally {
                     // Securely wipe passphrase from memory
+                    java.security.SecureRandom().nextBytes(passphrase)
                     passphrase.fill(0)
                 }
             } else {

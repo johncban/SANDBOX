@@ -10,6 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,17 +22,23 @@ import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.collections.get
 
+/**
+ * FIXED SecurityAuditManager with the missing stopSecurityMonitoring method
+ * and proper monitoring lifecycle management.
+ */
 @Singleton
 class SecurityAuditManager @Inject constructor(
     private val auditLogger: AuditLogger,
-    private val auditDao: AuditDao, // Inject your Room AuditDao
+    private val auditDao: AuditDao,
     @ApplicationContext private val context: Context
 ) {
     private val monitoringScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _securityAlerts = MutableStateFlow<List<SecurityAlert>>(emptyList())
     val securityAlerts: StateFlow<List<SecurityAlert>> = _securityAlerts.asStateFlow()
+
+    @Volatile
+    private var isMonitoring = false
 
     data class SecurityAlert(
         val timestamp: Long,
@@ -43,13 +50,46 @@ class SecurityAuditManager @Inject constructor(
     // Optional: Session cache (could use a persistent store)
     private val activeSessions = mutableMapOf<String, Long>() // sessionId -> lastActivityTime
 
+    /**
+     * Start security monitoring
+     */
     fun startSecurityMonitoring() {
+        if (isMonitoring) return
+
+        isMonitoring = true
         monitoringScope.launch {
-            while (isActive) {
-                performSecurityChecks()
-                delay(5 * 60 * 1000) // Check every 5 minutes
+            while (isActive && isMonitoring) {
+                try {
+                    performSecurityChecks()
+                    delay(5 * 60 * 1000) // Check every 5 minutes
+                } catch (e: Exception) {
+                    timber.log.Timber.e(e, "Error in security monitoring")
+                    delay(60_000) // Wait 1 minute before retry
+                }
             }
         }
+
+        auditLogger.logSecurityEvent(
+            "Security monitoring started",
+            "NORMAL",
+            AuditOutcome.SUCCESS
+        )
+    }
+
+    /**
+     * FIXED: Added missing stopSecurityMonitoring method
+     */
+    fun stopSecurityMonitoring() {
+        if (!isMonitoring) return
+
+        isMonitoring = false
+        monitoringScope.cancel()
+
+        auditLogger.logSecurityEvent(
+            "Security monitoring stopped",
+            "NORMAL",
+            AuditOutcome.SUCCESS
+        )
     }
 
     private suspend fun performSecurityChecks() {
@@ -88,15 +128,15 @@ class SecurityAuditManager @Inject constructor(
     // 1. Detect excessive authentication failures
     private suspend fun detectLoginAnomalies() {
         val since = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1)
-        val failedLogins = auditDao.countEventsSince(
-            userId = null, // Optionally loop per user
+        val failedLogins = auditDao.countAllEventsSince(
             eventType = AuditEventType.AUTHENTICATION_FAILURE.value,
             since = since
         )
         if (failedLogins > 10) { // Threshold, adjust as needed
             auditLogger.logSecurityEvent(
                 "High volume of authentication failures ($failedLogins in last hour)",
-                "ELEVATED", AuditOutcome.WARNING
+                "ELEVATED",
+                AuditOutcome.WARNING
             )
             addSecurityAlert("ELEVATED", "Excessive authentication failures", "Account lockout recommended")
         }
@@ -105,20 +145,19 @@ class SecurityAuditManager @Inject constructor(
     // 2. Detect spikes in CRUD operations (brute force or automation)
     private suspend fun detectCrudSpikeAnomalies() {
         val since = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(10)
-        val recentCreates = auditDao.countEventsSince(
-            userId = null,
+        val recentCreates = auditDao.countAllEventsSince(
             eventType = AuditEventType.CREATE.value,
             since = since
         )
-        val recentReads = auditDao.countEventsSince(
-            userId = null,
+        val recentReads = auditDao.countAllEventsSince(
             eventType = AuditEventType.READ.value,
             since = since
         )
         if (recentCreates > 20 || recentReads > 50) {
             auditLogger.logSecurityEvent(
                 "Possible brute-force or automated activity detected (CRUD ops)",
-                "ELEVATED", AuditOutcome.WARNING
+                "ELEVATED",
+                AuditOutcome.WARNING
             )
             addSecurityAlert("ELEVATED", "Unusual CRUD activity", "Review user activity logs")
         }
@@ -139,7 +178,8 @@ class SecurityAuditManager @Inject constructor(
         if (suspiciousSessions.isNotEmpty()) {
             auditLogger.logSecurityEvent(
                 "Abnormal session duration detected",
-                "WARNING", AuditOutcome.WARNING
+                "WARNING",
+                AuditOutcome.WARNING
             )
             addSecurityAlert("WARNING", "Session anomaly detected", "Session forcibly terminated")
         }
@@ -158,7 +198,8 @@ class SecurityAuditManager @Inject constructor(
         if (nightLogins > 3) { // Threshold for abnormal usage
             auditLogger.logSecurityEvent(
                 "Unusual app usage hours detected ($nightLogins logins at late hours)",
-                "WARNING", AuditOutcome.WARNING
+                "WARNING",
+                AuditOutcome.WARNING
             )
             addSecurityAlert("WARNING", "Unusual access hours", "Flag for review")
         }
@@ -179,4 +220,23 @@ class SecurityAuditManager @Inject constructor(
         }
         _securityAlerts.value = currentAlerts
     }
+
+    /**
+     * Get current security status
+     */
+    fun getSecurityStatus(): SecurityStatus {
+        return SecurityStatus(
+            isMonitoring = isMonitoring,
+            alertCount = _securityAlerts.value.size,
+            criticalAlerts = _securityAlerts.value.count { it.severity == "CRITICAL" },
+            lastCheckTime = System.currentTimeMillis()
+        )
+    }
+
+    data class SecurityStatus(
+        val isMonitoring: Boolean,
+        val alertCount: Int,
+        val criticalAlerts: Int,
+        val lastCheckTime: Long
+    )
 }

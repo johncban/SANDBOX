@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    kotlin("plugin.serialization") // Fixed: Added serialization plugin
     id("kotlin-kapt")
     id("dagger.hilt.android.plugin")
 }
@@ -145,6 +146,15 @@ dependencies {
     // Core library desugaring
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
+    // FIXED: Clean up biometric dependencies - use only stable version
+    implementation("androidx.biometric:biometric:1.1.0")
+
+    // JSON serialization for audit journaling
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+
+    // Coroutines (already included, but ensure latest version)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
     // Unit Testing
     testImplementation(libs.junit)
     testImplementation(libs.truth)
@@ -164,18 +174,6 @@ dependencies {
     // Debug Dependencies
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-
-    // Biometric Dependencies
-    // implementation("androidx.biometric:biometric:1.1.0")
-
-    // Biometric authentication
-    implementation("androidx.biometric:biometric:1.2.0-alpha05")
-
-    // JSON serialization for audit journaling
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
-
-    // Coroutines (already included, but ensure latest version)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
 
 // Kapt configuration for better performance

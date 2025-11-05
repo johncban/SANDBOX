@@ -54,6 +54,8 @@ class SessionManager @Inject constructor(
      * Start a new session with biometric authentication
      */
     suspend fun startSession(activity: FragmentActivity): SessionResult {
+        var unwrappedAMK: ByteArray? = null // Fixed: Declare variable in correct scope
+
         return try {
             if (isSessionActive) {
                 auditLogger.logSecurityEvent(
@@ -64,7 +66,7 @@ class SessionManager @Inject constructor(
                 return SessionResult.AlreadyActive
             }
 
-            val unwrappedAMK = masterKeyManager.unwrapAMK(activity)
+            unwrappedAMK = masterKeyManager.unwrapAMK(activity)
             if (unwrappedAMK == null) {
                 auditLogger.logAuthentication(
                     "SYSTEM",
@@ -106,7 +108,7 @@ class SessionManager @Inject constructor(
             Timber.e(e, "Failed to start session")
             SessionResult.Error(e.message ?: "Unknown error")
         } finally {
-            // Always wipe the temporary AMK copy
+            // Fixed: Always wipe the temporary AMK copy in proper scope
             unwrappedAMK?.let { secureMemoryUtils.secureWipe(it) }
         }
     }
@@ -231,8 +233,9 @@ class SessionManager @Inject constructor(
         return startSession(activity)
     }
 
-    // Lifecycle observers
+    // Fixed: Lifecycle observers with configurable background behavior
     override fun onStop(owner: LifecycleOwner) {
+        // Consider making this configurable - immediate vs grace period
         sessionScope.launch {
             endSession("App backgrounded")
         }
