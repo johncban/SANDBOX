@@ -2,9 +2,9 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    kotlin("plugin.serialization") // Fixed: Added serialization plugin
+    alias(libs.plugins.kotlin.serialization)
     id("kotlin-kapt")
-    id("dagger.hilt.android.plugin")
+    alias(libs.plugins.hilt.android)
 }
 
 android {
@@ -110,29 +110,31 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.compose.material.icons.extended)
 
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
     // Lifecycle & ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.livedata.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Room Database
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     kapt(libs.room.compiler)
 
-    // Dependency Injection - Hilt (consistent version)
+    // Dependency Injection - Hilt
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 
-    // Security & Cryptography
+    // Security & Cryptography - Updated to stable versions
     implementation(libs.androidx.security.crypto) {
+        // Exclude gson to avoid conflicts with kotlinx-serialization
         exclude(group = "com.google.code.gson", module = "gson")
     }
+    implementation(libs.androidx.biometric)
     implementation(libs.argon2kt)
     implementation(libs.sqlcipher)
 
@@ -144,16 +146,13 @@ dependencies {
     implementation(libs.rootbeer)
 
     // Core library desugaring
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-
-    // FIXED: Clean up biometric dependencies - use only stable version
-    implementation("androidx.biometric:biometric:1.1.0")
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     // JSON serialization for audit journaling
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation(libs.kotlinx.serialization.json)
 
-    // Coroutines (already included, but ensure latest version)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.android)
 
     // Unit Testing
     testImplementation(libs.junit)
