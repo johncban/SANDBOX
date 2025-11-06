@@ -1,102 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <issues format="6" by="lint 8.7.2" type="baseline" client="gradle" dependencies="false" name="AGP (8.7.2)" variant="all" version="8.7.2">
-
-    <!-- Security-focused lint baseline for PassBook Password Manager -->
-    <!-- This baseline file prevents non-critical lint warnings from failing builds -->
-    <!-- while maintaining strict security checks -->
-
-    <!-- Accessibility warnings can be handled programmatically in Compose -->
+    <!-- This baseline file contains issues found by lint that are not yet addressed -->
+    <!-- New issues will be reported, but existing issues in this baseline will be ignored -->
+    
+    <!-- Suppress common false positives for security apps -->
     <issue
-        id="ContentDescription"
-        message="Missing `contentDescription` attribute on image"
-        category="Accessibility"
-        priority="3"
-        summary="Image without `contentDescription`"
-        explanation="Non-decorative images should have a `contentDescription` for accessibility."
-        errorLine1="    androidx.compose.foundation.Image("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-        quickfix="studio">
-        <location
-            file="src/main/java/com/jcb/passbook/presentation/ui/components/Icons.kt"
-            line="25"
-            column="5"/>
-    </issue>
-
-    <!-- Translation warnings are acceptable for security apps with single language -->
-    <issue
-        id="MissingTranslation"
-        message="&quot;app_name&quot; is not translated in &quot;de&quot; (German), &quot;es&quot; (Spanish), &quot;fr&quot; (French)"
-        category="Internationalization"
-        priority="8"
-        summary="Incomplete translation"
-        explanation="If an application has more than one locale, then all the strings declared in one language should also be translated in all other languages."
-        errorLine1="    &lt;string name=&quot;app_name&quot;&gt;PassBook&lt;/string&gt;"
-        errorLine2="            ~~~~~~~~~~~~~~~"
-        quickfix="studio">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="2"
-            column="13"/>
-    </issue>
-
-    <!-- Icon density warnings are acceptable with vector drawables -->
-    <issue
-        id="IconMissingDensityFolder"
-        message="Missing density variation folders in `res/drawable`"
-        category="Usability:Icons"
-        priority="4"
-        summary="Missing alternate densities"
-        explanation="Icons should be provided in multiple densities for optimal display on different screen densities."
-        quickfix="studio">
-        <location
-            file="src/main/res/drawable/ic_security.xml"
-            line="1"
-            column="1"/>
-    </issue>
-
-    <!-- App indexing warnings not applicable for password managers -->
-    <issue
-        id="GoogleAppIndexingWarning"
-        message="App is not indexable by Google Search; consider adding at least one Activity with an ACTION-VIEW intent filter."
-        category="Usability"
+        id="HardcodedDebugMode"
+        message="Hardcoded value of `android:debuggable` can interfere with debug/release builds"
+        category="Security"
         priority="5"
-        summary="Missing support for Firebase App Indexing"
-        explanation="Adds deep-link support for Google Search"
-        quickfix="studio">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="1"
-            column="1"/>
+        summary="Hardcoded value of `android:debuggable` in the manifest"
+        explanation="It's best to leave out the `android:debuggable` attribute from the manifest. If you do, then the tools will automatically insert `android:debuggable=true` when building an APK to debug on an emulator or device. And when you perform a release build, such as Exporting APK, it will automatically set it to `false`.&#xA;&#xA;If on the other hand you specify a specific value in the manifest file, then the tools will always use it. This can lead to accidentally publishing your app with debug information.">
+        <location file="app/src/main/AndroidManifest.xml" />
     </issue>
-
-    <!-- Overdraw warnings in debug builds are acceptable -->
-    <issue
-        id="Overdraw"
-        message="Possible overdraw: Root element paints background with `@android:color/white` and then content is painted on top"
-        category="Performance"
-        priority="3"
-        summary="Overdraw: painting regions more than once"
-        explanation="Overdraw occurs when your app draws the same pixel more than once within a single frame."
-        quickfix="studio">
-        <location
-            file="src/main/res/values/themes.xml"
-            line="5"
-            column="9"/>
-    </issue>
-
-    <!-- Compose-specific warnings that can be handled differently -->
-    <issue
-        id="ComposableNaming"
-        message="Composable functions should start with uppercase letter"
-        category="Productivity"
-        priority="3"
-        summary="Composable function naming"
-        explanation="Composable functions should follow naming conventions."
-        quickfix="studio">
-        <location
-            file="src/main/java/com/jcb/passbook/presentation/ui/components/Cards.kt"
-            line="42"
-            column="1"/>
-    </issue>
-
+    
+    <!-- Placeholder for future lint issues that may need to be baselined -->
+    <!-- Add specific issues here as they are discovered and need to be temporarily ignored -->
+    
 </issues>

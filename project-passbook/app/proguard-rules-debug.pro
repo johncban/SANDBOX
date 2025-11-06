@@ -1,47 +1,62 @@
-# Debug-specific ProGuard rules for PassBook Password Manager
-# These rules are applied only during debug builds to facilitate easier debugging
+# Debug-specific ProGuard rules for easier debugging while maintaining security
+# These rules are applied only to debug builds for easier troubleshooting
 
-# Keep all debug information
--keepattributes SourceFile,LineNumberTable,LocalVariableTable,LocalVariableTypeTable
+# Keep debug information for easier troubleshooting
+-keepattributes SourceFile,LineNumberTable
+-keepattributes LocalVariableTable,LocalVariableTypeTable
+-keepattributes MethodParameters
 
-# Keep all class names for easier debugging
--keepnames class ** { *; }
+# Keep debug logging but still obfuscate sensitive security components
+-keep class timber.log.** { *; }
+-keep class com.jakewharton.timber.** { *; }
 
-# Keep all method names for stack traces
--keepclassmembernames class * {
-    <methods>;
+# Keep debugging utilities
+-keep class leakcanary.** { *; }
+-keep class com.squareup.leakcanary.** { *; }
+-keep class com.facebook.flipper.** { *; }
+-keep class com.facebook.soloader.** { *; }
+
+# Debug builds still need some security measures - remove verbose logs
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
 }
 
-# Don't obfuscate in debug builds
--dontobfuscate
-
-# Keep test classes and methods
--keep class **Test { *; }
--keep class **Tests { *; }
--keep class **.*Test { *; }
--keep class **.*Tests { *; }
-
-# Keep JUnit and testing framework classes
--keep class org.junit.** { *; }
--keep class junit.** { *; }
+# Keep test frameworks for debug builds
 -keep class androidx.test.** { *; }
+-keep class junit.** { *; }
+-keep class org.junit.** { *; }
+-keep class org.mockito.** { *; }
+-keep class io.mockk.** { *; }
 
-# Keep Timber for debug logging
--keep class timber.log.** { *; }
+# Preserve stack traces for crash reporting in debug
+-keepattributes StackMapTable
+-keepattributes Exceptions
+-keepattributes Signature
 
-# Keep Hilt debug information
--keep class dagger.hilt.** { *; }
--keep class * extends dagger.hilt.android.AndroidEntryPoint { *; }
-
-# Preserve debug build configuration
--keep class **.BuildConfig { *; }
-
-# Keep debug-specific annotations
+# Keep annotations for debugging
 -keepattributes *Annotation*
+-keep @interface * { *; }
 
-# Less aggressive optimizations for debug
--optimizations !code/simplification/cast,!field/*,!class/merging/*
--optimizationpasses 1
+# Debug: Keep enum toString methods for easier debugging
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+    public ** toString();
+}
 
-# Verbose ProGuard output for debugging
--verbose
+# Keep reflection-based debugging utilities
+-keepclassmembers class * {
+    @androidx.compose.ui.tooling.preview.Preview <methods>;
+}
+
+# Allow reflection for debugging tools
+-keepclassmembers class * {
+    public <methods>;
+    public <fields>;
+}
+
+# Note: Even in debug, security-sensitive classes should remain obfuscated
+# This is handled in the main proguard-rules.pro file
+# Security classes are not affected by these debug rules

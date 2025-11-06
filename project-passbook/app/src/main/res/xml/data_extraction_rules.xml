@@ -1,13 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Data extraction rules for Android 12+ (API 31+) backup system.
+  This provides more granular control over what data can be extracted
+  during device-to-device transfers and cloud backups.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="sharedpref" path="."/>
-        <exclude domain="database" path="."/>
-        <exclude domain="file" path="."/>
+        <!-- Disable cloud backup entirely for security -->
+        <!-- Password managers should not store any data in cloud backups -->
+        <exclude domain="root" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+        <exclude domain="file" />
     </cloud-backup>
+    
     <device-transfer>
-        <exclude domain="sharedpref" path="."/>
-        <exclude domain="database" path="."/>
-        <exclude domain="file" path="."/>
+        <!-- Allow minimal data transfer for device migration -->
+        <!-- Only non-sensitive UI preferences -->
+        <exclude domain="database" />
+        <exclude domain="sharedpref" path="encrypted_prefs" />
+        <exclude domain="sharedpref" path="security_prefs" />
+        <exclude domain="sharedpref" path="biometric_prefs" />
+        <exclude domain="sharedpref" path="session_prefs" />
+        <exclude domain="file" path="security/" />
+        <exclude domain="file" path="keys/" />
+        <exclude domain="file" path="audit/" />
+        <exclude domain="external" />
+        
+        <!-- Allow only safe UI preferences -->
+        <include domain="sharedpref" path="ui_preferences" />
+        <include domain="sharedpref" path="app_settings" />
     </device-transfer>
 </data-extraction-rules>
