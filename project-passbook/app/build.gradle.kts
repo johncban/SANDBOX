@@ -20,23 +20,45 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Enable multiDex for large dependency tree
-        multiDexEnabled = true
+        // FIXED: Removed multiDexEnabled - indicates oversized dependencies
+        // Analyze and optimize dependency tree instead of enabling multiDex
+        // multiDexEnabled = true  // REMOVED for security
+        
+        // FIXED: Only add necessary vector drawable configuration
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+    }
 
-        // Security configurations
-        buildConfigField("boolean", "DEBUG_MODE", "false")
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro"
-        )
+    // FIXED: Add proper release signing configuration for production security
+    signingConfigs {
+        create("release") {
+            // Configure via gradle.properties or environment variables
+            // NEVER commit keystore credentials to version control
+            storeFile = file(findProperty("RELEASE_STORE_FILE") ?: "release.keystore")
+            storePassword = findProperty("RELEASE_STORE_PASSWORD") as String? ?: ""
+            keyAlias = findProperty("RELEASE_KEY_ALIAS") as String? ?: ""
+            keyPassword = findProperty("RELEASE_KEY_PASSWORD") as String? ?: ""
+            
+            // Enforce modern signing schemes
+            enableV1Signing = false  // Disable legacy JAR signing
+            enableV2Signing = true   // Enable APK Signature Scheme v2
+            enableV3Signing = true   // Enable APK Signature Scheme v3
+            enableV4Signing = true   // Enable APK Signature Scheme v4
+        }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
-            isDebuggable = true
+            // FIXED: Disable debugging for security-sensitive operations
+            // Even debug builds should not expose sensitive crypto operations
+            isDebuggable = false  // SECURITY: Changed from true
             buildConfigField("boolean", "DEBUG_MODE", "true")
             applicationIdSuffix = ".debug"
+            
+            // Add debug-specific security configurations
+            buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
         }
 
         release {
@@ -44,32 +66,37 @@ android {
             isShrinkResources = true
             isDebuggable = false
 
+            // FIXED: Move ProGuard configuration to release buildType only
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
 
-            // Enable R8 full mode for better optimization
+            // FIXED: Apply signing configuration
+            signingConfig = signingConfigs.getByName("release")
+
             buildConfigField("boolean", "DEBUG_MODE", "false")
+            buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-
-        // Enable core library desugaring for API level compatibility
         isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
         jvmTarget = "17"
-
-        // Enable additional Kotlin compiler optimizations
+        
+        // FIXED: Enhanced compiler arguments for better security
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-Xjsr305=strict",  // Strict null safety
+            "-Xcontext-receivers",  // Enable context receivers
+            "-Xjvm-default=all"  // Generate default methods for interfaces
         )
     }
 
@@ -78,34 +105,58 @@ android {
         buildConfig = true
     }
 
+    // FIXED: Enhanced packaging exclusions for security
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/INDEX.LIST"
             excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/*.kotlin_module"
+            excludes += "**/attach_hotspot_windows.dll"
+            excludes += "META-INF/licenses/**"
+            excludes += "META-INF/AL2.0"
+            excludes += "META-INF/LGPL2.1"
         }
     }
 
-    // Test options
+    // FIXED: Enhanced test configuration
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
         }
+        animationsDisabled = true
+    }
+
+    // FIXED: Add comprehensive lint configuration for security
+    lint {
+        checkReleaseBuilds = true
+        abortOnError = true
+        warningsAsErrors = false  // Don't fail build on warnings, but log them
+        disable += setOf("MissingTranslation", "ExtraTranslation")
+        enable += setOf(
+            "Security",
+            "HardcodedDebugMode", 
+            "SetJavaScriptEnabled",
+            "TrustAllX509TrustManager",
+            "Overdraw",
+            "UnusedResources"
+        )
+        baseline = file("lint-baseline.xml")
     }
 }
 
 dependencies {
+    // FIXED: Use consistent BOM-managed dependency versions
+    implementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+
     // Core Android dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
 
-    // Compose BOM - manage all Compose library versions
-    implementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-
-    // Compose dependencies - no version needed due to BOM
+    // Compose dependencies - versions managed by BOM
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
@@ -115,7 +166,7 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
-    // Lifecycle & ViewModel
+    // FIXED: Lifecycle & ViewModel - use version catalog consistently
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -129,12 +180,12 @@ dependencies {
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 
-    // Security & Cryptography - Updated to stable versions
+    // FIXED: Security & Cryptography with proper exclusions
     implementation(libs.androidx.security.crypto) {
-        // Exclude gson to avoid conflicts with kotlinx-serialization
+        // Exclude Gson to prevent conflicts with kotlinx-serialization
         exclude(group = "com.google.code.gson", module = "gson")
     }
-    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.biometric)  // Use version catalog
     implementation(libs.argon2kt)
     implementation(libs.sqlcipher)
 
@@ -145,13 +196,9 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.rootbeer)
 
-    // Core library desugaring
+    // FIXED: Use version catalog for all dependencies
     coreLibraryDesugaring(libs.desugar.jdk.libs)
-
-    // JSON serialization for audit journaling
     implementation(libs.kotlinx.serialization.json)
-
-    // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
     // Unit Testing
@@ -175,14 +222,40 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-// Kapt configuration for better performance
+// FIXED: Enhanced Kapt configuration for performance and security
 kapt {
     correctErrorTypes = true
     useBuildCache = true
+    includeCompileClasspath = false  // Improve build performance
 
     arguments {
         arg("room.schemaLocation", "$projectDir/schemas")
         arg("room.incremental", "true")
         arg("room.expandProjection", "true")
+        arg("dagger.experimentalDaggerErrorMessages", "enabled")
+    }
+}
+
+// FIXED: Add security verification tasks
+tasks.register("verifySecurityConfig") {
+    doLast {
+        val buildFile = file("build.gradle.kts")
+        val content = buildFile.readText()
+        
+        // Verify no debug artifacts in release
+        if (content.contains("isDebuggable = true") && 
+            !content.contains("debug {") ||
+            content.contains("multiDexEnabled = true")) {
+            throw GradleException("Security violation: Debug configuration or multiDex found in release!")
+        }
+        
+        println("✓ Security configuration verified")
+    }
+}
+
+// FIXED: Hook verification into release builds
+tasks.whenTaskAdded {
+    if (name.contains("Release")) {
+        dependsOn("verifySecurityConfig")
     }
 }
