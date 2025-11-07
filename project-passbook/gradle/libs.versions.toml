@@ -1,6 +1,6 @@
 [versions]
-# Build tools and Android - Production stable versions
-agp = "8.7.2"  # Latest stable AGP with security fixes
+# Build tools and Android
+agp = "8.7.2"
 kotlin = "2.0.0"
 ksp = "2.0.0-1.0.22"
 compose-compiler = "1.5.14"
@@ -9,9 +9,10 @@ compose-compiler = "1.5.14"
 coreKtx = "1.13.1"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
-coreSplashscreen = "1.1.0"
+coreSplashscreen = "1.0.1"          # FIXED: was 1.1.0
 lifecycleProcess = "2.8.7"
 profileinstaller = "1.4.1"
+
 
 # Compose - Stable BOM with security considerations
 composeBom = "2024.10.01"
@@ -32,23 +33,23 @@ hiltWork = "1.2.0"
 room = "2.6.1"
 
 # Security & Cryptography - Stable versions only for production
-securityCrypto = "1.1.0"  # Stable version
-biometric = "1.1.0"       # Stable biometric authentication
-argon2kt = "1.6.0"        # Latest stable Argon2 implementation
-sqlcipher = "4.5.4"       # Latest stable SQLCipher
+securityCrypto = "1.1.0"        # Stable version
+biometric = "1.1.0"             # Stable biometric authentication
+argon2kt = "1.6.0"              # Latest stable Argon2 implementation
+sqlcipher = "4.5.4"             # Latest stable SQLCipher
 securityIdentity = "1.0.0-alpha03"  # Identity credential
-webkit = "1.11.0"         # Secure WebView if needed
+webkit = "1.11.0"               # Secure WebView if needed
 
 # Additional Security Libraries
-bouncycastle = "1.78.1"   # Additional crypto algorithms
-okhttp = "4.12.0"         # Networking with security focus
+bouncycastle = "1.78.1"         # Additional crypto algorithms
+okhttp = "4.12.0"               # Networking with security focus
 
 # Background Processing
 workRuntimeKtx = "2.9.1"
 workTesting = "2.9.1"
 
 # Data Storage
-datastore = "1.0.0"       # Secure preferences
+datastore = "1.0.0"             # Secure preferences
 
 # Image Loading
 coil = "2.5.0"
@@ -59,8 +60,8 @@ coilSvg = "2.5.0"
 timber = "5.0.1"
 timberAndroid = "5.0.1"
 rootbeer = "0.1.1"
-tracing = "1.2.0"         # Performance tracing
-benchmark = "1.2.4"       # Benchmarking
+tracing = "1.2.0"               # Performance tracing
+benchmark = "1.2.4"             # Benchmarking
 
 # Serialization
 kotlinxSerializationJson = "1.6.3"
@@ -72,7 +73,7 @@ kotlinxCoroutinesPlayServices = "1.8.0"
 koroutinesTest = "1.8.0"
 
 # Core Libraries
-desugarJdkLibs = "2.0.4"
+desugarJdkLibs = "2.1.2"
 
 # Testing - JUnit 4
 junit = "4.13.2"
@@ -201,7 +202,7 @@ androidx-benchmark-common = { group = "androidx.benchmark", name = "benchmark-co
 androidx-benchmark-junit4 = { group = "androidx.benchmark", name = "benchmark-junit4", version.ref = "benchmark" }
 
 # Core Libraries
-desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugarjdklibs", version.ref = "desugarJdkLibs" }
 
 # JSON Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
@@ -260,6 +261,16 @@ kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref =
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 
 [bundles]
+# Debug tools bundle - FIXED
+debug-tools = [
+    "androidx-ui-tooling",
+    "androidx-ui-test-manifest",
+    "androidx-ui-tooling-preview",  # FIXED: was androidx-compose-ui-tooling-preview
+    "leakcanary-android",
+    "flipper",
+    "soloader"
+]
+
 # Compose UI bundle for cleaner dependency management
 compose-ui = [
     "androidx-ui",
@@ -316,23 +327,6 @@ networking = [
     "okhttp-tls"
 ]
 
-# Testing unit bundle
-testing-unit = [
-    "junit",
-    "junit5-api",
-    "junit5-engine",
-    "junit5-params",
-    "truth",
-    "truth-java8-extension",
-    "mockk",
-    "kotlinx-coroutines-test",
-    "turbine",
-    "androidx-arch-core-testing",
-    "robolectric",
-    "bouncycastle-jdk18",
-    "okhttp-mockwebserver"
-]
-
 # Testing instrumentation bundle
 testing-instrumentation = [
     "androidx-junit",
@@ -351,12 +345,19 @@ testing-instrumentation = [
     "androidx-benchmark-junit4"
 ]
 
-# Debug tools bundle
-debug-tools = [
-    "androidx-ui-tooling",
-    "androidx-ui-test-manifest",
-    "androidx-compose-ui-tooling-preview",
-    "leakcanary-android",
-    "flipper",
-    "soloader"
+# Testing unit bundle
+testing-unit = [
+    "junit",
+    "junit5-api",
+    "junit5-engine",
+    "junit5-params",
+    "truth",
+    "truth-java8-extension",
+    "mockk",
+    "kotlinx-coroutines-test",
+    "turbine",
+    "androidx-arch-core-testing",
+    "robolectric",
+    "bouncycastle-jdk18",
+    "okhttp-mockwebserver"
 ]
