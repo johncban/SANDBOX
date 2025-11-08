@@ -18,11 +18,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Resource optimization
+        resourceConfigurations += listOf("en", "xxhdpi", "xxxhdpi")
 
         // BuildConfig fields
         buildConfigField("boolean", "DEBUG_MODE", "false")
@@ -30,35 +34,19 @@ android {
         buildConfigField("int", "VERSION_CODE", "${versionCode}")
     }
 
-    // FIXED: signingConfigs at android level (properly closed)
     signingConfigs {
         create("release") {
             storeFile = file(findProperty("RELEASE_STORE_FILE") ?: "release.keystore")
             storePassword = findProperty("RELEASE_STORE_PASSWORD") as String? ?: ""
             keyAlias = findProperty("RELEASE_KEY_ALIAS") as String? ?: ""
             keyPassword = findProperty("RELEASE_KEY_PASSWORD") as String? ?: ""
+
             enableV1Signing = false
             enableV2Signing = true
             enableV3Signing = true
             enableV4Signing = true
         }
     }
-
-    // FIXED: splits is now at android {} level, PARALLEL to signingConfigs (not nested inside)
-    splits {
-        density {
-            isEnable = true
-            reset()
-            include("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")
-        }
-        abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-            isUniversalApk = true
-        }
-    }
-
 
     buildTypes {
         debug {
@@ -67,9 +55,11 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"debug\"")
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
@@ -81,10 +71,12 @@ android {
             isShrinkResources = true
             isDebuggable = false
             signingConfig = signingConfigs.getByName("release")
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
             buildConfigField("boolean", "DEBUG_MODE", "false")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"release\"")
@@ -100,8 +92,10 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
+
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("String", "BUILD_TYPE", "\"staging\"")
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
@@ -112,10 +106,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
         jvmTarget = "17"
+
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
@@ -125,6 +121,7 @@ android {
             "-Xjsr305=strict",
             "-Xjvm-default=all"
         )
+
         allWarningsAsErrors = false
     }
 
@@ -150,6 +147,7 @@ android {
                 "META-INF/licenses/**",
                 "kotlin/**"
             )
+
             pickFirsts += listOf(
                 "**/libc++_shared.so"
             )
@@ -165,9 +163,8 @@ android {
 
     lint {
         checkReleaseBuilds = true
-        abortOnError = false
+        abortOnError = true
         baseline = file("lint-baseline.xml")
-        disable += listOf("MissingTranslation")
     }
 }
 
@@ -231,6 +228,9 @@ dependencies {
     implementation(libs.timber)
     implementation(libs.rootbeer)
 
+    // Core library desugaring
+    // coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     // JSON serialization
     implementation(libs.kotlinx.serialization.json)
 
@@ -268,6 +268,7 @@ dependencies {
 kapt {
     correctErrorTypes = true
     useBuildCache = true
+
     arguments {
         arg("room.schemaLocation", "$projectDir/schemas")
         arg("room.incremental", "true")
