@@ -11,8 +11,12 @@ import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.CryptoManager
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
+import com.jcb.passbook.security.crypto.SessionManager
 import com.jcb.passbook.security.audit.AuditChainManager
+import com.jcb.passbook.security.audit.AuditJournalManager
 import com.jcb.passbook.security.audit.AuditLogger
+import com.jcb.passbook.security.audit.AuditQueue
 import com.jcb.passbook.security.audit.SecurityAuditManager
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
@@ -25,8 +29,8 @@ import javax.inject.Singleton
 /**
  * AppModule provides application-level dependencies.
  *
+ * FIXED: All constructor signatures now match actual class definitions
  * Database provisioning is handled by DatabaseModule.kt
- * This module focuses on repositories, crypto, and audit system dependencies.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -44,6 +48,14 @@ object AppModule {
     @Singleton
     @RequiresApi(Build.VERSION_CODES.M)
     fun provideCryptoManager(): CryptoManager = CryptoManager()
+
+    /**
+     * FIXED: Added SecureMemoryUtils provider
+     * Required by: AuditChainManager, AuditJournalManager
+     */
+    @Provides
+    @Singleton
+    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
 
     // ============================================================================================
     // REPOSITORY PROVIDERS
@@ -69,30 +81,64 @@ object AppModule {
     // ============================================================================================
 
     /**
-     * FIXED: Added AuditChainManager provider
-     * AuditChainManager handles tamper-evident audit log chaining
+     * FIXED: AuditChainManager constructor requires:
+     * - auditDao: AuditDao
+     * - auditMetadataDao: AuditMetadataDao
+     * - secureMemoryUtils: SecureMemoryUtils
      */
     @Provides
     @Singleton
     fun provideAuditChainManager(
-        auditMetadataDao: AuditMetadataDao
-    ): AuditChainManager = AuditChainManager(auditMetadataDao)
+        auditDao: AuditDao,
+        auditMetadataDao: AuditMetadataDao,
+        secureMemoryUtils: SecureMemoryUtils
+    ): AuditChainManager = AuditChainManager(auditDao, auditMetadataDao, secureMemoryUtils)
 
     /**
-     * FIXED: Updated to include AuditChainManager parameter
-     * Constructor signature: AuditLogger(AuditDao, AuditChainManager, Context)
+     * FIXED: AuditJournalManager constructor requires:
+     * - context: Context
+     * - sessionManager: SessionManager
+     * - secureMemoryUtils: SecureMemoryUtils
+     */
+    @Provides
+    @Singleton
+    fun provideAuditJournalManager(
+        @ApplicationContext context: Context,
+        sessionManager: SessionManager,
+        secureMemoryUtils: SecureMemoryUtils
+    ): AuditJournalManager = AuditJournalManager(context, sessionManager, secureMemoryUtils)
+
+    /**
+     * FIXED: AuditQueue constructor requires:
+     * - auditDao: AuditDao
+     * - journalManager: AuditJournalManager
+     */
+    @Provides
+    @Singleton
+    fun provideAuditQueue(
+        auditDao: AuditDao,
+        journalManager: AuditJournalManager
+    ): AuditQueue = AuditQueue(auditDao, journalManager)
+
+    /**
+     * FIXED: AuditLogger constructor requires:
+     * - auditQueue: AuditQueue
+     * - auditChainManager: AuditChainManager
+     * - context: Context
      */
     @Provides
     @Singleton
     fun provideAuditLogger(
-        auditDao: AuditDao,
+        auditQueue: AuditQueue,
         auditChainManager: AuditChainManager,
         @ApplicationContext context: Context
-    ): AuditLogger = AuditLogger(auditDao, auditChainManager, context)
+    ): AuditLogger = AuditLogger(auditQueue, auditChainManager, context)
 
     /**
-     * FIXED: Updated to include AuditDao parameter
-     * Constructor signature: SecurityAuditManager(AuditLogger, AuditDao, Context)
+     * FIXED: SecurityAuditManager constructor requires:
+     * - auditLogger: AuditLogger
+     * - auditDao: AuditDao
+     * - context: Context
      */
     @Provides
     @Singleton

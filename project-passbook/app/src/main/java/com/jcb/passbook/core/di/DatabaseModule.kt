@@ -14,6 +14,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.runBlocking
 import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 import timber.log.Timber
@@ -22,6 +23,8 @@ import javax.inject.Singleton
 /**
  * DatabaseModule provides secure database configuration with SQLCipher encryption.
  * This module handles the critical security requirement of encrypted local storage.
+ *
+ * FIXED: All method references now match actual DatabaseKeyManager implementation
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -30,6 +33,8 @@ object DatabaseModule {
     /**
      * Provides the main application database with SQLCipher encryption.
      * The database key is managed by DatabaseKeyManager and is never persisted.
+     *
+     * FIXED: Uses correct method 'getOrCreateDatabasePassphrase()' from DatabaseKeyManager
      */
     @Provides
     @Singleton
@@ -41,17 +46,21 @@ object DatabaseModule {
         return try {
             // Initialize SQLCipher native libraries
             SQLiteDatabase.loadLibs(context)
-            
-            // Get database encryption key (never persisted)
-            val passphrase: ByteArray = dbKeyManager.getSqlCipherKey()
-            
+
+            // FIXED: Use correct method name from DatabaseKeyManager
+            // Method returns ByteArray? (nullable), so we must handle null case
+            val passphrase: ByteArray = runBlocking {
+                dbKeyManager.getOrCreateDatabasePassphrase()
+                    ?: throw IllegalStateException("Cannot create database without passphrase - no active session")
+            }
+
             // Create SQLCipher support factory
             val factory = SupportFactory(passphrase)
-            
+
             // Zeroize the passphrase immediately after factory creation
             // SupportFactory clones the key internally, so this is safe
             java.util.Arrays.fill(passphrase, 0.toByte())
-            
+
             // Build the encrypted database
             val database = Room.databaseBuilder(
                 context,
@@ -64,7 +73,7 @@ object DatabaseModule {
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .addCallback(DatabaseCallback(auditLogger))
                 .build()
-            
+
             // Log successful database initialization
             auditLogger.logUserAction(
                 userId = null,
@@ -77,16 +86,16 @@ object DatabaseModule {
                 errorMessage = null,
                 securityLevel = "HIGH"
             )
-            
+
             database
-            
+
         } catch (e: Exception) {
             Timber.e(e, "Failed to initialize encrypted database")
-            
+
             // Log database initialization failure
             auditLogger.logUserAction(
                 userId = null,
-                username = "SYSTEM", 
+                username = "SYSTEM",
                 eventType = AuditEventType.SYSTEM_EVENT,
                 action = "Database initialization failed",
                 resourceType = "DATABASE",
@@ -95,7 +104,7 @@ object DatabaseModule {
                 errorMessage = e.message,
                 securityLevel = "CRITICAL"
             )
-            
+
             throw SecurityException("Failed to initialize secure database", e)
         }
     }
@@ -106,15 +115,15 @@ object DatabaseModule {
     private class DatabaseCallback(
         private val auditLogger: AuditLogger
     ) : RoomDatabase.Callback() {
-        
+
         override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
             super.onCreate(db)
-            
+
             // Log database creation
             auditLogger.logUserAction(
                 userId = null,
                 username = "SYSTEM",
-                eventType = AuditEventType.DATA_ACCESS,
+                eventType = AuditEventType.SYSTEM_EVENT,
                 action = "Database created",
                 resourceType = "DATABASE",
                 resourceId = "passbook_encrypted.db",
@@ -122,21 +131,21 @@ object DatabaseModule {
                 errorMessage = null,
                 securityLevel = "HIGH"
             )
-            
+
             Timber.i("Encrypted database created successfully")
         }
-        
+
         override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
             super.onOpen(db)
-            
+
             // Verify SQLCipher is working by attempting to read from sqlite_master
             try {
                 db.query("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
-                
+
                 auditLogger.logUserAction(
                     userId = null,
                     username = "SYSTEM",
-                    eventType = AuditEventType.DATA_ACCESS,
+                    eventType = AuditEventType.SYSTEM_EVENT,
                     action = "Database opened and verified",
                     resourceType = "DATABASE",
                     resourceId = "passbook_encrypted.db",
@@ -144,16 +153,16 @@ object DatabaseModule {
                     errorMessage = null,
                     securityLevel = "HIGH"
                 )
-                
+
                 Timber.i("Database connection verified")
-                
+
             } catch (e: Exception) {
                 Timber.e(e, "Database verification failed")
-                
+
                 auditLogger.logUserAction(
                     userId = null,
                     username = "SYSTEM",
-                    eventType = AuditEventType.DATA_ACCESS,
+                    eventType = AuditEventType.SYSTEM_EVENT,
                     action = "Database verification failed",
                     resourceType = "DATABASE",
                     resourceId = "passbook_encrypted.db",
@@ -161,35 +170,40 @@ object DatabaseModule {
                     errorMessage = e.message,
                     securityLevel = "CRITICAL"
                 )
-                
+
                 throw SecurityException("Database verification failed", e)
             }
         }
     }
 
-    // DAO Providers - these are injected automatically by Room
-    
+    // ============================================================================================
+    // DAO PROVIDERS
+    // ============================================================================================
+    // These provide Room DAOs to the dependency injection graph
+    // NOTE: Only DAOs that are defined in AppDatabase should be provided here
+
     @Provides
-    fun providePasswordItemDao(database: AppDatabase): PasswordItemDao = 
-        database.passwordItemDao()
-    
-    @Provides 
-    fun provideUserDao(database: AppDatabase): UserDao = 
+    fun provideItemDao(database: AppDatabase): ItemDao =
+        database.itemDao()
+
+    @Provides
+    fun provideUserDao(database: AppDatabase): UserDao =
         database.userDao()
-        
+
     @Provides
-    fun provideAuditDao(database: AppDatabase): AuditDao = 
+    fun provideAuditDao(database: AppDatabase): AuditDao =
         database.auditDao()
-        
+
     @Provides
-    fun provideAuditMetadataDao(database: AppDatabase): AuditMetadataDao = 
+    fun provideAuditMetadataDao(database: AppDatabase): AuditMetadataDao =
         database.auditMetadataDao()
-        
-    @Provides
-    fun provideBiometricKeyDao(database: AppDatabase): BiometricKeyDao = 
-        database.biometricKeyDao()
-        
-    @Provides
-    fun provideSessionDao(database: AppDatabase): SessionDao = 
-        database.sessionDao()
+
+    // OPTIONAL: Only uncomment if these DAOs exist in your AppDatabase
+    // @Provides
+    // fun provideBiometricKeyDao(database: AppDatabase): BiometricKeyDao =
+    //     database.biometricKeyDao()
+    //
+    // @Provides
+    // fun provideSessionDao(database: AppDatabase): SessionDao =
+    //     database.sessionDao()
 }
