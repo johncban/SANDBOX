@@ -15,8 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * IMPROVED AuditLogger with optional parameters to prevent "missing parameter" errors
- * while maintaining all required functionality for audit logging.
+ * FIXED: AuditLogger with correct enum references and proper syntax
  */
 @Singleton
 class AuditLogger @Inject constructor(
@@ -27,7 +26,7 @@ class AuditLogger @Inject constructor(
     private val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * IMPROVED: Log user action with optional parameters for easier calling
+     * Log user action with optional parameters for easier calling
      */
     fun logUserAction(
         userId: Int?,
@@ -37,8 +36,8 @@ class AuditLogger @Inject constructor(
         resourceType: String?,
         resourceId: String?,
         outcome: AuditOutcome,
-        errorMessage: String? = null, // FIXED: Made optional with default null
-        securityLevel: String = "NORMAL" // FIXED: Made optional with default
+        errorMessage: String? = null,
+        securityLevel: String = "NORMAL"
     ) {
         auditScope.launch {
             try {
@@ -253,6 +252,42 @@ class AuditLogger @Inject constructor(
                 Timber.e(e, "Failed to log item operation")
             }
         }
+    }
+
+    /**
+     * FIXED: Log data access events with correct enum usage
+     * Called from ItemViewModel when accessing password vault items
+     */
+    fun logDataAccess(
+        userId: Int?,
+        username: String,
+        action: String,
+        resourceType: String?,
+        resourceId: String?,
+        outcome: AuditOutcome = AuditOutcome.SUCCESS,
+        errorMessage: String? = null,
+        securityLevel: String = "NORMAL"
+    ) {
+        // FIXED: Determine event type from action, fallback to READ instead of DATA_ACCESS
+        val eventType = when {
+            action.contains("Created", ignoreCase = true) -> AuditEventType.CREATE
+            action.contains("Updated", ignoreCase = true) -> AuditEventType.UPDATE
+            action.contains("Deleted", ignoreCase = true) -> AuditEventType.DELETE
+            action.contains("Accessed", ignoreCase = true) -> AuditEventType.READ
+            else -> AuditEventType.READ  // ✅ FIXED: Changed from DATA_ACCESS to READ
+        }
+
+        logUserAction(
+            userId = userId,
+            username = username,
+            eventType = eventType,
+            action = action,
+            resourceType = resourceType,
+            resourceId = resourceId,
+            outcome = outcome,
+            errorMessage = errorMessage,
+            securityLevel = securityLevel
+        )
     }
 
     /**
