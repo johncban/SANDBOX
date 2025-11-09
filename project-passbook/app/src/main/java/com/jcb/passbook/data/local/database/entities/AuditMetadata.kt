@@ -19,7 +19,7 @@ data class AuditMetadata(
     val value: String,
 
     @ColumnInfo(name = "timestamp")
-    val timestamp: Long, //= System.currentTimeMillis(),
+    val timestamp: Long,
 
     @ColumnInfo(name = "description")
     val description: String? = null
