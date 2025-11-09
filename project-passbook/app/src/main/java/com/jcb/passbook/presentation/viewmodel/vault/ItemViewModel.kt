@@ -17,7 +17,14 @@ import timber.log.Timber
 import javax.inject.Inject
 
 /**
- * FIXED: All logDataAccess() calls now use correct signature
+ * ItemViewModel - Manages password vault items with encryption and audit logging
+ *
+ * FIXES APPLIED:
+ * - Changed all 'name' references to 'title' (Item entity field)
+ * - Changed all 'encryptedPasswordData' to 'encryptedPassword' (Item entity field)
+ * - Fixed all Item() constructor calls with correct parameter names
+ * - Fixed all item.copy() calls with correct parameter names
+ * - All audit logging uses correct AuditLogger signature
  */
 
 sealed class ItemOperationState {
@@ -63,7 +70,8 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * FIXED: Insert item with correct audit logging signature
+     * Insert new password item with encryption and audit logging
+     * FIXED: Uses 'title' and 'encryptedPassword' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun insert(itemName: String, plainTextPassword: String) {
@@ -78,13 +86,14 @@ class ItemViewModel @Inject constructor(
             runCatching {
                 val encryptedData = cryptoManager.encrypt(plainTextPassword)
                 val newItem = Item(
-                    name = itemName,
-                    encryptedPasswordData = encryptedData,
+                    title = itemName,  // ✅ FIXED: Changed from 'name' to 'title'
+                    encryptedPassword = encryptedData,  // ✅ FIXED: Changed from 'encryptedPasswordData' to 'encryptedPassword'
                     userId = currentUserId
                 )
+
                 repository.insert(newItem)
 
-                // FIXED: Audit logging with correct signature
+                // Audit logging with correct signature
                 val user = userRepository.getUser(currentUserId).first()
                 auditLogger.logDataAccess(
                     userId = currentUserId,
@@ -97,7 +106,7 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // FIXED: Audit the failure with correct signature
+                // Audit the failure
                 viewModelScope.launch {
                     val user = userRepository.getUser(currentUserId).first()
                     auditLogger.logDataAccess(
@@ -117,32 +126,33 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * FIXED: Update item with correct audit logging signature
+     * Update existing password item
+     * FIXED: Uses 'title' and 'encryptedPassword' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun update(item: Item, newName: String?, newPlainTextPassword: String?) {
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
-                val updatedName = newName ?: item.name
+                val updatedTitle = newName ?: item.title  // ✅ FIXED: Changed from item.name to item.title
                 val updatedData = newPlainTextPassword?.let {
                     cryptoManager.encrypt(it)
-                } ?: item.encryptedPasswordData
+                } ?: item.encryptedPassword  // ✅ FIXED: Changed from item.encryptedPasswordData to item.encryptedPassword
 
-                val needUpdate = updatedName != item.name ||
-                        !updatedData.contentEquals(item.encryptedPasswordData)
+                val needUpdate = updatedTitle != item.title ||  // ✅ FIXED: Changed from item.name
+                        !updatedData.contentEquals(item.encryptedPassword)  // ✅ FIXED: Changed from item.encryptedPasswordData
 
                 if (needUpdate) {
                     repository.update(item.copy(
-                        name = updatedName,
-                        encryptedPasswordData = updatedData
+                        title = updatedTitle,  // ✅ FIXED: Changed from 'name' to 'title'
+                        encryptedPassword = updatedData  // ✅ FIXED: Changed from 'encryptedPasswordData' to 'encryptedPassword'
                     ))
 
-                    // FIXED: Audit logging with correct signature
+                    // Audit logging
                     val user = userRepository.getUser(item.userId).first()
                     val actionDetails = buildString {
-                        append("Updated password item: ${item.name}")
-                        if (newName != null) append(" (renamed to: $updatedName)")
+                        append("Updated password item: ${item.title}")  // ✅ FIXED: Changed from item.name
+                        if (newName != null) append(" (renamed to: $updatedTitle)")
                         if (newPlainTextPassword != null) append(" (password changed)")
                     }
 
@@ -158,13 +168,13 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // FIXED: Audit the failure with correct signature
+                // Audit the failure
                 viewModelScope.launch {
                     val user = userRepository.getUser(item.userId).first()
                     auditLogger.logDataAccess(
                         userId = item.userId,
                         username = user?.username ?: "Unknown",
-                        action = "Failed to update password item: ${item.name}",
+                        action = "Failed to update password item: ${item.title}",  // ✅ FIXED: Changed from item.name
                         resourceType = "ITEM",
                         resourceId = item.id.toString(),
                         outcome = AuditOutcome.FAILURE,
@@ -178,7 +188,8 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * FIXED: Delete item with correct audit logging signature
+     * Delete password item
+     * FIXED: Uses 'title' field
      */
     fun delete(item: Item) {
         _operationState.value = ItemOperationState.Loading
@@ -186,12 +197,12 @@ class ItemViewModel @Inject constructor(
             runCatching {
                 repository.delete(item)
 
-                // FIXED: Audit logging with correct signature
+                // Audit logging
                 val user = userRepository.getUser(item.userId).first()
                 auditLogger.logDataAccess(
                     userId = item.userId,
                     username = user?.username ?: "Unknown",
-                    action = "Deleted password item: ${item.name}",
+                    action = "Deleted password item: ${item.title}",  // ✅ FIXED: Changed from item.name
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.SUCCESS
@@ -199,13 +210,13 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // FIXED: Audit the failure with correct signature
+                // Audit the failure
                 viewModelScope.launch {
                     val user = userRepository.getUser(item.userId).first()
                     auditLogger.logDataAccess(
                         userId = item.userId,
                         username = user?.username ?: "Unknown",
-                        action = "Failed to delete password item: ${item.name}",
+                        action = "Failed to delete password item: ${item.title}",  // ✅ FIXED: Changed from item.name
                         resourceType = "ITEM",
                         resourceId = item.id.toString(),
                         outcome = AuditOutcome.FAILURE,
@@ -219,20 +230,21 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * FIXED: Get decrypted password with correct audit logging signature
+     * Get decrypted password for viewing/copying
+     * FIXED: Uses 'encryptedPassword' and 'title' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun getDecryptedPassword(item: Item): String? {
         return try {
-            val decrypted = cryptoManager.decrypt(item.encryptedPasswordData)
+            val decrypted = cryptoManager.decrypt(item.encryptedPassword)  // ✅ FIXED: Changed from item.encryptedPasswordData
 
-            // FIXED: Audit the password access with correct signature
+            // Audit the password access (elevated security level)
             viewModelScope.launch {
                 val user = userRepository.getUser(_userId.value).first()
                 auditLogger.logDataAccess(
                     userId = _userId.value,
                     username = user?.username ?: "Unknown",
-                    action = "Accessed password for: ${item.name}",
+                    action = "Accessed password for: ${item.title}",  // ✅ FIXED: Changed from item.name
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.SUCCESS,
@@ -242,13 +254,13 @@ class ItemViewModel @Inject constructor(
 
             decrypted
         } catch (e: Exception) {
-            // FIXED: Audit the failure with correct signature
+            // Audit the failure
             viewModelScope.launch {
                 val user = userRepository.getUser(_userId.value).first()
                 auditLogger.logDataAccess(
                     userId = _userId.value,
                     username = user?.username ?: "Unknown",
-                    action = "Failed to decrypt password for: ${item.name}",
+                    action = "Failed to decrypt password for: ${item.title}",  // ✅ FIXED: Changed from item.name
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.FAILURE,

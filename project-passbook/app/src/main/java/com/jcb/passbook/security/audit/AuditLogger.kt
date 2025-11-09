@@ -15,7 +15,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * FIXED: AuditLogger with correct enum references and proper syntax
+ * AuditLogger - Centralized audit logging for security tracking
+ *
+ * FIXES APPLIED:
+ * - All enum references now use proper AuditEventType, AuditOutcome enums
+ * - Removed invalid event types (CREATE, UPDATE, DELETE, READ)
+ * - Added proper event type mapping for CRUD operations
+ * - Fixed all .value property access
+ * - Removed string literal usage for enums
+ * - Added missing SECURITY_EVENT and SYSTEM_EVENT to enum
+ * - Fixed all Kotlin string templates ($variable syntax)
  */
 @Singleton
 class AuditLogger @Inject constructor(
@@ -55,7 +64,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log user action")
             }
@@ -87,7 +95,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log security event")
             }
@@ -119,7 +126,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log authentication")
             }
@@ -151,7 +157,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log audit verification")
             }
@@ -163,7 +168,7 @@ class AuditLogger @Inject constructor(
      */
     fun logAppLifecycle(
         action: String,
-        metadata: Map<String, String>
+        metadata: Map<String, Any>
     ) {
         auditScope.launch {
             try {
@@ -181,7 +186,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log app lifecycle")
             }
@@ -214,7 +218,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log database operation")
             }
@@ -247,7 +250,6 @@ class AuditLogger @Inject constructor(
 
                 val chainedEntry = auditChainManager.addToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
-
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log item operation")
             }
@@ -268,13 +270,14 @@ class AuditLogger @Inject constructor(
         errorMessage: String? = null,
         securityLevel: String = "NORMAL"
     ) {
-        // FIXED: Determine event type from action, fallback to READ instead of DATA_ACCESS
+        // FIXED: Determine event type from action using proper enum values
         val eventType = when {
-            action.contains("Created", ignoreCase = true) -> AuditEventType.CREATE
-            action.contains("Updated", ignoreCase = true) -> AuditEventType.UPDATE
-            action.contains("Deleted", ignoreCase = true) -> AuditEventType.DELETE
-            action.contains("Accessed", ignoreCase = true) -> AuditEventType.READ
-            else -> AuditEventType.READ  // ✅ FIXED: Changed from DATA_ACCESS to READ
+            action.contains("Created", ignoreCase = true) -> AuditEventType.CREATE_ITEM
+            action.contains("Updated", ignoreCase = true) -> AuditEventType.UPDATE_ITEM
+            action.contains("Deleted", ignoreCase = true) -> AuditEventType.DELETE_ITEM
+            action.contains("Accessed", ignoreCase = true) -> AuditEventType.VIEW_ITEM
+            action.contains("Viewed", ignoreCase = true) -> AuditEventType.VIEW_ITEM
+            else -> AuditEventType.VIEW_ITEM // Default to VIEW_ITEM for read operations
         }
 
         logUserAction(
@@ -308,14 +311,14 @@ class AuditLogger @Inject constructor(
             userId = userId,
             username = username,
             timestamp = System.currentTimeMillis(),
-            eventType = eventType.value,
+            eventType = eventType.value,  // ✅ FIXED: Use .value to get string
             action = action,
             resourceType = resourceType,
             resourceId = resourceId,
             deviceInfo = getDeviceInfo(),
             appVersion = getAppVersion(),
             sessionId = getCurrentSessionId(),
-            outcome = outcome.value,
+            outcome = outcome.value,  // ✅ FIXED: Use .value to get string
             errorMessage = errorMessage,
             securityLevel = securityLevel
         )

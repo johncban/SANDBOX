@@ -16,52 +16,52 @@ interface AuditDao {
     @Update
     suspend fun update(auditEntry: AuditEntry)
 
-    @Query("SELECT * FROM audit_entry WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
     fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entry WHERE eventType = :eventType ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries WHERE eventType = :eventType ORDER BY timestamp DESC LIMIT :limit")
     fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entry WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp ASC")
+    @Query("SELECT * FROM audit_entries WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp ASC")
     fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entry WHERE outcome IN ('FAILURE', 'BLOCKED') ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries WHERE outcome IN ('FAILURE', 'BLOCKED') ORDER BY timestamp DESC LIMIT :limit")
     fun getFailedAuditEntries(limit: Int = 500): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entry WHERE securityLevel = 'CRITICAL' ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries WHERE securityLevel = 'CRITICAL' ORDER BY timestamp DESC LIMIT :limit")
     fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entry WHERE sessionId = :sessionId ORDER BY timestamp ASC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries WHERE sessionId = :sessionId ORDER BY timestamp ASC LIMIT :limit")
     fun getAuditEntriesForSession(sessionId: String, limit: Int = 1000): Flow<List<AuditEntry>>
 
-    @Query("SELECT COUNT(*) FROM audit_entry WHERE userId = :userId AND eventType = :eventType AND timestamp >= :since")
+    @Query("SELECT COUNT(*) FROM audit_entries WHERE userId = :userId AND eventType = :eventType AND timestamp >= :since")
     suspend fun countEventsSince(userId: Int?, eventType: String, since: Long): Int
 
-    @Query("SELECT COUNT(*) FROM audit_entry WHERE eventType = :eventType AND timestamp >= :since")
+    @Query("SELECT COUNT(*) FROM audit_entries WHERE eventType = :eventType AND timestamp >= :since")
     suspend fun countAllEventsSince(eventType: String, since: Long): Int
 
-    @Query("DELETE FROM audit_entry WHERE timestamp < :cutoffTime")
+    @Query("DELETE FROM audit_entries WHERE timestamp < :cutoffTime")
     suspend fun deleteOldEntries(cutoffTime: Long): Int
 
-    @Query("SELECT * FROM audit_entry ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM audit_entries ORDER BY timestamp DESC LIMIT :limit")
     fun getAllAuditEntries(limit: Int = 1000): Flow<List<AuditEntry>>
 
     // Chain integrity queries
-    @Query("SELECT COUNT(*) FROM audit_entry WHERE checksum IS NULL")
+    @Query("SELECT COUNT(*) FROM audit_entries WHERE checksum IS NULL")
     suspend fun countEntriesWithoutChecksum(): Int
 
-    @Query("SELECT COUNT(*) FROM audit_entry WHERE chainHash IS NULL")
+    @Query("SELECT COUNT(*) FROM audit_entries WHERE chainHash IS NULL")
     suspend fun countEntriesWithoutChainHash(): Int
 
-    @Query("UPDATE audit_entry SET checksum = :checksum WHERE id = :id")
+    @Query("UPDATE audit_entries SET checksum = :checksum WHERE id = :id")
     suspend fun updateChecksum(id: Long, checksum: String)
 
-    @Query("UPDATE audit_entry SET chainPrevHash = :prevHash, chainHash = :chainHash WHERE id = :id")
+    @Query("UPDATE audit_entries SET chainPrevHash = :prevHash, chainHash = :chainHash WHERE id = :id")
     suspend fun updateChainHashes(id: Long, prevHash: String, chainHash: String)
 
     // Advanced search queries
     @Query("""
-        SELECT * FROM audit_entry 
+        SELECT * FROM audit_entries 
         WHERE (:userId IS NULL OR userId = :userId)
         AND (:eventType IS NULL OR eventType = :eventType)
         AND (:outcome IS NULL OR outcome = :outcome)
@@ -81,29 +81,29 @@ interface AuditDao {
     ): Flow<List<AuditEntry>>
 
     // Statistics queries
-    @Query("SELECT eventType, COUNT(*) as count FROM audit_entry WHERE timestamp >= :since GROUP BY eventType")
+    @Query("SELECT eventType, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY eventType")
     suspend fun getEventTypeStatistics(since: Long): List<EventTypeCount>
 
-    @Query("SELECT outcome, COUNT(*) as count FROM audit_entry WHERE timestamp >= :since GROUP BY outcome")
+    @Query("SELECT outcome, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY outcome")
     suspend fun getOutcomeStatistics(since: Long): List<OutcomeCount>
 
-    @Query("SELECT securityLevel, COUNT(*) as count FROM audit_entry WHERE timestamp >= :since GROUP BY securityLevel")
+    @Query("SELECT securityLevel, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY securityLevel")
     suspend fun getSecurityLevelStatistics(since: Long): List<SecurityLevelCount>
 
     // Maintenance queries
-    @Query("SELECT id, checksum FROM audit_entry WHERE checksum IS NOT NULL ORDER BY timestamp ASC")
+    @Query("SELECT id, checksum FROM audit_entries WHERE checksum IS NOT NULL ORDER BY timestamp ASC")
     suspend fun getAllChecksums(): List<ChecksumInfo>
 
-    @Query("SELECT id, chainPrevHash, chainHash FROM audit_entry WHERE chainHash IS NOT NULL ORDER BY timestamp ASC")
+    @Query("SELECT id, chainPrevHash, chainHash FROM audit_entries WHERE chainHash IS NOT NULL ORDER BY timestamp ASC")
     suspend fun getAllChainHashes(): List<ChainInfo>
 
-    @Query("SELECT MAX(timestamp) FROM audit_entry")
+    @Query("SELECT MAX(timestamp) FROM audit_entries")
     suspend fun getLatestEntryTimestamp(): Long?
 
-    @Query("SELECT MIN(timestamp) FROM audit_entry")
+    @Query("SELECT MIN(timestamp) FROM audit_entries")
     suspend fun getOldestEntryTimestamp(): Long?
 
-    @Query("SELECT COUNT(*) FROM audit_entry")
+    @Query("SELECT COUNT(*) FROM audit_entries")
     suspend fun getTotalEntryCount(): Long
 }
 
