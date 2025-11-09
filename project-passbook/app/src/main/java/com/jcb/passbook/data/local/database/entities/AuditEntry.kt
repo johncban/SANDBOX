@@ -52,7 +52,7 @@ data class AuditEntry(
     val username: String? = null,
 
     @ColumnInfo(name = "timestamp")
-    val timestamp: Long = System.currentTimeMillis(),
+    val timestamp: Long,
 
     @ColumnInfo(name = "eventType")
     val eventType: String,
