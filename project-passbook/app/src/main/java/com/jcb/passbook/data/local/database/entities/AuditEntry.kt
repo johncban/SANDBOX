@@ -33,33 +33,20 @@ import androidx.room.ColumnInfo
     ]
 )
 data class AuditEntry(
-    @PrimaryKey(autoGenerate = true)
-    @ColumnInfo(name = "id")
-    val id: Int = 0,
-
-    @ColumnInfo(name = "userId")
-    val userId: Int,  // Foreign key to User table (now properly indexed)
-
-    @ColumnInfo(name = "action")
-    val action: String,  // e.g., "LOGIN", "LOGOUT", "CREATE_ITEM", "UPDATE_ITEM", "DELETE_ITEM", "VIEW_ITEM"
-
-    @ColumnInfo(name = "itemId")
-    val itemId: Int? = null,  // Reference to affected item (if applicable)
-
-    @ColumnInfo(name = "details")
-    val details: String? = null,  // Additional context about the action
-
-    @ColumnInfo(name = "ipAddress")
-    val ipAddress: String? = null,  // For network-based security tracking
-
-    @ColumnInfo(name = "deviceInfo")
-    val deviceInfo: String? = null,  // Device fingerprint
-
-    @ColumnInfo(name = "timestamp")
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val userId: Int,
+    val action: String,
     val timestamp: Long = System.currentTimeMillis(),
-
-    @ColumnInfo(name = "success")
-    val success: Boolean = true  // Track failed attempts
+    val success: Boolean = true,
+    // Add missing fields required by AuditDao
+    val checksum: String? = null,
+    val previousHash: String? = null,
+    val chainHash: String? = null,
+    val sessionId: String? = null,
+    val securityLevel: String = "INFO",
+    val ipAddress: String? = null,
+    val userAgent: String? = null,
+    val location: String? = null
 )
 
 /**
