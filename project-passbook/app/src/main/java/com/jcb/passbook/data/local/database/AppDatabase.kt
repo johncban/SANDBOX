@@ -15,7 +15,6 @@ import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.DatabaseKeyManager
-import kotlinx.coroutines.runBlocking
 import net.sqlcipher.database.SupportFactory
 
 /**
@@ -27,6 +26,7 @@ import net.sqlcipher.database.SupportFactory
  * - Fixed table name in Item queries to match entity tableName 'items'
  * - Proper index naming to match table names
  * - Enhanced security settings with SQLCipher
+ * - Fixed missing closing braces in companion object
  */
 @Database(
     entities = [Item::class, User::class, AuditEntry::class, AuditMetadata::class],
@@ -107,10 +107,11 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX index_audit_entries_securityLevel ON audit_entries(securityLevel)")
 
                 // Initialize chain metadata
+                val timestamp = System.currentTimeMillis()
                 database.execSQL("""
                     INSERT INTO audit_metadata (key, value, timestamp, description) 
                     VALUES ('audit_chain_head', '0000000000000000000000000000000000000000000000000000000000000000', 
-                            ${'$'}{System.currentTimeMillis()}, 'Genesis chain head hash')
+                            $timestamp, 'Genesis chain head hash')
                 """.trimIndent())
             }
         }
