@@ -30,7 +30,7 @@ android {
         buildConfigField("int", "VERSION_CODE", "${versionCode}")
     }
 
-    // FIXED: signingConfigs at android level (properly closed)
+    // Signing configuration
     signingConfigs {
         create("release") {
             storeFile = file(findProperty("RELEASE_STORE_FILE") ?: "release.keystore")
@@ -44,7 +44,7 @@ android {
         }
     }
 
-    // FIXED: splits is now at android {} level, PARALLEL to signingConfigs (not nested inside)
+    // APK splits configuration
     splits {
         density {
             isEnable = true
@@ -58,7 +58,6 @@ android {
             isUniversalApk = true
         }
     }
-
 
     buildTypes {
         debug {
