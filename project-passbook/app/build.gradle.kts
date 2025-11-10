@@ -116,6 +116,11 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+
+        // ✅ CRITICAL FIX: Set language version to 1.9 for Room KAPT compatibility
+        languageVersion = "1.9"
+        apiVersion = "1.9"
+
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
