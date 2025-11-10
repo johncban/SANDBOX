@@ -2,6 +2,11 @@ package com.jcb.passbook.data.local.database.dao
 
 import androidx.room.*
 import com.jcb.passbook.data.local.database.entities.AuditEntry
+import com.jcb.passbook.data.local.database.models.ChainInfo
+import com.jcb.passbook.data.local.database.models.ChecksumInfo
+import com.jcb.passbook.data.local.database.models.EventTypeCount
+import com.jcb.passbook.data.local.database.models.OutcomeCount
+import com.jcb.passbook.data.local.database.models.SecurityLevelCount
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -89,13 +94,13 @@ interface AuditDao {
     ): Flow<List<AuditEntry>>
 
     // Statistics queries
-    @Query("SELECT eventType, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY eventType")
+    @Query("SELECT eventType as eventType, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY eventType")
     suspend fun getEventTypeStatistics(since: Long): List<EventTypeCount>
 
-    @Query("SELECT outcome, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY outcome")
+    @Query("SELECT outcome as outcome, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY outcome")
     suspend fun getOutcomeStatistics(since: Long): List<OutcomeCount>
 
-    @Query("SELECT securityLevel, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY securityLevel")
+    @Query("SELECT securityLevel as securityLevel, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY securityLevel")
     suspend fun getSecurityLevelStatistics(since: Long): List<SecurityLevelCount>
 
     // Maintenance queries
@@ -116,8 +121,6 @@ interface AuditDao {
 }
 
 // Extension functions to provide default parameter values
-// These are OUTSIDE the interface, so default values are allowed
-
 fun AuditDao.getAuditEntriesForUser(userId: Int): Flow<List<AuditEntry>> =
     getAuditEntriesForUser(userId, 1000)
 
@@ -145,10 +148,3 @@ fun AuditDao.searchAuditEntries(
     endTime: Long
 ): Flow<List<AuditEntry>> =
     searchAuditEntries(userId, eventType, outcome, securityLevel, startTime, endTime, 1000)
-
-// Data classes for query results
-data class EventTypeCount(val eventType: String, val count: Int)
-data class OutcomeCount(val outcome: String, val count: Int)
-data class SecurityLevelCount(val securityLevel: String, val count: Int)
-data class ChecksumInfo(val id: Long, val checksum: String?)
-data class ChainInfo(val id: Long, val chainPrevHash: String?, val chainHash: String?)
