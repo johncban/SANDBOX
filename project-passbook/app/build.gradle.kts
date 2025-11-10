@@ -174,6 +174,7 @@ android {
 dependencies {
     // BOM management
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.room.common.jvm)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
     // Core Android

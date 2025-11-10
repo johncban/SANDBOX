@@ -1,6 +1,7 @@
 package com.jcb.passbook.data.local.database.dao
 
 import androidx.room.*
+import androidx.room.Dao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.models.ChainInfo
 import com.jcb.passbook.data.local.database.models.ChecksumInfo

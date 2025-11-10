@@ -107,6 +107,7 @@ androidTestCore = "1.6.1"
 leakcanary = "2.14"
 flipper = "0.259.0"
 soloader = "0.10.5"
+roomCommonJvm = "2.8.3"
 
 [libraries]
 # Core Android
@@ -247,6 +248,7 @@ androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.r
 leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 flipper = { group = "com.facebook.flipper", name = "flipper", version.ref = "flipper" }
 soloader = { group = "com.facebook.soloader", name = "soloader", version.ref = "soloader" }
+androidx-room-common-jvm = { group = "androidx.room", name = "room-common-jvm", version.ref = "roomCommonJvm" }
 
 [plugins]
 # Build plugins
