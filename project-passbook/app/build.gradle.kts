@@ -3,9 +3,9 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    id("kotlin-kapt")
+    alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.hilt.android)
-    id("kotlin-parcelize")
+    alias(libs.plugins.kotlin.parcelize)
 }
 
 android {
@@ -24,13 +24,19 @@ android {
             useSupportLibrary = true
         }
 
-        // BuildConfig fields
         buildConfigField("boolean", "DEBUG_MODE", "false")
         buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
         buildConfigField("int", "VERSION_CODE", "${versionCode}")
     }
 
-    // Signing configuration
+    // KSP configuration for Room
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+        arg("room.expandProjection", "true")
+        arg("room.generateKotlin", "true")
+    }
+
     signingConfigs {
         create("release") {
             storeFile = file(findProperty("RELEASE_STORE_FILE") ?: "release.keystore")
@@ -44,13 +50,7 @@ android {
         }
     }
 
-    // APK splits configuration
     splits {
-        density {
-            isEnable = true
-            reset()
-            include("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi")
-        }
         abi {
             isEnable = true
             reset()
@@ -97,6 +97,8 @@ android {
         create("staging") {
             initWith(getByName("release"))
             isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
             buildConfigField("boolean", "DEBUG_MODE", "true")
@@ -116,10 +118,6 @@ android {
     kotlinOptions {
         jvmTarget = "17"
 
-        // ✅ CRITICAL FIX: Set language version to 1.9 for Room KAPT compatibility
-        languageVersion = "1.9"
-        apiVersion = "1.9"
-
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
@@ -129,6 +127,7 @@ android {
             "-Xjsr305=strict",
             "-Xjvm-default=all"
         )
+
         allWarningsAsErrors = false
     }
 
@@ -137,10 +136,6 @@ android {
         buildConfig = true
         viewBinding = false
         dataBinding = false
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
     }
 
     packaging {
@@ -176,19 +171,16 @@ android {
 }
 
 dependencies {
-    // BOM management
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.room.common.jvm)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
-    // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
 
-    // Compose UI
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
@@ -199,83 +191,59 @@ dependencies {
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.runtime.livedata)
 
-    // Navigation
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.navigation.runtime.ktx)
 
-    // Lifecycle & ViewModel
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
-    // Database - Room with SQLCipher
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    kapt(libs.room.compiler)
+    ksp(libs.room.compiler)
 
-    // Dependency Injection - Hilt
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.hilt.work)
-    kapt(libs.hilt.compiler)
+    ksp(libs.hilt.compiler)
 
-    // Security
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.biometric)
     implementation(libs.argon2kt)
     implementation(libs.sqlcipher)
 
-    // Background processing
     implementation(libs.androidx.work.runtime.ktx)
 
-    // Image loading
     implementation(libs.coil.compose)
 
-    // Utilities
     implementation(libs.timber)
     implementation(libs.rootbeer)
 
-    // JSON serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
 
-    // Unit Testing
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.hilt.android.testing)
-    kaptTest(libs.hilt.compiler)
+    kspTest(libs.hilt.compiler)
 
-    // Instrumentation Testing
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.ui.test.junit4)
     androidTestImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.hilt.android.testing)
-    kaptAndroidTest(libs.hilt.compiler)
+    kspAndroidTest(libs.hilt.compiler)
 
-    // Debug tools
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     debugImplementation(libs.leakcanary.android)
 
-    // Release optimization
     releaseImplementation(libs.androidx.profileinstaller)
-}
-
-kapt {
-    correctErrorTypes = true
-    useBuildCache = true
-    arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
-        arg("room.incremental", "true")
-        arg("room.expandProjection", "true")
-    }
 }

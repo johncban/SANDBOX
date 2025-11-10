@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import com.jcb.passbook.presentation.viewmodel.vault.ItemOperationState
 
 /**
  * ItemViewModel - Manages password vault items with encryption and audit logging
@@ -27,12 +28,15 @@ import javax.inject.Inject
  * - All audit logging uses correct AuditLogger signature
  */
 
+
+/***
 sealed class ItemOperationState {
     object Idle : ItemOperationState()
     object Loading : ItemOperationState()
     object Success : ItemOperationState()
     data class Error(val message: String) : ItemOperationState()
 }
+***/
 
 private const val TAG = "ItemViewModel PassBook"
 

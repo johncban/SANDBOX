@@ -1,18 +1,17 @@
 [versions]
 # Build tools and Android
 agp = "8.13.0"
-kotlin = "2.0.0"
-ksp = "2.0.0-1.0.22"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.28"
 compose-compiler = "1.5.14"
 
 # Core Android
 coreKtx = "1.13.1"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
-coreSplashscreen = "1.0.1"          # FIXED: was 1.1.0
+coreSplashscreen = "1.0.1"
 lifecycleProcess = "2.8.7"
 profileinstaller = "1.4.1"
-
 
 # Compose - Stable BOM with security considerations
 composeBom = "2024.10.01"
@@ -24,32 +23,32 @@ composeIconsExtended = "1.7.4"
 navigationCompose = "2.8.3"
 navigationRuntimeKtx = "2.8.3"
 
-# Dependency Injection - Compatible with AGP 8.7.2
+# Dependency Injection - Compatible with AGP 8.13.0 and KSP
 hilt = "2.48.1"
 hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
 
-# Database
-room = "2.6.1"
+# Database - Room 2.8.3 supports Kotlin 2.0+ with KSP
+room = "2.8.3"
 
 # Security & Cryptography - Stable versions only for production
-securityCrypto = "1.1.0"        # Stable version
-biometric = "1.1.0"             # Stable biometric authentication
-argon2kt = "1.6.0"              # Latest stable Argon2 implementation
-sqlcipher = "4.5.4"             # Latest stable SQLCipher
-securityIdentity = "1.0.0-alpha03"  # Identity credential
-webkit = "1.11.0"               # Secure WebView if needed
+securityCrypto = "1.1.0"
+biometric = "1.1.0"
+argon2kt = "1.6.0"
+sqlcipher = "4.5.4"
+securityIdentity = "1.0.0-alpha03"
+webkit = "1.11.0"
 
 # Additional Security Libraries
-bouncycastle = "1.78.1"         # Additional crypto algorithms
-okhttp = "4.12.0"               # Networking with security focus
+bouncycastle = "1.78.1"
+okhttp = "4.12.0"
 
 # Background Processing
 workRuntimeKtx = "2.9.1"
 workTesting = "2.9.1"
 
 # Data Storage
-datastore = "1.0.0"             # Secure preferences
+datastore = "1.0.0"
 
 # Image Loading
 coil = "2.5.0"
@@ -60,8 +59,8 @@ coilSvg = "2.5.0"
 timber = "5.0.1"
 timberAndroid = "5.0.1"
 rootbeer = "0.1.1"
-tracing = "1.2.0"               # Performance tracing
-benchmark = "1.2.4"             # Benchmarking
+tracing = "1.2.0"
+benchmark = "1.2.4"
 
 # Serialization
 kotlinxSerializationJson = "1.6.3"
@@ -263,11 +262,11 @@ kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref =
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 
 [bundles]
-# Debug tools bundle - FIXED
+# Debug tools bundle
 debug-tools = [
     "androidx-ui-tooling",
     "androidx-ui-test-manifest",
-    "androidx-ui-tooling-preview",  # FIXED: was androidx-compose-ui-tooling-preview
+    "androidx-ui-tooling-preview",
     "leakcanary-android",
     "flipper",
     "soloader"
