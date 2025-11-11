@@ -1,7 +1,10 @@
 package com.jcb.passbook.data.local.database.dao
 
-import androidx.room.*
 import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Upsert
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.models.ChainInfo
 import com.jcb.passbook.data.local.database.models.ChecksumInfo
@@ -10,142 +13,97 @@ import com.jcb.passbook.data.local.database.models.OutcomeCount
 import com.jcb.passbook.data.local.database.models.SecurityLevelCount
 import kotlinx.coroutines.flow.Flow
 
-/**
- * AuditDao - Data Access Object for AuditEntry entity
- *
- * FIXED: Removed all default parameter values from interface methods
- * - Default parameters are not allowed in Kotlin interfaces
- * - Causes KAPT NullPointerException and build failures
- * - Use extension functions or overloaded methods instead
- */
 @Dao
 interface AuditDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entry: AuditEntry): Long
 
-    @Insert
-    suspend fun insert(auditEntry: AuditEntry): Long
+    @Upsert
+    suspend fun insertOrUpdate(entry: AuditEntry)
 
-    @Insert
-    suspend fun insertAll(auditEntries: List<AuditEntry>)
+    @Query("SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT :limit")
+    fun getRecentEntries(limit: Int): Flow<List<AuditEntry>>
 
-    @Update
-    suspend fun update(auditEntry: AuditEntry)
+    @Query("SELECT * FROM audit_log WHERE user_id = :userId ORDER BY timestamp DESC")
+    fun getEntriesByUser(userId: Long): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entries WHERE userId = :userId ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesForUser(userId: Int, limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT * FROM audit_log WHERE event_type = :eventType ORDER BY timestamp DESC")
+    fun getEntriesByEventType(eventType: String): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entries WHERE eventType = :eventType ORDER BY timestamp DESC LIMIT :limit")
-    fun getAuditEntriesByType(eventType: String, limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT * FROM audit_log WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp DESC")
+    fun getEntriesByTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entries WHERE timestamp BETWEEN :startTime AND :endTime ORDER BY timestamp ASC")
-    fun getAuditEntriesInTimeRange(startTime: Long, endTime: Long): Flow<List<AuditEntry>>
+    @Query("SELECT * FROM audit_log WHERE outcome = :outcome ORDER BY timestamp DESC")
+    fun getEntriesByOutcome(outcome: String): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entries WHERE outcome IN ('FAILURE', 'BLOCKED') ORDER BY timestamp DESC LIMIT :limit")
-    fun getFailedAuditEntries(limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT * FROM audit_log WHERE security_level = :securityLevel ORDER BY timestamp DESC")
+    fun getEntriesBySecurityLevel(securityLevel: String): Flow<List<AuditEntry>>
 
-    @Query("SELECT * FROM audit_entries WHERE securityLevel = 'CRITICAL' ORDER BY timestamp DESC LIMIT :limit")
-    fun getCriticalSecurityEvents(limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT COUNT(*) FROM audit_log")
+    suspend fun getTotalCount(): Int
 
-    @Query("SELECT * FROM audit_entries WHERE sessionId = :sessionId ORDER BY timestamp ASC LIMIT :limit")
-    fun getAuditEntriesForSession(sessionId: String, limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT COUNT(*) FROM audit_log WHERE user_id = :userId")
+    suspend fun getCountByUser(userId: Long): Int
 
-    @Query("SELECT COUNT(*) FROM audit_entries WHERE userId = :userId AND eventType = :eventType AND timestamp >= :since")
-    suspend fun countEventsSince(userId: Int?, eventType: String, since: Long): Int
+    @Query("DELETE FROM audit_log WHERE timestamp < :olderThan")
+    suspend fun deleteOlderThan(olderThan: Long): Int
 
-    @Query("SELECT COUNT(*) FROM audit_entries WHERE eventType = :eventType AND timestamp >= :since")
-    suspend fun countAllEventsSince(eventType: String, since: Long): Int
+    @Query("DELETE FROM audit_log")
+    suspend fun deleteAll()
 
-    @Query("DELETE FROM audit_entries WHERE timestamp < :cutoffTime")
-    suspend fun deleteOldEntries(cutoffTime: Long): Int
+    // ✅ FIXED: Changed query to use aliases matching @ColumnInfo
+    @Query("SELECT id, chain_prev_hash AS chainPrevHash, chain_hash AS chainHash FROM audit_log ORDER BY timestamp ASC")
+    fun getAllChainInfo(): Flow<List<ChainInfo>>
 
-    @Query("SELECT * FROM audit_entries ORDER BY timestamp DESC LIMIT :limit")
-    fun getAllAuditEntries(limit: Int): Flow<List<AuditEntry>>
+    @Query("SELECT id, checksum FROM audit_log WHERE checksum IS NOT NULL")
+    fun getAllChecksums(): Flow<List<ChecksumInfo>>
 
-    // Chain integrity queries
-    @Query("SELECT COUNT(*) FROM audit_entries WHERE checksum IS NULL")
-    suspend fun countEntriesWithoutChecksum(): Int
+    @Query("SELECT * FROM audit_log WHERE id = :id")
+    suspend fun getEntryById(id: Long): AuditEntry?
 
-    @Query("SELECT COUNT(*) FROM audit_entries WHERE chainHash IS NULL")
-    suspend fun countEntriesWithoutChainHash(): Int
+    @Query("SELECT * FROM audit_log ORDER BY id DESC LIMIT 1")
+    suspend fun getLatestEntry(): AuditEntry?
 
-    @Query("UPDATE audit_entries SET checksum = :checksum WHERE id = :id")
-    suspend fun updateChecksum(id: Long, checksum: String)
+    @Query("SELECT chain_hash FROM audit_log ORDER BY id DESC LIMIT 1")
+    suspend fun getLatestChainHash(): String?
 
-    @Query("UPDATE audit_entries SET chainPrevHash = :prevHash, chainHash = :chainHash WHERE id = :id")
-    suspend fun updateChainHashes(id: Long, prevHash: String, chainHash: String)
+    // ✅ FIXED: Changed query to use alias matching @ColumnInfo
+    @Query("SELECT event_type AS eventType, COUNT(*) as count FROM audit_log GROUP BY event_type")
+    fun getEventTypeCounts(): Flow<List<EventTypeCount>>
 
-    // Advanced search queries
-    @Query("""
-        SELECT * FROM audit_entries 
-        WHERE (:userId IS NULL OR userId = :userId)
-        AND (:eventType IS NULL OR eventType = :eventType)
-        AND (:outcome IS NULL OR outcome = :outcome)
-        AND (:securityLevel IS NULL OR securityLevel = :securityLevel)
-        AND timestamp BETWEEN :startTime AND :endTime
-        ORDER BY timestamp DESC 
-        LIMIT :limit
-    """)
-    fun searchAuditEntries(
-        userId: Int?,
-        eventType: String?,
-        outcome: String?,
-        securityLevel: String?,
+    @Query("SELECT outcome, COUNT(*) as count FROM audit_log GROUP BY outcome")
+    fun getOutcomeCounts(): Flow<List<OutcomeCount>>
+
+    // ✅ FIXED: Changed query to use alias matching @ColumnInfo
+    @Query("SELECT security_level AS securityLevel, COUNT(*) as count FROM audit_log GROUP BY security_level")
+    fun getSecurityLevelCounts(): Flow<List<SecurityLevelCount>>
+
+    @Query("SELECT * FROM audit_log WHERE user_id = :userId AND timestamp BETWEEN :startTime AND :endTime")
+    fun getUserEntriesInTimeRange(
+        userId: Long,
         startTime: Long,
-        endTime: Long,
-        limit: Int
+        endTime: Long
     ): Flow<List<AuditEntry>>
 
-    // Statistics queries
-    @Query("SELECT eventType as eventType, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY eventType")
-    suspend fun getEventTypeStatistics(since: Long): List<EventTypeCount>
+    @Query("SELECT COUNT(DISTINCT user_id) FROM audit_log")
+    suspend fun getUniqueUserCount(): Int
 
-    @Query("SELECT outcome as outcome, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY outcome")
-    suspend fun getOutcomeStatistics(since: Long): List<OutcomeCount>
+    @Query("""
+        SELECT * FROM audit_log 
+        WHERE (:userId IS NULL OR user_id = :userId)
+        AND (:eventType IS NULL OR event_type = :eventType)
+        AND (:outcome IS NULL OR outcome = :outcome)
+        AND timestamp BETWEEN :startTime AND :endTime
+        ORDER BY timestamp DESC
+    """)
+    fun getFilteredEntries(
+        userId: Long?,
+        eventType: String?,
+        outcome: String?,
+        startTime: Long,
+        endTime: Long
+    ): Flow<List<AuditEntry>>
 
-    @Query("SELECT securityLevel as securityLevel, COUNT(*) as count FROM audit_entries WHERE timestamp >= :since GROUP BY securityLevel")
-    suspend fun getSecurityLevelStatistics(since: Long): List<SecurityLevelCount>
-
-    // Maintenance queries
-    @Query("SELECT id, checksum FROM audit_entries WHERE checksum IS NOT NULL ORDER BY timestamp ASC")
-    suspend fun getAllChecksums(): List<ChecksumInfo>
-
-    @Query("SELECT id, chainPrevHash, chainHash FROM audit_entries WHERE chainHash IS NOT NULL ORDER BY timestamp ASC")
-    suspend fun getAllChainHashes(): List<ChainInfo>
-
-    @Query("SELECT MAX(timestamp) FROM audit_entries")
-    suspend fun getLatestEntryTimestamp(): Long?
-
-    @Query("SELECT MIN(timestamp) FROM audit_entries")
-    suspend fun getOldestEntryTimestamp(): Long?
-
-    @Query("SELECT COUNT(*) FROM audit_entries")
-    suspend fun getTotalEntryCount(): Long
+    // ✅ REMOVED: This query was causing Map<AuditEventType, Int> errors
+    // Use getEventTypeCounts() instead which returns List<EventTypeCount>
 }
-
-// Extension functions to provide default parameter values
-fun AuditDao.getAuditEntriesForUser(userId: Int): Flow<List<AuditEntry>> =
-    getAuditEntriesForUser(userId, 1000)
-
-fun AuditDao.getAuditEntriesByType(eventType: String): Flow<List<AuditEntry>> =
-    getAuditEntriesByType(eventType, 1000)
-
-fun AuditDao.getFailedAuditEntries(): Flow<List<AuditEntry>> =
-    getFailedAuditEntries(500)
-
-fun AuditDao.getCriticalSecurityEvents(): Flow<List<AuditEntry>> =
-    getCriticalSecurityEvents(100)
-
-fun AuditDao.getAuditEntriesForSession(sessionId: String): Flow<List<AuditEntry>> =
-    getAuditEntriesForSession(sessionId, 1000)
-
-fun AuditDao.getAllAuditEntries(): Flow<List<AuditEntry>> =
-    getAllAuditEntries(1000)
-
-fun AuditDao.searchAuditEntries(
-    userId: Int? = null,
-    eventType: String? = null,
-    outcome: String? = null,
-    securityLevel: String? = null,
-    startTime: Long,
-    endTime: Long
-): Flow<List<AuditEntry>> =
-    searchAuditEntries(userId, eventType, outcome, securityLevel, startTime, endTime, 1000)

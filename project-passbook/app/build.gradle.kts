@@ -8,6 +8,16 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
 }
 
+// Force correct dependency versions
+configurations.all {
+    resolutionStrategy {
+        force("androidx.biometric:biometric:1.1.0")
+        // Also force other androidx libraries to prevent version conflicts
+        force("androidx.room:room-runtime:2.8.3")
+        force("androidx.room:room-ktx:2.8.3")
+    }
+}
+
 android {
     namespace = "com.jcb.passbook"
     compileSdk = 35
@@ -171,16 +181,18 @@ android {
 }
 
 dependencies {
+    // BOM management
     implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.room.common.jvm)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
+    // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
 
+    // Compose UI
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
@@ -191,40 +203,51 @@ dependencies {
     implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.compose.runtime.livedata)
 
+    // Navigation
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.navigation.runtime.ktx)
 
+    // Lifecycle & ViewModel
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
 
+    // Database - Room
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
+    // Dependency Injection - Hilt
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.hilt.work)
     ksp(libs.hilt.compiler)
 
+    // Security
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.biometric)
     implementation(libs.argon2kt)
     implementation(libs.sqlcipher)
 
+    // Background processing
     implementation(libs.androidx.work.runtime.ktx)
 
+    // Image loading
     implementation(libs.coil.compose)
 
+    // Utilities
     implementation(libs.timber)
     implementation(libs.rootbeer)
 
+    // JSON serialization
     implementation(libs.kotlinx.serialization.json)
 
+    // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
 
+    // Unit Testing
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.mockk)
@@ -233,6 +256,7 @@ dependencies {
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.compiler)
 
+    // Instrumentation Testing
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.ui.test.junit4)
@@ -241,9 +265,11 @@ dependencies {
     androidTestImplementation(libs.hilt.android.testing)
     kspAndroidTest(libs.hilt.compiler)
 
+    // Debug tools
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     debugImplementation(libs.leakcanary.android)
 
+    // Release optimization
     releaseImplementation(libs.androidx.profileinstaller)
 }

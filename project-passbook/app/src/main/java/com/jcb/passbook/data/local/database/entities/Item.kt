@@ -1,19 +1,11 @@
 package com.jcb.passbook.data.local.database.entities
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 import androidx.room.Index
-import androidx.room.ColumnInfo
-import java.util.Date
+import androidx.room.PrimaryKey
 
-/**
- * Item Entity - Represents a password/credential entry in the database
- *
- * FIXES APPLIED:
- * - Added Index on userId foreign key column to prevent full table scans
- * - Proper foreign key cascade behavior for data integrity
- */
 @Entity(
     tableName = "items",
     foreignKeys = [
@@ -21,52 +13,51 @@ import java.util.Date
             entity = User::class,
             parentColumns = ["id"],
             childColumns = ["userId"],
-            onDelete = ForeignKey.CASCADE,  // Delete items when user is deleted
-            onUpdate = ForeignKey.CASCADE    // Update items when user ID changes
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Category::class,
+            parentColumns = ["id"],
+            childColumns = ["category_id"],  // ✅ FIXED: Changed from categoryId
+            onDelete = ForeignKey.SET_NULL
         )
     ],
     indices = [
-        Index(value = ["userId"], name = "index_items_userId"),  // CRITICAL FIX: Prevents full table scans
-        Index(value = ["title"], name = "index_items_title"),     // Performance: Search by title
-        Index(value = ["category"], name = "index_items_category") // Performance: Filter by category
+        Index(value = ["userId"]),
+        Index(value = ["category_id"]),  // ✅ FIXED: Changed from categoryId
+        Index(value = ["isFavorite"]),
+        Index(value = ["createdAt"])
     ]
 )
 data class Item(
     @PrimaryKey(autoGenerate = true)
-    @ColumnInfo(name = "id")
-    val id: Int = 0,
+    val id: Long = 0,
 
-    @ColumnInfo(name = "userId")
-    val userId: Int,  // Foreign key to User table (now properly indexed)
+    val userId: Long,
 
-    @ColumnInfo(name = "title")
     val title: String,
 
-    @ColumnInfo(name = "username")
     val username: String? = null,
 
     @ColumnInfo(name = "encryptedPassword")
-    val encryptedPassword: ByteArray,  // Encrypted password data
+    val encryptedPassword: ByteArray,
 
-    @ColumnInfo(name = "url")
     val url: String? = null,
 
-    @ColumnInfo(name = "notes")
     val notes: String? = null,
 
-    @ColumnInfo(name = "category")
-    val category: String = "General",
+    @ColumnInfo(name = "category_id")
+    val categoryId: Long? = null,
 
-    @ColumnInfo(name = "isFavorite")
+    @ColumnInfo(name = "category_name")
+    val categoryName: String? = null,
+
     val isFavorite: Boolean = false,
 
-    @ColumnInfo(name = "createdAt")
     val createdAt: Long = System.currentTimeMillis(),
 
-    @ColumnInfo(name = "updatedAt")
     val updatedAt: Long = System.currentTimeMillis(),
 
-    @ColumnInfo(name = "lastAccessedAt")
     val lastAccessedAt: Long? = null
 ) {
     override fun equals(other: Any?): Boolean {
@@ -78,16 +69,34 @@ data class Item(
         if (id != other.id) return false
         if (userId != other.userId) return false
         if (title != other.title) return false
+        if (username != other.username) return false
         if (!encryptedPassword.contentEquals(other.encryptedPassword)) return false
+        if (url != other.url) return false
+        if (notes != other.notes) return false
+        if (categoryId != other.categoryId) return false
+        if (categoryName != other.categoryName) return false
+        if (isFavorite != other.isFavorite) return false
+        if (createdAt != other.createdAt) return false
+        if (updatedAt != other.updatedAt) return false
+        if (lastAccessedAt != other.lastAccessedAt) return false
 
         return true
     }
 
     override fun hashCode(): Int {
-        var result = id
-        result = 31 * result + userId
+        var result = id.hashCode()
+        result = 31 * result + userId.hashCode()
         result = 31 * result + title.hashCode()
+        result = 31 * result + (username?.hashCode() ?: 0)
         result = 31 * result + encryptedPassword.contentHashCode()
+        result = 31 * result + (url?.hashCode() ?: 0)
+        result = 31 * result + (notes?.hashCode() ?: 0)
+        result = 31 * result + (categoryId?.hashCode() ?: 0)
+        result = 31 * result + (categoryName?.hashCode() ?: 0)
+        result = 31 * result + isFavorite.hashCode()
+        result = 31 * result + createdAt.hashCode()
+        result = 31 * result + updatedAt.hashCode()
+        result = 31 * result + (lastAccessedAt?.hashCode() ?: 0)
         return result
     }
 }

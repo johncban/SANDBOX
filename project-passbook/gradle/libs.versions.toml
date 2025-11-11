@@ -1,12 +1,12 @@
 [versions]
 # Build tools and Android
-agp = "8.13.0"
+agp = "8.7.3"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.28"
 compose-compiler = "1.5.14"
 
 # Core Android
-coreKtx = "1.13.1"
+coreKtx = "1.15.0"
 lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
 coreSplashscreen = "1.0.1"
@@ -14,26 +14,26 @@ lifecycleProcess = "2.8.7"
 profileinstaller = "1.4.1"
 
 # Compose - Stable BOM with security considerations
-composeBom = "2024.10.01"
-composeFoundation = "1.7.4"
-composeAnimation = "1.7.4"
-composeIconsExtended = "1.7.4"
+composeBom = "2024.12.01"
+composeFoundation = "1.7.6"
+composeAnimation = "1.7.6"
+composeIconsExtended = "1.7.6"
 
 # Navigation
-navigationCompose = "2.8.3"
-navigationRuntimeKtx = "2.8.3"
+navigationCompose = "2.8.5"
+navigationRuntimeKtx = "2.8.5"
 
-# Dependency Injection - Compatible with AGP 8.13.0 and KSP
-hilt = "2.48.1"
+# Dependency Injection - Compatible with AGP 8.7.3 and KSP
+hilt = "2.52"
 hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
 
-# Database - Room 2.8.3 supports Kotlin 2.0+ with KSP
-room = "2.8.3"
+# Database - Room 2.6.1 is most stable with KSP and Kotlin 2.0.21
+room = "2.6.1"
 
 # Security & Cryptography - Stable versions only for production
 securityCrypto = "1.1.0"
-biometric = "1.1.0"
+biometric = "1.2.0"
 argon2kt = "1.6.0"
 sqlcipher = "4.5.4"
 securityIdentity = "1.0.0-alpha03"
@@ -62,14 +62,14 @@ rootbeer = "0.1.1"
 tracing = "1.2.0"
 benchmark = "1.2.4"
 
-# Serialization
-kotlinxSerializationJson = "1.6.3"
-kotlinxSerializationCbor = "1.6.3"
+# Serialization - MUST match Kotlin 2.0.21 compatibility
+kotlinxSerializationJson = "1.7.3"
+kotlinxSerializationCbor = "1.7.3"
 
 # Coroutines
-kotlinxCoroutines = "1.8.0"
-kotlinxCoroutinesPlayServices = "1.8.0"
-koroutinesTest = "1.8.0"
+kotlinxCoroutines = "1.9.0"
+kotlinxCoroutinesPlayServices = "1.9.0"
+koroutinesTest = "1.9.0"
 
 # Core Libraries
 desugarJdkLibs = "2.1.2"
@@ -86,16 +86,16 @@ junit5 = "5.10.1"
 espressoCore = "3.6.1"
 espressoIntents = "3.6.1"
 espressoContrib = "3.6.1"
-composeTestManifest = "1.7.4"
+composeTestManifest = "1.7.6"
 
 # Testing - Other frameworks
-truth = "1.4.2"
-truthJava8 = "1.4.2"
-mockk = "1.13.8"
+truth = "1.4.4"
+truthJava8 = "1.4.4"
+mockk = "1.13.14"
 mockWebServer = "4.12.0"
-turbine = "1.0.0"
+turbine = "1.2.0"
 archCoreTesting = "2.2.0"
-robolectric = "4.11.1"
+robolectric = "4.13"
 
 # Testing - Android Test
 androidTestRunner = "1.6.2"
@@ -106,7 +106,7 @@ androidTestCore = "1.6.1"
 leakcanary = "2.14"
 flipper = "0.259.0"
 soloader = "0.10.5"
-roomCommonJvm = "2.8.3"
+roomCommonJvm = "2.6.1"
 
 [libraries]
 # Core Android

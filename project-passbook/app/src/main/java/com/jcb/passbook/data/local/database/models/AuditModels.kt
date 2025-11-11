@@ -1,31 +1,18 @@
 package com.jcb.passbook.data.local.database.models
 
-/**
- * AuditModels - Data models for AuditDao query results
- *
- * IMPORTANT: These are NOT Room entities!
- * They are simple data classes used for mapping query results.
- *
- * CRITICAL FIX: Moved from AuditDao.kt to separate file
- * - Data classes in DAO files confuse KAPT annotation processor
- * - Causes NullPointerException during Room code generation
- * - Room @Dao files should ONLY contain interface and extensions
- *
- * These classes are used by AuditDao statistics and maintenance queries.
- */
+import androidx.room.ColumnInfo
 
 /**
- * Event type statistics result
- * Used by: AuditDao.getEventTypeStatistics()
+ * Data class for event type statistics
  */
 data class EventTypeCount(
+    @ColumnInfo(name = "eventType")  // ✅ FIXED: Must match query alias
     val eventType: String,
     val count: Int
 )
 
 /**
- * Outcome statistics result
- * Used by: AuditDao.getOutcomeStatistics()
+ * Data class for outcome statistics
  */
 data class OutcomeCount(
     val outcome: String,
@@ -33,29 +20,29 @@ data class OutcomeCount(
 )
 
 /**
- * Security level statistics result
- * Used by: AuditDao.getSecurityLevelStatistics()
+ * Data class for security level statistics
  */
 data class SecurityLevelCount(
+    @ColumnInfo(name = "securityLevel")  // ✅ FIXED: Must match query alias
     val securityLevel: String,
     val count: Int
 )
 
 /**
- * Checksum information result
- * Used by: AuditDao.getAllChecksums()
+ * Data class for checksum validation
  */
 data class ChecksumInfo(
     val id: Long,
-    val checksum: String?
+    val checksum: String
 )
 
 /**
- * Chain hash information result
- * Used by: AuditDao.getAllChainHashes()
+ * Data class for audit chain information
  */
 data class ChainInfo(
     val id: Long,
-    val chainPrevHash: String?,
-    val chainHash: String?
+    @ColumnInfo(name = "chainHash")      // ✅ FIXED: Must match query alias
+    val chainHash: String?,
+    @ColumnInfo(name = "chainPrevHash")  // ✅ FIXED: Must match query alias
+    val chainPrevHash: String?
 )

@@ -3,17 +3,35 @@ package com.jcb.passbook.data.repository
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.User
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import javax.inject.Inject
 
-class UserRepository @Inject constructor(private val userDao: UserDao) {
+class UserRepository @Inject constructor(
+    private val userDao: UserDao
+) {
+    // Returns Flow<User?> to match UserDao
+    fun getActiveUser(): Flow<User?> {
+        return userDao.getActiveUserFlow()
+    }
 
-    suspend fun insert(user: User) = userDao.insert(user)
+    // Gets user by username and returns nullable User
+    suspend fun getUserByUsername(username: String): User? {
+        return userDao.getUserByUsernameFlow(username).firstOrNull()
+    }
 
-    suspend fun update(user: User) = userDao.update(user)
+    suspend fun insertUser(user: User): Long {
+        return userDao.insert(user)
+    }
 
-    suspend fun delete(user: User) = userDao.delete(user)
+    suspend fun updateUser(user: User) {
+        userDao.update(user)
+    }
 
-    fun getUser(id: Int): Flow<User> = userDao.getUser(id)
+    suspend fun deleteUser(user: User) {
+        userDao.delete(user)
+    }
 
-    suspend fun getUserByUsername(username: String): User? = userDao.getUserByUsername(username)
+    fun getAllUsers(): Flow<List<User>> {
+        return userDao.getAllUsers()
+    }
 }

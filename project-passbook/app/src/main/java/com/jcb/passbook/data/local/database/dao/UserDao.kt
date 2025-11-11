@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.Flow
  */
 @Dao
 interface UserDao {
+    @Query("SELECT * FROM users WHERE isActive = 1 LIMIT 1")
+    fun getActiveUserFlow(): Flow<User?>
+
+    @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
+    fun getUserByUsernameFlow(username: String): Flow<User?>
 
     @Insert
     suspend fun insert(user: User): Long
