@@ -92,7 +92,7 @@ object AppModule {
         auditDao: AuditDao,
         auditMetadataDao: AuditMetadataDao,
         secureMemoryUtils: SecureMemoryUtils
-    ): AuditChainManager = AuditChainManager(auditDao, auditMetadataDao, secureMemoryUtils)
+    ): AuditChainManager = AuditChainManager(auditDao)
 
     /**
      * FIXED: AuditJournalManager constructor requires:

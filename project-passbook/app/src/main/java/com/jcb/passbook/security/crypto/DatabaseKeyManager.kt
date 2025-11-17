@@ -55,7 +55,7 @@ class DatabaseKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Cannot get database passphrase - no active session",
                     "WARNING",
-                    "BLOCKED",
+                    AuditOutcome.BLOCKED,
                 )
                 return null
             }
@@ -72,7 +72,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_ACCESS",
                 tableName = "key_storage",
                 recordId = "passphrase",
-                outcome = "SUCCESS"
+                outcome = AuditOutcome.SUCCESS
             )
 
             passphrase
@@ -80,7 +80,7 @@ class DatabaseKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to get database passphrase: ${e.message}",
                 "CRITICAL",
-                "FAILURE"
+                AuditOutcome.FAILURE
             )
             Timber.e(e, "Failed to get database passphrase")
             null
@@ -111,7 +111,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_GENERATE",
                 tableName = "key_storage",
                 recordId = "passphrase",
-                outcome = "SUCCESS"
+                outcome = AuditOutcome.SUCCESS
             )
 
             return passphrase
@@ -155,7 +155,7 @@ class DatabaseKeyManager @Inject constructor(
                     operation = "KEY_ROTATION_START",
                     tableName = "database",
                     recordId = "master_key",
-                    outcome = "SUCCESS"
+                    outcome = AuditOutcome.SUCCESS
                 )
 
                 // Generate new passphrase
@@ -182,7 +182,7 @@ class DatabaseKeyManager @Inject constructor(
                         operation = "KEY_ROTATION_SUCCESS",
                         tableName = "database",
                         recordId = "master_key",
-                        outcome = "SUCCESS"
+                        outcome = AuditOutcome.SUCCESS
                     )
 
                     RekeyResult.Success
@@ -191,7 +191,7 @@ class DatabaseKeyManager @Inject constructor(
                         operation = "KEY_ROTATION_FAILED",
                         tableName = "database",
                         recordId = "master_key",
-                        outcome = "FAILURE",
+                        outcome = AuditOutcome.FAILURE,
                         errorMessage = "Rekey operation failed"
                     )
                     RekeyResult.RekeyFailed
@@ -201,7 +201,7 @@ class DatabaseKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Database key rotation failed with exception: ${e.message}",
                     "CRITICAL",
-                    "FAILURE"
+                    AuditOutcome.FAILURE
                 )
                 Timber.e(e, "Database key rotation failed")
                 RekeyResult.Error(e.message ?: "Unknown error")
@@ -322,7 +322,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_MIGRATION",
                 tableName = "key_storage",
                 recordId = "passphrase_v$CURRENT_VERSION",
-                outcome = "SUCCESS"
+                outcome = AuditOutcome.SUCCESS
             )
 
             true
@@ -330,7 +330,7 @@ class DatabaseKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Database passphrase migration failed: ${e.message}",
                 "CRITICAL",
-                "FAILURE"
+                AuditOutcome.FAILURE
             )
             Timber.e(e, "Database passphrase migration failed"
             )

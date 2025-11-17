@@ -35,7 +35,7 @@ fun LoginScreen(
             val userId = (authState as AuthState.Success).userId
             itemViewModel.setUserId(userId)
             userViewModel.setUserId(userId)
-            onLoginSuccess(userId)
+            onLoginSuccess(userId.toInt())
             userViewModel.clearAuthState()
         }
     }

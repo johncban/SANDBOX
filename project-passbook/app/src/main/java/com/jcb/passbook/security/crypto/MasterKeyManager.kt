@@ -11,6 +11,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.jcb.passbook.data.local.database.entities.AuditEventType
+import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.audit.AuditLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -65,14 +66,14 @@ class MasterKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure initialized",
                     "NORMAL",
-                    "SUCCESS"  // ✅ String, not enum
+                    AuditOutcome.SUCCESS
                 )
                 true
             } else {
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure already exists",
                     "NORMAL",
-                    "SUCCESS"  // ✅ String, not enum
+                    AuditOutcome.SUCCESS
                 )
                 true
             }
@@ -80,7 +81,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to initialize master key: ${e.message}",
                 "CRITICAL",
-                "FAILURE"  // ✅ String, not enum
+                AuditOutcome.FAILURE
             )
             Timber.e(e, "Failed to initialize master key")
             false
@@ -180,7 +181,7 @@ class MasterKeyManager @Inject constructor(
                                             auditLogger.logAuthentication(
                                                 "SYSTEM",
                                                 AuditEventType.LOGIN,
-                                                "SUCCESS"  // ✅ String, not enum
+                                                AuditOutcome.SUCCESS
                                             )
                                             continuation.resume(amk)
                                         }
@@ -188,7 +189,7 @@ class MasterKeyManager @Inject constructor(
                                         auditLogger.logAuthentication(
                                             "SYSTEM",
                                             AuditEventType.AUTHENTICATION_FAILURE,
-                                            "FAILURE",  // ✅ String, not enum
+                                            AuditOutcome.FAILURE,
                                             e.message
                                         )
                                         continuation.resumeWithException(e)
@@ -199,7 +200,7 @@ class MasterKeyManager @Inject constructor(
                                     auditLogger.logAuthentication(
                                         "SYSTEM",
                                         AuditEventType.AUTHENTICATION_FAILURE,
-                                        "FAILURE",  // ✅ String, not enum
+                                        AuditOutcome.FAILURE,
                                         "Biometric error: $errString"
                                     )
                                     continuation.resume(null)
@@ -209,7 +210,7 @@ class MasterKeyManager @Inject constructor(
                                     auditLogger.logAuthentication(
                                         "SYSTEM",
                                         AuditEventType.AUTHENTICATION_FAILURE,
-                                        "FAILURE",  // ✅ String, not enum
+                                        AuditOutcome.FAILURE,
                                         "Biometric authentication failed"
                                     )
                                     continuation.resume(null)
@@ -221,7 +222,7 @@ class MasterKeyManager @Inject constructor(
                         auditLogger.logSecurityEvent(
                             "Biometric authentication not available",
                             "WARNING",
-                            "BLOCKED"  // ✅ String, not enum
+                            AuditOutcome.BLOCKED
                         )
                         continuation.resume(null)
                     }
@@ -264,7 +265,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Biometric enrollment change detected",
                 "ELEVATED",
-                "WARNING"  // ✅ String, not enum
+                AuditOutcome.WARNING
             )
 
             // Generate new master key
@@ -282,7 +283,7 @@ class MasterKeyManager @Inject constructor(
                 null, "SYSTEM", AuditEventType.KEY_ROTATION,
                 "Master key regenerated due to biometric enrollment change",
                 "KEYSTORE", MASTER_WRAP_KEY_ALIAS,
-                "SUCCESS",  // ✅ String, not enum
+                AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
             true
@@ -290,7 +291,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to handle biometric enrollment change: ${e.message}",
                 "CRITICAL",
-                "FAILURE"  // ✅ String, not enum
+                AuditOutcome.FAILURE
             )
             false
         }
@@ -304,7 +305,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Manual master key regeneration initiated",
                 "ELEVATED",
-                "SUCCESS"  // ✅ String, not enum
+                AuditOutcome.SUCCESS
             )
 
             // Clean up existing keys
@@ -323,7 +324,7 @@ class MasterKeyManager @Inject constructor(
                 null, "SYSTEM", AuditEventType.KEY_ROTATION,
                 "Master key infrastructure regenerated",
                 "KEYSTORE", MASTER_WRAP_KEY_ALIAS,
-                "SUCCESS",  // ✅ String, not enum
+                AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
             true
@@ -331,7 +332,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to regenerate master key: ${e.message}",
                 "CRITICAL",
-                "FAILURE"  // ✅ String, not enum
+                AuditOutcome.FAILURE
             )
             false
         }

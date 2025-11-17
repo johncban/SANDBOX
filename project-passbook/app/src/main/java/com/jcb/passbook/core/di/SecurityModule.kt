@@ -84,7 +84,7 @@ object SecurityModule {
         auditMetadataDao: AuditMetadataDao,
         secureMemoryUtils: SecureMemoryUtils
     ): AuditChainManager {
-        return AuditChainManager(auditDao, auditMetadataDao, secureMemoryUtils)
+        return AuditChainManager(auditDao)
     }
 
     @Provides

@@ -121,8 +121,8 @@ private fun AppNavHost() {
                 userViewModel = userViewModel,
                 itemViewModel = itemViewModel,
                 onLoginSuccess = { userId ->
-                    itemViewModel.setUserId(userId)
-                    userViewModel.setUserId(userId)
+                    itemViewModel.setUserId(userId.toLong())
+                    userViewModel.setUserId(userId.toLong())
                     navController.navigate(Destinations.ITEMLIST) {
                         popUpTo(Destinations.LOGIN) { inclusive = true }
                     }
