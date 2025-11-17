@@ -5,5 +5,6 @@ enum class AuditOutcome {
     FAILURE,
     WARNING,
     ERROR,
+    BLOCKED,
     UNKNOWN
 }

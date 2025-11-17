@@ -2,32 +2,14 @@ package com.jcb.passbook.security.audit
 
 import android.content.Context
 import android.os.Build
-import com.jcb.passbook.data.local.database.entities.AuditEntry
-import com.jcb.passbook.data.local.database.entities.AuditEventType
-import com.jcb.passbook.data.local.database.entities.AuditOutcome
+import com.jcb.passbook.data.local.database.entities.*
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import timber.log.Timber
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * AuditLogger - Centralized audit logging for security tracking
- *
- * ALL FIXES APPLIED:
- * - ✅ Fixed itemId undefined reference error (lines 317, 319)
- * - ✅ Fixed API level 28 requirement for longVersionCode (line 382)
- * - ✅ Changed addToChain() to addEntryToChain()
- * - ✅ Fixed enum.value to enum.name
- * - ✅ Fixed userId type from Int to Long
- * - ✅ Fixed outcome parameter types
- * - ✅ Added missing description parameters
- * - ✅ Fixed all method signatures
- */
 @Singleton
 class AuditLogger @Inject constructor(
     private val auditQueue: AuditQueue,
@@ -36,9 +18,7 @@ class AuditLogger @Inject constructor(
 ) {
     private val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /**
-     * Log user action with optional parameters for easier calling
-     */
+    /** Log user action */
     fun logUserAction(
         userId: Long?,
         username: String,
@@ -46,7 +26,7 @@ class AuditLogger @Inject constructor(
         action: String,
         resourceType: String?,
         resourceId: String?,
-        outcome: String,
+        outcome: AuditOutcome,
         errorMessage: String? = null,
         securityLevel: String = "NORMAL"
     ) {
@@ -63,7 +43,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = securityLevel
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -72,13 +51,11 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log security event with optional error message
-     */
+    /** Log security event */
     fun logSecurityEvent(
         message: String,
         securityLevel: String,
-        outcome: String,
+        outcome: AuditOutcome,
         errorMessage: String? = null
     ) {
         auditScope.launch {
@@ -94,7 +71,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = securityLevel
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -103,13 +79,11 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log authentication events
-     */
+    /** Log authentication events */
     fun logAuthentication(
         username: String,
         eventType: AuditEventType,
-        outcome: String,
+        outcome: AuditOutcome,
         errorMessage: String? = null
     ) {
         auditScope.launch {
@@ -125,7 +99,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "ELEVATED"
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -134,9 +107,7 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log audit verification results
-     */
+    /** Log audit verification results */
     fun logAuditVerification(
         result: String,
         entriesVerified: Int,
@@ -156,7 +127,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = if (discrepancies > 0) "$discrepancies discrepancies found" else null,
                     securityLevel = if (discrepancies > 0) "CRITICAL" else "NORMAL"
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -165,9 +135,7 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log application lifecycle events
-     */
+    /** Log application lifecycle events */
     fun logAppLifecycle(
         action: String,
         metadata: Map<String, String>
@@ -185,7 +153,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = null,
                     securityLevel = "NORMAL"
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -194,14 +161,12 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log database operations with optional parameters
-     */
+    /** Log database operation */
     fun logDatabaseOperation(
         operation: String,
         tableName: String?,
         recordId: String?,
-        outcome: String,
+        outcome: AuditOutcome,
         errorMessage: String? = null
     ) {
         auditScope.launch {
@@ -217,7 +182,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "NORMAL"
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -226,9 +190,7 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log item operations (create/read/update/delete)
-     */
+    /** Log item operation (CRUD) */
     fun logItemOperation(
         userId: Long,
         username: String,
@@ -250,7 +212,6 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "NORMAL"
                 )
-
                 val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
                 auditQueue.enqueue(chainedEntry)
             } catch (e: Exception) {
@@ -259,10 +220,7 @@ class AuditLogger @Inject constructor(
         }
     }
 
-    /**
-     * Log data access events with correct enum usage
-     * Called from ItemViewModel when accessing password vault items
-     */
+    /** Log data access event */
     fun logDataAccess(
         userId: Long,
         username: String,
@@ -273,16 +231,14 @@ class AuditLogger @Inject constructor(
         errorMessage: String? = null,
         securityLevel: String = "NORMAL"
     ) {
-        // Determine event type from action using proper enum values
         val eventType = when {
-            action.contains("Created", ignoreCase = true) -> AuditEventType.CREATE_ITEM
-            action.contains("Updated", ignoreCase = true) -> AuditEventType.UPDATE_ITEM
-            action.contains("Deleted", ignoreCase = true) -> AuditEventType.DELETE_ITEM
-            action.contains("Accessed", ignoreCase = true) -> AuditEventType.VIEW_ITEM
-            action.contains("Viewed", ignoreCase = true) -> AuditEventType.VIEW_ITEM
-            else -> AuditEventType.VIEW_ITEM // Default to VIEW_ITEM for read operations
+            action.contains("Created", true) -> AuditEventType.CREATE_ITEM
+            action.contains("Updated", true) -> AuditEventType.UPDATE_ITEM
+            action.contains("Deleted", true) -> AuditEventType.DELETE_ITEM
+            action.contains("Accessed", true) -> AuditEventType.VIEW_ITEM
+            action.contains("Viewed", true) -> AuditEventType.VIEW_ITEM
+            else -> AuditEventType.VIEW_ITEM
         }
-
         logUserAction(
             userId = userId,
             username = username,
@@ -296,43 +252,7 @@ class AuditLogger @Inject constructor(
         )
     }
 
-    /**
-     * ✅ FIXED: Convenience method for logging user events
-     * Added itemId parameter to fix "Unresolved reference 'itemId'" error
-     */
-    fun logUserEvent(
-        userId: Long,
-        eventType: AuditEventType,
-        description: String,
-        itemId: Long? = null  // ✅ FIXED: Added missing parameter
-    ) {
-        auditScope.launch {
-            try {
-                val auditEntry = AuditEntry(
-                    userId = userId,
-                    username = "USER_$userId",
-                    timestamp = System.currentTimeMillis(),
-                    eventType = eventType,
-                    action = description,
-                    description = description,
-                    value = itemId?.toString(),  // ✅ FIXED: Use optional itemId
-                    resourceType = "ITEM",
-                    resourceId = itemId?.toString(),  // ✅ FIXED: Use optional itemId
-                    outcome = "SUCCESS",
-                    securityLevel = "NORMAL"
-                )
-
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to log user event")
-            }
-        }
-    }
-
-    /**
-     * Helper method to create audit entries consistently
-     */
+    /** Helper method to create audit entries consistently */
     private fun createAuditEntry(
         userId: Long?,
         username: String,
@@ -357,7 +277,7 @@ class AuditLogger @Inject constructor(
             deviceInfo = getDeviceInfo(),
             appVersion = getAppVersion(),
             sessionId = getCurrentSessionId(),
-            outcome = outcome.name,
+            outcome = outcome,
             errorMessage = errorMessage,
             securityLevel = securityLevel,
             chainPrevHash = null,
@@ -366,175 +286,56 @@ class AuditLogger @Inject constructor(
         )
     }
 
-    /**
-     * Get current device information
-     */
-    private fun getDeviceInfo(): String {
-        return "${Build.MANUFACTURER} ${Build.MODEL} (API ${Build.VERSION.SDK_INT})"
-    }
+    private fun getDeviceInfo(): String =
+        "${Build.MANUFACTURER} ${Build.MODEL} (API ${Build.VERSION.SDK_INT})"
 
-    /**
-     * ✅ FIXED: Get current app version with API level check
-     * Fixed "Call requires API level 28" error
-     */
-    private fun getAppVersion(): String {
-        return try {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            // ✅ FIXED: Use versionCode for API < 28, longVersionCode for API >= 28
-            val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionCode.toLong()
-            }
-            "${packageInfo.versionName} ($versionCode)"
-        } catch (e: Exception) {
-            "Unknown"
+    private fun getAppVersion(): String = try {
+        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toLong()
         }
+        "${packageInfo.versionName} ($versionCode)"
+    } catch (e: Exception) {
+        "Unknown"
     }
 
-    /**
-     * Get current session ID (placeholder - should be injected from SessionManager)
-     */
-    private fun getCurrentSessionId(): String {
-        return try {
-            // In a real implementation, this would be injected from SessionManager
-            // For now, generate a temporary ID
-            UUID.randomUUID().toString()
-        } catch (e: Exception) {
-            "unknown-session"
-        }
+    private fun getCurrentSessionId(): String = try {
+        UUID.randomUUID().toString()
+    } catch (e: Exception) {
+        "unknown-session"
     }
 
-    /**
-     * Convenience methods for specific event types
-     */
+    // ---- Specific event-typed wrappers ----
+    fun logLogin(userId: Long, username: String, outcome: AuditOutcome) =
+        logUserAction(userId, username, AuditEventType.LOGIN, "User login", "AUTH", userId.toString(), outcome, securityLevel="ELEVATED")
 
-    fun logLogin(userId: Long, username: String, outcome: AuditOutcome) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.LOGIN,
-            action = "User login",
-            resourceType = "AUTH",
-            resourceId = userId.toString(),
-            outcome = outcome,
-            securityLevel = "ELEVATED"
-        )
-    }
+    fun logLogout(userId: Long, username: String) =
+        logUserAction(userId, username, AuditEventType.LOGOUT, "User logout", "AUTH", userId.toString(), AuditOutcome.SUCCESS)
 
-    fun logLogout(userId: Long, username: String) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.LOGOUT,
-            action = "User logout",
-            resourceType = "AUTH",
-            resourceId = userId.toString(),
-            outcome = AuditOutcome.SUCCESS,
-            securityLevel = "NORMAL"
-        )
-    }
+    fun logAuthenticationFailure(username: String, reason: String) =
+        logUserAction(null, username, AuditEventType.AUTHENTICATION_FAILURE, "Authentication failed", "AUTH", null, AuditOutcome.FAILURE, reason, "HIGH")
 
-    fun logAuthenticationFailure(username: String, reason: String) {
-        logUserAction(
-            userId = null,
-            username = username,
-            eventType = AuditEventType.AUTHENTICATION_FAILURE,
-            action = "Authentication failed",
-            resourceType = "AUTH",
-            resourceId = null,
-            outcome = AuditOutcome.FAILURE,
-            errorMessage = reason,
-            securityLevel = "HIGH"
-        )
-    }
+    fun logKeyRotation(userId: Long, username: String, outcome: AuditOutcome) =
+        logUserAction(userId, username, AuditEventType.KEY_ROTATION, "Database key rotation", "ENCRYPTION", "MASTER_KEY", outcome, securityLevel="CRITICAL")
 
-    fun logKeyRotation(userId: Long, username: String, outcome: AuditOutcome) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.KEY_ROTATION,
-            action = "Database key rotation",
-            resourceType = "ENCRYPTION",
-            resourceId = "MASTER_KEY",
-            outcome = outcome,
-            securityLevel = "CRITICAL"
-        )
-    }
+    fun logItemCreated(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) =
+        logUserAction(userId, username, AuditEventType.CREATE_ITEM, "Item created", "ITEM", itemId.toString(), outcome)
 
-    fun logItemCreated(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.CREATE_ITEM,
-            action = "Item created",
-            resourceType = "ITEM",
-            resourceId = itemId.toString(),
-            outcome = outcome,
-            securityLevel = "NORMAL"
-        )
-    }
+    fun logItemUpdated(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) =
+        logUserAction(userId, username, AuditEventType.UPDATE_ITEM, "Item updated", "ITEM", itemId.toString(), outcome)
 
-    fun logItemUpdated(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.UPDATE_ITEM,
-            action = "Item updated",
-            resourceType = "ITEM",
-            resourceId = itemId.toString(),
-            outcome = outcome,
-            securityLevel = "NORMAL"
-        )
-    }
+    fun logItemDeleted(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) =
+        logUserAction(userId, username, AuditEventType.DELETE_ITEM, "Item deleted", "ITEM", itemId.toString(), outcome)
 
-    fun logItemDeleted(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.DELETE_ITEM,
-            action = "Item deleted",
-            resourceType = "ITEM",
-            resourceId = itemId.toString(),
-            outcome = outcome,
-            securityLevel = "NORMAL"
-        )
-    }
+    fun logItemViewed(userId: Long, username: String, itemId: Long) =
+        logUserAction(userId, username, AuditEventType.VIEW_ITEM, "Item viewed", "ITEM", itemId.toString(), AuditOutcome.SUCCESS)
 
-    fun logItemViewed(userId: Long, username: String, itemId: Long) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.VIEW_ITEM,
-            action = "Item viewed",
-            resourceType = "ITEM",
-            resourceId = itemId.toString(),
-            outcome = AuditOutcome.SUCCESS,
-            securityLevel = "NORMAL"
-        )
-    }
+    fun logSecurityBreach(message: String, severity: String = "CRITICAL") =
+        logSecurityEvent(message, severity, AuditOutcome.ERROR, errorMessage="Security breach detected")
 
-    fun logSecurityBreach(message: String, severity: String = "CRITICAL") {
-        logSecurityEvent(
-            message = message,
-            securityLevel = severity,
-            outcome = AuditOutcome.ERROR,
-            errorMessage = "Security breach detected"
-        )
-    }
-
-    fun logAccessDenied(userId: Long?, username: String, resource: String, reason: String) {
-        logUserAction(
-            userId = userId,
-            username = username,
-            eventType = AuditEventType.ACCESS_DENIED,
-            action = "Access denied to $resource",
-            resourceType = "SECURITY",
-            resourceId = resource,
-            outcome = AuditOutcome.FAILURE,
-            errorMessage = reason,
-            securityLevel = "HIGH"
-        )
-    }
+    fun logAccessDenied(userId: Long?, username: String, resource: String, reason: String) =
+        logUserAction(userId, username, AuditEventType.ACCESS_DENIED, "Access denied to $resource", "SECURITY", resource, AuditOutcome.FAILURE, reason, "HIGH")
 }

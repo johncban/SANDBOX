@@ -2,6 +2,7 @@ package com.jcb.passbook.data.local.database
 
 import androidx.room.TypeConverter
 import com.jcb.passbook.data.local.database.entities.AuditEventType
+import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import java.util.Date
 
 /**
@@ -69,6 +70,13 @@ class Converters {
     fun toStringList(value: String?): List<String>? {
         return value?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
     }
+
+    @TypeConverter
+    fun fromAuditOutcome(outcome: AuditOutcome): String = outcome.name
+
+    @TypeConverter
+    fun toAuditOutcome(name: String): AuditOutcome = AuditOutcome.valueOf(name)
+
 
     // ==================== ByteArray Converters ====================
 

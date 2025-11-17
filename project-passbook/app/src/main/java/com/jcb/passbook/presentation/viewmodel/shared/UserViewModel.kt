@@ -11,6 +11,7 @@ import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditEventType
+import com.jcb.passbook.data.local.database.entities.AuditOutcome  // ✅ ADDED THIS IMPORT
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
@@ -43,7 +44,6 @@ sealed interface RegistrationState {
     data class Error(@StringRes val messageId: Int, val details: String? = null) : RegistrationState
 }
 
-// ✅ FIX: Define KeyRotationState (separate from ItemOperationState)
 sealed interface KeyRotationState {
     object Idle : KeyRotationState
     object Loading : KeyRotationState
@@ -56,7 +56,7 @@ class UserViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val db: AppDatabase,
     private val userRepository: UserRepository,
-    private val userDao: UserDao,  // ✅ FIX: Inject UserDao directly
+    private val userDao: UserDao,
     private val argon2Kt: Argon2Kt,
     private val auditLogger: AuditLogger
 ) : ViewModel() {
@@ -70,7 +70,6 @@ class UserViewModel @Inject constructor(
     private val _userId = MutableStateFlow(-1L)
     val userId = _userId.asStateFlow()
 
-    // ✅ FIX: Use KeyRotationState not ItemOperationState
     private val _keyRotationState = MutableStateFlow<KeyRotationState>(KeyRotationState.Idle)
     val keyRotationState = _keyRotationState.asStateFlow()
 
@@ -84,22 +83,21 @@ class UserViewModel @Inject constructor(
 
     @RequiresApi(Build.VERSION_CODES.M)
     fun rotateDatabaseKey() {
-        _keyRotationState.value = KeyRotationState.Loading  // ✅ FIX
+        _keyRotationState.value = KeyRotationState.Loading
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val newPassphrase = KeystorePassphraseManager.rotatePassphrase(context)
                 val supportDb = db.openHelper.writableDatabase
                 supportDb.query("PRAGMA rekey = '$newPassphrase';").close()
                 Arrays.fill(newPassphrase.toCharArray(), ' ')
-                _keyRotationState.value = KeyRotationState.Success  // ✅ FIX
+                _keyRotationState.value = KeyRotationState.Success
             } catch (e: Exception) {
                 Timber.e(e, "Database key rotation failed")
-                _keyRotationState.value = KeyRotationState.Error("Key rotation failed: ${e.message}")  // ✅ FIX
+                _keyRotationState.value = KeyRotationState.Error("Key rotation failed: ${e.message}")
             }
         }
     }
 
-    // -- Helper to hash using Argon2ID, always returns ByteArray --
     private fun hashPassword(password: String, salt: ByteArray): ByteArray {
         val hashResult = argon2Kt.hash(
             mode = Argon2Mode.ARGON2_ID,
@@ -129,7 +127,7 @@ class UserViewModel @Inject constructor(
             auditLogger.logAuthentication(
                 username = username.takeIf { it.isNotBlank() } ?: "UNKNOWN",
                 eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                outcome = "FAILURE",  // ✅ FIX: Use String not AuditOutcome
+                outcome = AuditOutcome.FAILURE,  // ✅ FIX #1: Changed from "FAILURE" to enum
                 errorMessage = "Empty credentials provided"
             )
             _authState.value = AuthState.Error(R.string.error_credentials_empty)
@@ -142,20 +140,17 @@ class UserViewModel @Inject constructor(
                 val user = userRepository.getUserByUsername(username)
                 if (user != null && verifyPassword(password, user.passwordHash, user.salt)) {
                     _userId.value = user.id
-
-                    // ✅ FIX: Use logAuthentication instead of logUserEvent
                     auditLogger.logAuthentication(
                         username = user.username,
                         eventType = AuditEventType.LOGIN,
-                        outcome = "SUCCESS"  // ✅ FIX: Use String
+                        outcome = AuditOutcome.SUCCESS  // ✅ FIX #2: Changed from "SUCCESS" to enum
                     )
-
                     _authState.value = AuthState.Success(user.id)
                 } else {
                     auditLogger.logAuthentication(
                         username = username,
                         eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                        outcome = "FAILURE",  // ✅ FIX: Use String
+                        outcome = AuditOutcome.FAILURE,  // ✅ FIX #3: Changed from "FAILURE" to enum
                         errorMessage = "Invalid username or password"
                     )
                     _authState.value = AuthState.Error(R.string.error_invalid_credentials)
@@ -164,7 +159,7 @@ class UserViewModel @Inject constructor(
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                    outcome = "FAILURE",  // ✅ FIX: Use String
+                    outcome = AuditOutcome.FAILURE,  // ✅ FIX #4: Changed from "FAILURE" to enum
                     errorMessage = "Login exception: ${e.message}"
                 )
                 Timber.e(e, "Login failure")
@@ -196,7 +191,7 @@ class UserViewModel @Inject constructor(
                     auditLogger.logAuthentication(
                         username = username,
                         eventType = AuditEventType.REGISTER,
-                        outcome = "FAILURE",  // ✅ FIX: Use String
+                        outcome = AuditOutcome.FAILURE,  // ✅ FIX #5: Changed from "FAILURE" to enum
                         errorMessage = "Username already exists"
                     )
                     _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
@@ -205,20 +200,17 @@ class UserViewModel @Inject constructor(
 
                 val salt = generateSalt()
                 val passwordHash = hashPassword(password, salt)
-
                 val newUser = User(
                     username = username,
                     passwordHash = passwordHash,
                     salt = salt
                 )
 
-                // ✅ FIX: Use userDao.insert() directly (returns Long)
                 val userId: Long = userDao.insert(newUser)
-
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
-                    outcome = "SUCCESS"  // ✅ FIX: Use String
+                    outcome = AuditOutcome.SUCCESS  // ✅ FIX #6: Changed from "SUCCESS" to enum
                 )
 
                 _userId.value = userId
@@ -227,7 +219,7 @@ class UserViewModel @Inject constructor(
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
-                    outcome = "FAILURE",  // ✅ FIX: Use String
+                    outcome = AuditOutcome.FAILURE,  // ✅ FIX #7: Changed from "FAILURE" to enum
                     errorMessage = "Registration failed: ${e.message}"
                 )
                 Timber.e(e, "Registration failed")
@@ -249,15 +241,12 @@ class UserViewModel @Inject constructor(
             try {
                 val currentUserId = _userId.value
                 if (currentUserId != -1L) {
-                    // ✅ FIX: Use userDao.getUser() with explicit type
                     val user: User? = userDao.getUser(currentUserId)
-
-                    // ✅ FIX: Use logAuthentication for logout
                     if (user != null) {
                         auditLogger.logAuthentication(
-                            username = user.username,  // ✅ FIX: username property exists
+                            username = user.username,
                             eventType = AuditEventType.LOGOUT,
-                            outcome = "SUCCESS"
+                            outcome = AuditOutcome.SUCCESS  // ✅ FIX #8: Changed from "SUCCESS" to enum
                         )
                     }
                 }
