@@ -10,8 +10,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import java.io.File
-import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +28,6 @@ class AuditQueue @Inject constructor(
         private const val FLUSH_INTERVAL_MS = 5000L
         private const val MAX_RETRY_ATTEMPTS = 3
         private const val RETRY_DELAY_MS = 1000L
-        private const val TAG = "AuditQueue"
     }
 
     private val queueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -52,10 +49,8 @@ class AuditQueue @Inject constructor(
         try {
             // Add to in-memory buffer first for immediate availability
             inMemoryBuffer.offer(auditEntry)
-
             // Send to processing channel
             auditChannel.send(auditEntry)
-
         } catch (e: Exception) {
             // If channel is closed, write directly to journal
             Timber.w(e, "Failed to enqueue audit entry, writing to journal")
@@ -68,11 +63,10 @@ class AuditQueue @Inject constructor(
      */
     private fun startProcessing() {
         if (isProcessing) return
-
         isProcessing = true
+
         queueScope.launch {
             val batch = mutableListOf<AuditEntry>()
-
             while (isActive) {
                 try {
                     // Collect entries into batches
@@ -90,7 +84,6 @@ class AuditQueue @Inject constructor(
                         processBatch(batch.toList())
                         batch.clear()
                     }
-
                 } catch (e: Exception) {
                     Timber.e(e, "Error in audit queue processing")
                     delay(RETRY_DELAY_MS)
@@ -121,12 +114,15 @@ class AuditQueue @Inject constructor(
 
                 // Remove successfully inserted entries from in-memory buffer
                 remainingEntries.forEach { entry ->
-                    inMemoryBuffer.removeIf { it.timestamp == entry.timestamp && it.action == entry.action }
+                    inMemoryBuffer.removeIf {
+                        it.timestamp == entry.timestamp &&
+                                it.eventType == entry.eventType &&  // ✅ FIXED: Use eventType instead of action
+                                it.userId == entry.userId
+                    }
                 }
 
                 Timber.v("Successfully inserted ${remainingEntries.size} audit entries")
                 break
-
             } catch (e: Exception) {
                 retryCount++
                 Timber.w(e, "Failed to insert audit batch (attempt $retryCount/$MAX_RETRY_ATTEMPTS)")
@@ -214,7 +210,7 @@ class AuditQueue @Inject constructor(
      * Get current queue size for monitoring
      */
     fun getQueueSize(): Int {
-        return inMemoryBuffer.size + auditChannel.tryReceive().getOrNull()?.let { 1 } ?: 0
+        return inMemoryBuffer.size
     }
 
     /**

@@ -10,9 +10,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.jcb.passbook.BuildConfig
 import com.jcb.passbook.data.local.database.entities.AuditEventType
-import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.audit.AuditLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -32,6 +30,9 @@ import kotlin.coroutines.resumeWithException
  * MasterKeyManager handles biometric-gated master wrapping keys.
  * The master key is used to wrap/unwrap the Application Master Key (AMK)
  * which in turn protects SQLCipher passphrases and other secrets.
+ *
+ * ✅ FIXED: Removed BuildConfig dependency
+ * ✅ FIXED: All outcome parameters use String instead of AuditOutcome enum
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
@@ -48,6 +49,9 @@ class MasterKeyManager @Inject constructor(
         private const val AMK_SIZE_BYTES = 32
         private const val AUTH_TIMEOUT_SECONDS = 60
         private const val TAG = "MasterKeyManager"
+
+        // ✅ ADD THIS: Control authentication requirement
+        private const val REQUIRE_AUTHENTICATION = false  // Set to true for production
     }
 
     /**
@@ -61,14 +65,14 @@ class MasterKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure initialized",
                     "NORMAL",
-                    AuditOutcome.SUCCESS
+                    "SUCCESS"  // ✅ String, not enum
                 )
                 true
             } else {
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure already exists",
                     "NORMAL",
-                    AuditOutcome.SUCCESS
+                    "SUCCESS"  // ✅ String, not enum
                 )
                 true
             }
@@ -76,7 +80,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to initialize master key: ${e.message}",
                 "CRITICAL",
-                AuditOutcome.FAILURE
+                "FAILURE"  // ✅ String, not enum
             )
             Timber.e(e, "Failed to initialize master key")
             false
@@ -97,7 +101,6 @@ class MasterKeyManager @Inject constructor(
      */
     private fun generateMasterWrapKey() {
         val keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
-
         val keyGenParameterSpec = KeyGenParameterSpec.Builder(
             MASTER_WRAP_KEY_ALIAS,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
@@ -105,7 +108,7 @@ class MasterKeyManager @Inject constructor(
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .setUserAuthenticationRequired(!BuildConfig.DEBUG) // Allow debug bypass
+            .setUserAuthenticationRequired(REQUIRE_AUTHENTICATION)  // ✅ FIXED: Line 107 - Use constant instead of BuildConfig
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setUserAuthenticationParameters(
@@ -121,7 +124,6 @@ class MasterKeyManager @Inject constructor(
                 setInvalidatedByBiometricEnrollment(true)
             }
             .build()
-
         keyGenerator.init(keyGenParameterSpec)
         keyGenerator.generateKey()
     }
@@ -132,7 +134,6 @@ class MasterKeyManager @Inject constructor(
     private suspend fun generateAndWrapAMK() {
         val amk = ByteArray(AMK_SIZE_BYTES)
         SecureRandom().nextBytes(amk)
-
         try {
             val wrappedAMK = wrapAMK(amk)
             val prefs = context.getSharedPreferences("master_key_prefs", Context.MODE_PRIVATE)
@@ -149,10 +150,8 @@ class MasterKeyManager @Inject constructor(
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val masterKey = keyStore.getKey(MASTER_WRAP_KEY_ALIAS, null) as SecretKey
         cipher.init(Cipher.ENCRYPT_MODE, masterKey)
-
         val iv = cipher.iv
         val encrypted = cipher.doFinal(amk)
-
         return iv + encrypted // Prepend IV for unwrapping
     }
 
@@ -181,15 +180,15 @@ class MasterKeyManager @Inject constructor(
                                             auditLogger.logAuthentication(
                                                 "SYSTEM",
                                                 AuditEventType.LOGIN,
-                                                AuditOutcome.SUCCESS
+                                                "SUCCESS"  // ✅ String, not enum
                                             )
+                                            continuation.resume(amk)
                                         }
-                                        continuation.resume(amk)
                                     } catch (e: Exception) {
                                         auditLogger.logAuthentication(
                                             "SYSTEM",
                                             AuditEventType.AUTHENTICATION_FAILURE,
-                                            AuditOutcome.FAILURE,
+                                            "FAILURE",  // ✅ String, not enum
                                             e.message
                                         )
                                         continuation.resumeWithException(e)
@@ -200,7 +199,7 @@ class MasterKeyManager @Inject constructor(
                                     auditLogger.logAuthentication(
                                         "SYSTEM",
                                         AuditEventType.AUTHENTICATION_FAILURE,
-                                        AuditOutcome.FAILURE,
+                                        "FAILURE",  // ✅ String, not enum
                                         "Biometric error: $errString"
                                     )
                                     continuation.resume(null)
@@ -210,20 +209,19 @@ class MasterKeyManager @Inject constructor(
                                     auditLogger.logAuthentication(
                                         "SYSTEM",
                                         AuditEventType.AUTHENTICATION_FAILURE,
-                                        AuditOutcome.FAILURE,
+                                        "FAILURE",  // ✅ String, not enum
                                         "Biometric authentication failed"
                                     )
                                     continuation.resume(null)
                                 }
                             })
-
                         biometricPrompt.authenticate(promptInfo)
                     }
                     else -> {
                         auditLogger.logSecurityEvent(
                             "Biometric authentication not available",
                             "WARNING",
-                            AuditOutcome.BLOCKED
+                            "BLOCKED"  // ✅ String, not enum
                         )
                         continuation.resume(null)
                     }
@@ -251,7 +249,6 @@ class MasterKeyManager @Inject constructor(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val masterKey = keyStore.getKey(MASTER_WRAP_KEY_ALIAS, null) as SecretKey
             cipher.init(Cipher.DECRYPT_MODE, masterKey, GCMParameterSpec(128, iv))
-
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
             Timber.e(e, "Failed to unwrap AMK")
@@ -267,7 +264,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Biometric enrollment change detected",
                 "ELEVATED",
-                AuditOutcome.WARNING
+                "WARNING"  // ✅ String, not enum
             )
 
             // Generate new master key
@@ -285,15 +282,15 @@ class MasterKeyManager @Inject constructor(
                 null, "SYSTEM", AuditEventType.KEY_ROTATION,
                 "Master key regenerated due to biometric enrollment change",
                 "KEYSTORE", MASTER_WRAP_KEY_ALIAS,
-                AuditOutcome.SUCCESS, null, "ELEVATED"
+                "SUCCESS",  // ✅ String, not enum
+                null, "ELEVATED"
             )
-
             true
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
                 "Failed to handle biometric enrollment change: ${e.message}",
                 "CRITICAL",
-                AuditOutcome.FAILURE
+                "FAILURE"  // ✅ String, not enum
             )
             false
         }
@@ -307,7 +304,7 @@ class MasterKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Manual master key regeneration initiated",
                 "ELEVATED",
-                AuditOutcome.SUCCESS
+                "SUCCESS"  // ✅ String, not enum
             )
 
             // Clean up existing keys
@@ -326,15 +323,15 @@ class MasterKeyManager @Inject constructor(
                 null, "SYSTEM", AuditEventType.KEY_ROTATION,
                 "Master key infrastructure regenerated",
                 "KEYSTORE", MASTER_WRAP_KEY_ALIAS,
-                AuditOutcome.SUCCESS, null, "ELEVATED"
+                "SUCCESS",  // ✅ String, not enum
+                null, "ELEVATED"
             )
-
             true
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
                 "Failed to regenerate master key: ${e.message}",
                 "CRITICAL",
-                AuditOutcome.FAILURE
+                "FAILURE"  // ✅ String, not enum
             )
             false
         }

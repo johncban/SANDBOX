@@ -23,11 +23,9 @@ import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import kotlinx.coroutines.launch
 import java.util.Arrays
-
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import com.jcb.passbook.data.local.database.entities.Item
-
 
 @RequiresApi(Build.VERSION_CODES.M)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,7 +46,7 @@ fun ItemListScreen(
     var showDetailsDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    // Dialog data states
+    // Dialog data states - ✅ FIXED: Add explicit type <Item?>
     var currentEditItem by remember { mutableStateOf<Item?>(null) }
     var selectedItemForDetails by remember { mutableStateOf<Item?>(null) }
     var itemToDelete by remember { mutableStateOf<Item?>(null) }
@@ -57,10 +55,7 @@ fun ItemListScreen(
     val keyRotationState by userViewModel.keyRotationState.collectAsState()
     val context = LocalContext.current
 
-
-
     // Show snackbars for errors
-    /***
     LaunchedEffect(operationState) {
         if (operationState is ItemOperationState.Error) {
             val message = (operationState as ItemOperationState.Error).message
@@ -68,7 +63,6 @@ fun ItemListScreen(
             itemViewModel.clearOperationState()
         }
     }
-    ***/
 
     LaunchedEffect(keyRotationState) {
         when (keyRotationState) {
@@ -85,11 +79,6 @@ fun ItemListScreen(
         }
     }
 
-
-
-
-
-
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = {
@@ -102,7 +91,6 @@ fun ItemListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("My Items") },
-                // REFACTORED: Corrected the actions block structure.
                 actions = {
                     // Key Rotation Button
                     if (keyRotationState is ItemOperationState.Loading) {
@@ -112,7 +100,6 @@ fun ItemListScreen(
                             Icon(Icons.Filled.VpnKey, contentDescription = "Rotate Database Key")
                         }
                     }
-
                     // Logout Button
                     IconButton(onClick = {
                         userViewModel.logout()
@@ -128,107 +115,113 @@ fun ItemListScreen(
         },
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState)
-        },
-        content = { paddingValues ->
-            if (items.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No items found. Add some!")
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(items = items, key = { it.id }) { item ->    ItemRow(item = item, onClick = {
-                        selectedItemForDetails = item
-                        showDetailsDialog = true
-                    }) }
+        }
+    ) { paddingValues ->
+        if (items.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No items found. Add some!")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                // ✅ FIXED: Add explicit type parameter <Item>
+                items(items = items, key = { it.id }) { item ->
+                    ItemRow(
+                        item = item,
+                        onClick = {
+                            selectedItemForDetails = item
+                            showDetailsDialog = true
+                        }
+                    )
                 }
             }
         }
-    )
 
-    // --- Dialog Composables ---
-
-    if (showAddDialog) {
-        ItemAddDialog(
-            onDismiss = { showAddDialog = false },
-            onAddItem = { name, password ->
-                itemViewModel.insert(name, password)
-                showAddDialog = false
-            }
-        )
-    }
-
-    if (showEditDialog && currentEditItem != null) {
-        ItemEditDialog(
-            item = currentEditItem!!,
-            onDismiss = {
-                showEditDialog = false
-                currentEditItem = null
-            },
-            onEditItem = { originalItem, newName, newPassword ->
-                itemViewModel.update(originalItem, newName, newPassword)
-                showEditDialog = false
-                currentEditItem = null
-            }
-        )
-    }
-
-    if (showDetailsDialog && selectedItemForDetails != null) {
-        val decryptedPassword by remember(selectedItemForDetails) {
-            derivedStateOf {
-                itemViewModel.getDecryptedPassword(selectedItemForDetails!!)
-            }
+        // --- Dialog Composables ---
+        if (showAddDialog) {
+            ItemAddDialog(
+                onDismiss = { showAddDialog = false },
+                onAddItem = { title, password ->
+                    itemViewModel.insert(title, password)
+                    showAddDialog = false
+                }
+            )
         }
-        ItemDetailsDialog(
-            item = selectedItemForDetails!!,
-            decryptedPassword = decryptedPassword,
-            onDismiss = {
-                showDetailsDialog = false
-                selectedItemForDetails = null
-            },
-            onItemEdit = { editItem ->
-                currentEditItem = editItem
-                showDetailsDialog = false
-                selectedItemForDetails = null
-                showEditDialog = true
-            },
-            onItemDelete = { deleteItem ->
-                itemToDelete = deleteItem
-                showDetailsDialog = false
-                selectedItemForDetails = null
-                showDeleteConfirmDialog = true
-            }
-        )
-    }
 
-    if (showDeleteConfirmDialog && itemToDelete != null) {
-        ConfirmDeleteDialog(
-            itemName = itemToDelete!!.name,
-            onConfirm = {
-                val toDelete = itemToDelete!!
-                coroutineScope.launch { itemViewModel.delete(toDelete) }
-                showDeleteConfirmDialog = false
-                itemToDelete = null
-            },
-            onDismiss = {
-                showDeleteConfirmDialog = false
-                itemToDelete = null
+        if (showEditDialog && currentEditItem != null) {
+            ItemEditDialog(
+                item = currentEditItem!!,
+                onDismiss = {
+                    showEditDialog = false
+                    currentEditItem = null
+                },
+                onEditItem = { originalItem, newTitle, newPassword ->
+                    itemViewModel.update(originalItem, newTitle, newPassword)
+                    showEditDialog = false
+                    currentEditItem = null
+                }
+            )
+        }
+
+        if (showDetailsDialog && selectedItemForDetails != null) {
+            val decryptedPassword by remember(selectedItemForDetails) {
+                derivedStateOf {
+                    itemViewModel.getDecryptedPassword(selectedItemForDetails!!)
+                }
             }
-        )
+
+            ItemDetailsDialog(
+                item = selectedItemForDetails!!,
+                decryptedPassword = decryptedPassword,
+                onDismiss = {
+                    showDetailsDialog = false
+                    selectedItemForDetails = null
+                },
+                onItemEdit = { editItem ->
+                    currentEditItem = editItem
+                    showDetailsDialog = false
+                    selectedItemForDetails = null
+                    showEditDialog = true
+                },
+                onItemDelete = { deleteItem ->
+                    itemToDelete = deleteItem
+                    showDetailsDialog = false
+                    selectedItemForDetails = null
+                    showDeleteConfirmDialog = true
+                }
+            )
+        }
+
+        if (showDeleteConfirmDialog && itemToDelete != null) {
+            ConfirmDeleteDialog(
+                itemTitle = itemToDelete!!.title,  // ✅ FIXED: Changed from .name to .title
+                onConfirm = {
+                    val toDelete = itemToDelete!!
+                    coroutineScope.launch {
+                        itemViewModel.delete(toDelete)
+                    }
+                    showDeleteConfirmDialog = false
+                    itemToDelete = null
+                },
+                onDismiss = {
+                    showDeleteConfirmDialog = false
+                    itemToDelete = null
+                }
+            )
+        }
     }
 }
 
 // --- Reusable Composables ---
-
 @Composable
 fun ItemRow(item: Item, onClick: () -> Unit) {
     Card(
@@ -236,18 +229,20 @@ fun ItemRow(item: Item, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(vertical = 4.dp, horizontal = 8.dp)
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = item.name,
+                text = item.title,  // ✅ FIXED: Changed from item.name to item.title
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
             )
             Icon(
                 Icons.Filled.Password,
@@ -286,7 +281,9 @@ fun PasswordInputField(
                 Icon(imageVector = image, contentDescription = "Toggle password visibility")
             }
         },
-        placeholder = if (placeholder != null) { { Text(placeholder) } } else null,
+        placeholder = if (placeholder != null) {
+            { Text(placeholder) }
+        } else null,
         modifier = modifier.fillMaxWidth()
     )
 }
@@ -320,11 +317,11 @@ fun ConfirmCancelButtons(
     onCancelClick: () -> Unit,
     confirmText: String = "Confirm",
     cancelText: String = "Cancel",
-    confirmEnabled: Boolean = true,
+    confirmEnabled: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Button(
             onClick = onConfirmClick,
@@ -343,14 +340,13 @@ fun ConfirmCancelButtons(
 }
 
 // --- Modular Dialogs ---
-
 @RequiresApi(Build.VERSION_CODES.M)
 @Composable
 fun ItemAddDialog(
     onDismiss: () -> Unit,
     onAddItem: (String, String) -> Unit
 ) {
-    var itemName by remember { mutableStateOf("") }
+    var itemTitle by remember { mutableStateOf("") }  // ✅ FIXED: Changed itemName to itemTitle
     var password by remember { mutableStateOf(CharArray(0)) }
     var passwordVisible by remember { mutableStateOf(false) }
 
@@ -363,9 +359,9 @@ fun ItemAddDialog(
         text = {
             Column {
                 TextInputField(
-                    label = "Item Name",
-                    value = itemName,
-                    onValueChange = { itemName = it }
+                    label = "Item Title",  // ✅ FIXED: Changed from "Item Name"
+                    value = itemTitle,
+                    onValueChange = { itemTitle = it }
                 )
                 Spacer(Modifier.height(16.dp))
                 PasswordInputField(
@@ -383,10 +379,10 @@ fun ItemAddDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onAddItem(itemName.trim(), String(password))
+                    onAddItem(itemTitle.trim(), String(password))
                     Arrays.fill(password, ' ')
                 },
-                enabled = itemName.isNotBlank() && password.isNotEmpty()
+                enabled = itemTitle.isNotBlank() && password.isNotEmpty()
             ) {
                 Text("Add")
             }
@@ -411,7 +407,7 @@ fun ItemEditDialog(
     onDismiss: () -> Unit,
     onEditItem: (Item, String?, String?) -> Unit
 ) {
-    var itemName by remember { mutableStateOf(item.name) }
+    var itemTitle by remember { mutableStateOf(item.title) }  // ✅ FIXED: Changed from item.name
     var newPassword by remember { mutableStateOf(CharArray(0)) }
     var passwordVisible by remember { mutableStateOf(false) }
 
@@ -424,9 +420,9 @@ fun ItemEditDialog(
         text = {
             Column {
                 TextInputField(
-                    label = "Item Name",
-                    value = itemName,
-                    onValueChange = { itemName = it }
+                    label = "Item Title",  // ✅ FIXED: Changed from "Item Name"
+                    value = itemTitle,
+                    onValueChange = { itemTitle = it }
                 )
                 Spacer(Modifier.height(16.dp))
                 PasswordInputField(
@@ -445,12 +441,12 @@ fun ItemEditDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val finalName = itemName.trim().takeIf { it != item.name }
+                    val finalTitle = itemTitle.trim().takeIf { it != item.title }
                     val passwordStr = if (newPassword.isNotEmpty()) String(newPassword) else null
-                    onEditItem(item, finalName, passwordStr)
+                    onEditItem(item, finalTitle, passwordStr)
                     Arrays.fill(newPassword, ' ')
                 },
-                enabled = itemName.isNotBlank()
+                enabled = itemTitle.isNotBlank()
             ) {
                 Text("Save")
             }
@@ -478,12 +474,11 @@ fun ItemDetailsDialog(
     onItemDelete: (Item) -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
-    val context = LocalContext.current // Get context
-
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(item.name) },
+        title = { Text(item.title) },  // ✅ FIXED: Changed from item.name
         text = {
             Column {
                 OutlinedTextField(
@@ -495,12 +490,23 @@ fun ItemDetailsDialog(
                     onValueChange = {},
                     label = { Text("Password") },
                     readOnly = true,
-                    visualTransformation = if (passwordVisible || decryptedPassword == null) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = if (passwordVisible || decryptedPassword == null) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
                     trailingIcon = {
                         if (decryptedPassword != null) {
-                            val icon = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility
+                            val icon = if (passwordVisible) {
+                                Icons.Filled.VisibilityOff
+                            } else {
+                                Icons.Filled.Visibility
+                            }
                             IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(imageVector = icon, contentDescription = "Toggle password visibility")
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = "Toggle password visibility"
+                                )
                             }
                         }
                     },
@@ -530,19 +536,23 @@ fun ItemDetailsDialog(
 
 @Composable
 fun ConfirmDeleteDialog(
-    itemName: String,
+    itemTitle: String,  // ✅ FIXED: Changed from itemName to itemTitle
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Confirm Delete") },
-        text = { Text("Are you sure you want to delete '$itemName'?") },
+        text = { Text("Are you sure you want to delete '$itemTitle'?") },  // ✅ FIXED
         confirmButton = {
-            Button(onClick = onConfirm) { Text("Yes") }
+            Button(onClick = onConfirm) {
+                Text("Yes")
+            }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("No") }
+            OutlinedButton(onClick = onDismiss) {
+                Text("No")
+            }
         }
     )
 }

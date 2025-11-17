@@ -76,6 +76,7 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("boolean", "DEBUG", "true")
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"debug\"")
@@ -94,6 +95,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("boolean", "DEBUG", "false")
             buildConfigField("boolean", "DEBUG_MODE", "false")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"release\"")
@@ -146,6 +148,7 @@ android {
         buildConfig = true
         viewBinding = false
         dataBinding = false
+        //buildConfig = true
     }
 
     packaging {

@@ -11,7 +11,6 @@ import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.audit.AuditLogger
 import kotlinx.coroutines.*
 import timber.log.Timber
-import java.security.SecureRandom
 import java.util.*
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject

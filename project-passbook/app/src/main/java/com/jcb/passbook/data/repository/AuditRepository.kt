@@ -2,6 +2,7 @@ package com.jcb.passbook.data.repository
 
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
+import com.jcb.passbook.data.local.database.entities.AuditEventType
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -12,17 +13,25 @@ class AuditRepository @Inject constructor(
     private val auditDao: AuditDao
 ) {
 
-    fun getAuditEntriesForUser(userId: Int, limit: Int = 1000): Flow<List<AuditEntry>> =
-        auditDao.getAuditEntriesForUser(userId, limit)
+    // ✅ FIX: Remove second parameter, use AuditEventType enum
+    fun getAuditEntriesForUser(userId: Long): Flow<List<AuditEntry>> {
+        return auditDao.getAuditEntriesForUser(userId)  // Removed second param
+    }
 
-    fun getAuditEntriesByType(eventType: String, limit: Int = 1000): Flow<List<AuditEntry>> =
-        auditDao.getAuditEntriesByType(eventType, limit)
+    // ✅ FIX: Convert String to AuditEventType enum
+    fun getAuditEntriesByType(eventType: AuditEventType): Flow<List<AuditEntry>> {
+        return auditDao.getAuditEntriesByType(eventType)  // Use enum directly
+    }
 
-    fun getFailedAuditEntries(limit: Int = 500): Flow<List<AuditEntry>> =
-        auditDao.getFailedAuditEntries(limit)
+    // ✅ FIX: Remove parameter
+    fun getFailedAuditEntries(): Flow<List<AuditEntry>> {
+        return auditDao.getFailedAuditEntries()  // No parameters
+    }
 
-    fun getCriticalSecurityEvents(limit: Int = 100): Flow<List<AuditEntry>> =
-        auditDao.getCriticalSecurityEvents(limit)
+    // ✅ FIX: Remove parameter
+    fun getCriticalSecurityEvents(): Flow<List<AuditEntry>> {
+        return auditDao.getCriticalSecurityEvents()  // No parameters
+    }
 
     suspend fun getRecentFailedLogins(username: String, withinHours: Int = 24): Int {
         val since = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(withinHours.toLong())

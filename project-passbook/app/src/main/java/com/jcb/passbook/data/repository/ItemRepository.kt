@@ -9,7 +9,7 @@ class ItemRepository @Inject constructor(private val itemDao: ItemDao) {
 
     // val allItems: Flow<List<Item>> = itemDao.getAllItems()  // Remove or restrict
 
-    fun getItemsForUser(userId: Int): Flow<List<Item>> = itemDao.getItemsForUser(userId)
+    fun getItemsForUser(userId: Long): Flow<List<Item>> = itemDao.getItemsForUser(userId)
 
     fun getItem(id: Int, userId: Int): Flow<Item?> = itemDao.getItem(id, userId)
 

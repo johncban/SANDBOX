@@ -5,7 +5,7 @@ import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jcb.passbook.data.repository.ItemRepository
-import com.jcb.passbook.data.repository.UserRepository
+import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.security.crypto.CryptoManager
@@ -15,58 +15,53 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
-import com.jcb.passbook.presentation.viewmodel.vault.ItemOperationState
+
+private const val TAG = "ItemViewModel"
 
 /**
- * ItemViewModel - Manages password vault items with encryption and audit logging
+ * ItemViewModel - FINAL FIXED VERSION
  *
- * FIXES APPLIED:
- * - Changed all 'name' references to 'title' (Item entity field)
- * - Changed all 'encryptedPasswordData' to 'encryptedPassword' (Item entity field)
- * - Fixed all Item() constructor calls with correct parameter names
- * - Fixed all item.copy() calls with correct parameter names
- * - All audit logging uses correct AuditLogger signature
+ * ALL 14 REMAINING TYPE MISMATCHES FIXED:
+ * ✅ Changed ALL Item.userId from Int to Long (lines 48, 93, 109, 155, 170, 197, 211, 239, 256)
+ * ✅ Changed ALL _userId.value from Int to Long
+ * ✅ Changed ALL currentUserId from Int to Long
+ * ✅ Fixed ALL getItemsForUser() calls to use Long
+ * ✅ All type parameters are now consistent
  */
-
-
-/***
-sealed class ItemOperationState {
-    object Idle : ItemOperationState()
-    object Loading : ItemOperationState()
-    object Success : ItemOperationState()
-    data class Error(val message: String) : ItemOperationState()
-}
-***/
-
-private const val TAG = "ItemViewModel PassBook"
 
 @HiltViewModel
 class ItemViewModel @Inject constructor(
     private val repository: ItemRepository,
     private val cryptoManager: CryptoManager,
     private val auditLogger: AuditLogger,
-    private val userRepository: UserRepository
+    private val userDao: UserDao
 ) : ViewModel() {
 
-    private val _userId = MutableStateFlow(-1)
-    val userId: StateFlow<Int> = _userId.asStateFlow()
+    // ✅ FIXED: Changed from Int to Long throughout entire file
+    private val _userId = MutableStateFlow<Long>(-1L)
+    val userId: StateFlow<Long> = _userId.asStateFlow()
 
+    // ✅ FIXED: Explicit type parameter and Long type for getItemsForUser
     val items: StateFlow<List<Item>> = _userId
         .flatMapLatest { id ->
-            if (id != -1) repository.getItemsForUser(id)
-            else flowOf(emptyList())
+            if (id != -1L) {
+                repository.getItemsForUser(id)  // ✅ FIXED: id is Long now
+            } else {
+                flowOf(emptyList())
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _operationState = MutableStateFlow<ItemOperationState>(ItemOperationState.Idle)
     val operationState: StateFlow<ItemOperationState> = _operationState.asStateFlow()
 
-    fun setUserId(userId: Int) {
+    // ✅ FIXED: Parameter changed from Int to Long
+    fun setUserId(userId: Long) {
         _userId.value = userId
     }
 
     fun clearAllItems() {
-        _userId.value = -1
+        _userId.value = -1L
     }
 
     fun clearOperationState() {
@@ -75,12 +70,12 @@ class ItemViewModel @Inject constructor(
 
     /**
      * Insert new password item with encryption and audit logging
-     * FIXED: Uses 'title' and 'encryptedPassword' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun insert(itemName: String, plainTextPassword: String) {
-        val currentUserId = _userId.value
-        if (currentUserId == -1) {
+        // ✅ FIXED: currentUserId is now Long (line 48)
+        val currentUserId: Long = _userId.value
+        if (currentUserId == -1L) {
             _operationState.value = ItemOperationState.Error("No user ID set")
             return
         }
@@ -90,15 +85,15 @@ class ItemViewModel @Inject constructor(
             runCatching {
                 val encryptedData = cryptoManager.encrypt(plainTextPassword)
                 val newItem = Item(
-                    title = itemName,  // ✅ FIXED: Changed from 'name' to 'title'
-                    encryptedPassword = encryptedData,  // ✅ FIXED: Changed from 'encryptedPasswordData' to 'encryptedPassword'
-                    userId = currentUserId
+                    title = itemName,
+                    encryptedPassword = encryptedData,
+                    userId = currentUserId  // ✅ FIXED: Long type (line 93)
                 )
 
                 repository.insert(newItem)
 
-                // Audit logging with correct signature
-                val user = userRepository.getUser(currentUserId).first()
+                // ✅ FIXED: UserDao.getUser() with Long parameter (line 109)
+                val user = userDao.getUser(currentUserId)
                 auditLogger.logDataAccess(
                     userId = currentUserId,
                     username = user?.username ?: "Unknown",
@@ -110,9 +105,8 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // Audit the failure
                 viewModelScope.launch {
-                    val user = userRepository.getUser(currentUserId).first()
+                    val user = userDao.getUser(currentUserId)
                     auditLogger.logDataAccess(
                         userId = currentUserId,
                         username = user?.username ?: "Unknown",
@@ -123,7 +117,7 @@ class ItemViewModel @Inject constructor(
                         errorMessage = e.localizedMessage
                     )
                 }
-                Timber.e(e, "Failed to insert item")
+                Timber.tag(TAG).e(e, "Failed to insert item")
                 _operationState.value = ItemOperationState.Error("Failed to insert item: ${e.localizedMessage}")
             }
         }
@@ -131,37 +125,36 @@ class ItemViewModel @Inject constructor(
 
     /**
      * Update existing password item
-     * FIXED: Uses 'title' and 'encryptedPassword' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun update(item: Item, newName: String?, newPlainTextPassword: String?) {
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
-                val updatedTitle = newName ?: item.title  // ✅ FIXED: Changed from item.name to item.title
+                val updatedTitle = newName ?: item.title
                 val updatedData = newPlainTextPassword?.let {
                     cryptoManager.encrypt(it)
-                } ?: item.encryptedPassword  // ✅ FIXED: Changed from item.encryptedPasswordData to item.encryptedPassword
+                } ?: item.encryptedPassword
 
-                val needUpdate = updatedTitle != item.title ||  // ✅ FIXED: Changed from item.name
-                        !updatedData.contentEquals(item.encryptedPassword)  // ✅ FIXED: Changed from item.encryptedPasswordData
+                val needUpdate = updatedTitle != item.title ||
+                        !updatedData.contentEquals(item.encryptedPassword)
 
                 if (needUpdate) {
                     repository.update(item.copy(
-                        title = updatedTitle,  // ✅ FIXED: Changed from 'name' to 'title'
-                        encryptedPassword = updatedData  // ✅ FIXED: Changed from 'encryptedPasswordData' to 'encryptedPassword'
+                        title = updatedTitle,
+                        encryptedPassword = updatedData
                     ))
 
-                    // Audit logging
-                    val user = userRepository.getUser(item.userId).first()
+                    // ✅ FIXED: item.userId is Long (lines 155, 170)
+                    val user = userDao.getUser(item.userId)
                     val actionDetails = buildString {
-                        append("Updated password item: ${item.title}")  // ✅ FIXED: Changed from item.name
+                        append("Updated password item: ${item.title}")
                         if (newName != null) append(" (renamed to: $updatedTitle)")
                         if (newPlainTextPassword != null) append(" (password changed)")
                     }
 
                     auditLogger.logDataAccess(
-                        userId = item.userId,
+                        userId = item.userId,  // ✅ FIXED: Long type
                         username = user?.username ?: "Unknown",
                         action = actionDetails,
                         resourceType = "ITEM",
@@ -172,20 +165,19 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // Audit the failure
                 viewModelScope.launch {
-                    val user = userRepository.getUser(item.userId).first()
+                    val user = userDao.getUser(item.userId)
                     auditLogger.logDataAccess(
-                        userId = item.userId,
+                        userId = item.userId,  // ✅ FIXED: Long type
                         username = user?.username ?: "Unknown",
-                        action = "Failed to update password item: ${item.title}",  // ✅ FIXED: Changed from item.name
+                        action = "Failed to update password item: ${item.title}",
                         resourceType = "ITEM",
                         resourceId = item.id.toString(),
                         outcome = AuditOutcome.FAILURE,
                         errorMessage = e.localizedMessage
                     )
                 }
-                Timber.e(e, "Failed to update item")
+                Timber.tag(TAG).e(e, "Failed to update item")
                 _operationState.value = ItemOperationState.Error("Failed to update item: ${e.localizedMessage}")
             }
         }
@@ -193,7 +185,6 @@ class ItemViewModel @Inject constructor(
 
     /**
      * Delete password item
-     * FIXED: Uses 'title' field
      */
     fun delete(item: Item) {
         _operationState.value = ItemOperationState.Loading
@@ -201,12 +192,12 @@ class ItemViewModel @Inject constructor(
             runCatching {
                 repository.delete(item)
 
-                // Audit logging
-                val user = userRepository.getUser(item.userId).first()
+                // ✅ FIXED: item.userId is Long (lines 197, 211)
+                val user = userDao.getUser(item.userId)
                 auditLogger.logDataAccess(
-                    userId = item.userId,
+                    userId = item.userId,  // ✅ FIXED: Long type
                     username = user?.username ?: "Unknown",
-                    action = "Deleted password item: ${item.title}",  // ✅ FIXED: Changed from item.name
+                    action = "Deleted password item: ${item.title}",
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.SUCCESS
@@ -214,20 +205,19 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                // Audit the failure
                 viewModelScope.launch {
-                    val user = userRepository.getUser(item.userId).first()
+                    val user = userDao.getUser(item.userId)
                     auditLogger.logDataAccess(
-                        userId = item.userId,
+                        userId = item.userId,  // ✅ FIXED: Long type
                         username = user?.username ?: "Unknown",
-                        action = "Failed to delete password item: ${item.title}",  // ✅ FIXED: Changed from item.name
+                        action = "Failed to delete password item: ${item.title}",
                         resourceType = "ITEM",
                         resourceId = item.id.toString(),
                         outcome = AuditOutcome.FAILURE,
                         errorMessage = e.localizedMessage
                     )
                 }
-                Timber.e(e, "Failed to delete item")
+                Timber.tag(TAG).e(e, "Failed to delete item")
                 _operationState.value = ItemOperationState.Error("Failed to delete item: ${e.localizedMessage}")
             }
         }
@@ -235,20 +225,19 @@ class ItemViewModel @Inject constructor(
 
     /**
      * Get decrypted password for viewing/copying
-     * FIXED: Uses 'encryptedPassword' and 'title' fields
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun getDecryptedPassword(item: Item): String? {
         return try {
-            val decrypted = cryptoManager.decrypt(item.encryptedPassword)  // ✅ FIXED: Changed from item.encryptedPasswordData
+            val decrypted = cryptoManager.decrypt(item.encryptedPassword)
 
-            // Audit the password access (elevated security level)
             viewModelScope.launch {
-                val user = userRepository.getUser(_userId.value).first()
+                // ✅ FIXED: _userId.value is Long (lines 239, 256)
+                val user = userDao.getUser(_userId.value)
                 auditLogger.logDataAccess(
-                    userId = _userId.value,
+                    userId = _userId.value,  // ✅ FIXED: Long type
                     username = user?.username ?: "Unknown",
-                    action = "Accessed password for: ${item.title}",  // ✅ FIXED: Changed from item.name
+                    action = "Accessed password for: ${item.title}",
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.SUCCESS,
@@ -258,13 +247,12 @@ class ItemViewModel @Inject constructor(
 
             decrypted
         } catch (e: Exception) {
-            // Audit the failure
             viewModelScope.launch {
-                val user = userRepository.getUser(_userId.value).first()
+                val user = userDao.getUser(_userId.value)
                 auditLogger.logDataAccess(
-                    userId = _userId.value,
+                    userId = _userId.value,  // ✅ FIXED: Long type
                     username = user?.username ?: "Unknown",
-                    action = "Failed to decrypt password for: ${item.title}",  // ✅ FIXED: Changed from item.name
+                    action = "Failed to decrypt password for: ${item.title}",
                     resourceType = "ITEM",
                     resourceId = item.id.toString(),
                     outcome = AuditOutcome.FAILURE,

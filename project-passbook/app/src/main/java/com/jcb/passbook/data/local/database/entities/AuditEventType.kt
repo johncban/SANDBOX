@@ -12,15 +12,22 @@ enum class AuditEventType {
     READ,
     UPDATE,
     DELETE,
+    CREATE_ITEM,        // ✅ ADDED
+    UPDATE_ITEM,        // ✅ ADDED
+    DELETE_ITEM,        // ✅ ADDED
+    VIEW_ITEM,          // ✅ ADDED
 
     // Security Events
     WARNING,
     SECURITY_BREACH,
     ACCESS_DENIED,
+    SECURITY_EVENT,     // ✅ ADDED
+    BLOCKED,            // ✅ ADDED
 
     // Encryption Operations
     ENCRYPT,
     DECRYPT,
+    KEY_ROTATION,       // ✅ ADDED
 
     // Biometric
     BIOMETRIC_AUTH,
@@ -30,5 +37,6 @@ enum class AuditEventType {
 
     // Other
     SYSTEM_START,
-    SYSTEM_STOP
+    SYSTEM_STOP,
+    SYSTEM_EVENT        // ✅ ADDED
 }

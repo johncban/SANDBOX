@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.util.Base64
 import androidx.annotation.RequiresApi
-import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.audit.AuditLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -56,7 +55,7 @@ class DatabaseKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Cannot get database passphrase - no active session",
                     "WARNING",
-                    AuditOutcome.BLOCKED
+                    "BLOCKED",
                 )
                 return null
             }
@@ -73,7 +72,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_ACCESS",
                 tableName = "key_storage",
                 recordId = "passphrase",
-                outcome = AuditOutcome.SUCCESS
+                outcome = "SUCCESS"
             )
 
             passphrase
@@ -81,7 +80,7 @@ class DatabaseKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Failed to get database passphrase: ${e.message}",
                 "CRITICAL",
-                AuditOutcome.FAILURE
+                "FAILURE"
             )
             Timber.e(e, "Failed to get database passphrase")
             null
@@ -112,7 +111,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_GENERATE",
                 tableName = "key_storage",
                 recordId = "passphrase",
-                outcome = AuditOutcome.SUCCESS
+                outcome = "SUCCESS"
             )
 
             return passphrase
@@ -156,7 +155,7 @@ class DatabaseKeyManager @Inject constructor(
                     operation = "KEY_ROTATION_START",
                     tableName = "database",
                     recordId = "master_key",
-                    outcome = AuditOutcome.SUCCESS
+                    outcome = "SUCCESS"
                 )
 
                 // Generate new passphrase
@@ -183,7 +182,7 @@ class DatabaseKeyManager @Inject constructor(
                         operation = "KEY_ROTATION_SUCCESS",
                         tableName = "database",
                         recordId = "master_key",
-                        outcome = AuditOutcome.SUCCESS
+                        outcome = "SUCCESS"
                     )
 
                     RekeyResult.Success
@@ -192,7 +191,7 @@ class DatabaseKeyManager @Inject constructor(
                         operation = "KEY_ROTATION_FAILED",
                         tableName = "database",
                         recordId = "master_key",
-                        outcome = AuditOutcome.FAILURE,
+                        outcome = "FAILURE",
                         errorMessage = "Rekey operation failed"
                     )
                     RekeyResult.RekeyFailed
@@ -202,7 +201,7 @@ class DatabaseKeyManager @Inject constructor(
                 auditLogger.logSecurityEvent(
                     "Database key rotation failed with exception: ${e.message}",
                     "CRITICAL",
-                    AuditOutcome.FAILURE
+                    "FAILURE"
                 )
                 Timber.e(e, "Database key rotation failed")
                 RekeyResult.Error(e.message ?: "Unknown error")
@@ -323,7 +322,7 @@ class DatabaseKeyManager @Inject constructor(
                 operation = "PASSPHRASE_MIGRATION",
                 tableName = "key_storage",
                 recordId = "passphrase_v$CURRENT_VERSION",
-                outcome = AuditOutcome.SUCCESS
+                outcome = "SUCCESS"
             )
 
             true
@@ -331,7 +330,9 @@ class DatabaseKeyManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Database passphrase migration failed: ${e.message}",
                 "CRITICAL",
-                AuditOutcome.FAILURE
+                "FAILURE"
+            )
+            Timber.e(e, "Database passphrase migration failed"
             )
             false
         } finally {

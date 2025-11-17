@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 6,
-    "identityHash": "2d17e060b29bf212b863f3381fdcbc56",
+    "identityHash": "7455bcfcd834a21b65e2e1869fe22d32",
     "entities": [
       {
         "tableName": "users",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `username` TEXT NOT NULL, `passwordHash` TEXT, `createdAt` INTEGER NOT NULL, `lastLoginAt` INTEGER, `isActive` INTEGER NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `username` TEXT NOT NULL, `password_hash` BLOB NOT NULL, `salt` BLOB NOT NULL, `created_at` INTEGER NOT NULL, `last_login_at` INTEGER, `is_active` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -22,25 +22,31 @@
           },
           {
             "fieldPath": "passwordHash",
-            "columnName": "passwordHash",
-            "affinity": "TEXT",
-            "notNull": false
+            "columnName": "password_hash",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "salt",
+            "columnName": "salt",
+            "affinity": "BLOB",
+            "notNull": true
           },
           {
             "fieldPath": "createdAt",
-            "columnName": "createdAt",
+            "columnName": "created_at",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
             "fieldPath": "lastLoginAt",
-            "columnName": "lastLoginAt",
+            "columnName": "last_login_at",
             "affinity": "INTEGER",
             "notNull": false
           },
           {
             "fieldPath": "isActive",
-            "columnName": "isActive",
+            "columnName": "is_active",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -338,13 +344,25 @@
       },
       {
         "tableName": "audit_log",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `event_type` TEXT NOT NULL, `user_id` INTEGER, `description` TEXT NOT NULL, `value` TEXT, `chain_prev_hash` TEXT, `chain_hash` TEXT, `checksum` TEXT, `security_level` TEXT NOT NULL, `outcome` TEXT NOT NULL)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` INTEGER, `username` TEXT, `timestamp` INTEGER NOT NULL, `event_type` TEXT NOT NULL, `action` TEXT, `description` TEXT NOT NULL, `value` TEXT, `resource_type` TEXT, `resource_id` TEXT, `device_info` TEXT, `app_version` TEXT, `session_id` TEXT, `outcome` TEXT NOT NULL, `error_message` TEXT, `security_level` TEXT NOT NULL, `ip_address` TEXT, `user_agent` TEXT, `location` TEXT, `chain_prev_hash` TEXT, `chain_hash` TEXT, `checksum` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
             "columnName": "id",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": false
           },
           {
             "fieldPath": "timestamp",
@@ -359,9 +377,9 @@
             "notNull": true
           },
           {
-            "fieldPath": "userId",
-            "columnName": "user_id",
-            "affinity": "INTEGER",
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
             "notNull": false
           },
           {
@@ -373,6 +391,72 @@
           {
             "fieldPath": "value",
             "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "resourceType",
+            "columnName": "resource_type",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "resourceId",
+            "columnName": "resource_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "deviceInfo",
+            "columnName": "device_info",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "appVersion",
+            "columnName": "app_version",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "session_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "outcome",
+            "columnName": "outcome",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "error_message",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "securityLevel",
+            "columnName": "security_level",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ipAddress",
+            "columnName": "ip_address",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "userAgent",
+            "columnName": "user_agent",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "location",
+            "columnName": "location",
             "affinity": "TEXT",
             "notNull": false
           },
@@ -393,18 +477,6 @@
             "columnName": "checksum",
             "affinity": "TEXT",
             "notNull": false
-          },
-          {
-            "fieldPath": "securityLevel",
-            "columnName": "security_level",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "outcome",
-            "columnName": "outcome",
-            "affinity": "TEXT",
-            "notNull": true
           }
         ],
         "primaryKey": {
@@ -486,7 +558,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2d17e060b29bf212b863f3381fdcbc56')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7455bcfcd834a21b65e2e1869fe22d32')"
     ]
   }
 }
