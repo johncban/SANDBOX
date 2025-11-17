@@ -282,15 +282,24 @@ abstract class AppDatabase : RoomDatabase() {
          * @param passphrase Encryption passphrase (securely managed)
          * @return Configured AppDatabase instance
          */
+        /**
+         * Create database with encryption
+         *
+         * @param context Application context
+         * @param passphrase Encryption passphrase (securely managed)
+         * @return Configured AppDatabase instance
+         */
         fun create(context: Context, passphrase: ByteArray): AppDatabase {
-            val factory = SupportFactory(passphrase, null, false)
+            // ✅ FIX: Explicit type annotation ensures non-null
+            val factory: androidx.sqlite.db.SupportSQLiteOpenHelper.Factory =
+                SupportFactory(passphrase, null, false)
 
             return Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "passbook_database"
             )
-                .openHelperFactory(factory)
+                .openHelperFactory(factory)  // ✅ Now explicitly non-null
                 .addMigrations(
                     MIGRATION_1_2,
                     MIGRATION_2_3,
@@ -329,6 +338,7 @@ abstract class AppDatabase : RoomDatabase() {
                 .fallbackToDestructiveMigration() // Remove in production
                 .build()
         }
+
 
         /**
          * Create database using DatabaseKeyManager
