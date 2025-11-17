@@ -12,9 +12,8 @@ plugins {
 configurations.all {
     resolutionStrategy {
         force("androidx.biometric:biometric:1.1.0")
-        // Also force other androidx libraries to prevent version conflicts
-        force("androidx.room:room-runtime:2.8.3")
-        force("androidx.room:room-ktx:2.8.3")
+        force("androidx.room:room-runtime:2.6.1")  // ✅ CHANGED: Downgraded to 2.6.1
+        force("androidx.room:room-ktx:2.6.1")      // ✅ CHANGED: Downgraded to 2.6.1
     }
 }
 
@@ -129,7 +128,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // ✅ FIXED: Enhanced Kotlin options with suppression
     kotlinOptions {
         jvmTarget = "17"
 
@@ -140,18 +138,8 @@ android {
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
             "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
             "-Xjsr305=strict",
-            "-Xjvm-default=all",
-            "-Xsuppress-version-warnings",  // ✅ Suppress version warnings
-            "-Xno-param-assertions",         // ✅ Disable parameter assertions
-            "-Xno-call-assertions",          // ✅ Disable call assertions
-            "-Xno-receiver-assertions"       // ✅ Disable receiver assertions
+            "-Xjvm-default=all"
         )
-
-        // ✅ CRITICAL: Turn off warnings as errors
-        allWarningsAsErrors = false
-
-        // ✅ NEW: Suppress all warnings
-        suppressWarnings = true
     }
 
     buildFeatures {
@@ -191,20 +179,6 @@ android {
         abortOnError = false
         baseline = file("lint-baseline.xml")
         disable += listOf("MissingTranslation")
-    }
-}
-
-// ✅ NEW: Force suppress all Kotlin compilation warnings
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    kotlinOptions {
-        suppressWarnings = true
-
-        freeCompilerArgs += listOf(
-            "-Xsuppress-version-warnings",
-            "-Xno-param-assertions",
-            "-Xno-call-assertions",
-            "-Xno-receiver-assertions"
-        )
     }
 }
 
