@@ -25,13 +25,20 @@ import javax.inject.Singleton
  * BiometricEnrollmentMonitor tracks changes in biometric enrollment
  * and triggers key regeneration when enrollment changes are detected.
  *
- * FIXED: Removed platform BiometricManager import, using only androidx.biometric
+ * FIXED: Now uses lazy AuditLogger provider to break circular dependency
+ * - Changed constructor to accept auditLoggerProvider: () -> AuditLogger
+ * - AuditLogger is initialized lazily using 'by lazy' delegate
+ * - All existing functionality preserved
  */
 @Singleton
 class BiometricEnrollmentMonitor @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val auditLogger: AuditLogger
+    private val auditLoggerProvider: () -> AuditLogger  // ✅ CHANGED: Function provider instead of direct injection
 ) {
+
+    // ✅ LAZY INITIALIZATION: AuditLogger created only when first accessed
+    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
+
     companion object {
         private const val ENROLLMENT_HASH_KEY = "biometric_enrollment_hash"
         private const val CHECK_INTERVAL_MS = 30_000L // 30 seconds
@@ -40,10 +47,8 @@ class BiometricEnrollmentMonitor @Inject constructor(
 
     private val prefs = context.getSharedPreferences("biometric_monitor", Context.MODE_PRIVATE)
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private val _enrollmentChangeDetected = MutableStateFlow(false)
     val enrollmentChangeDetected: StateFlow<Boolean> = _enrollmentChangeDetected.asStateFlow()
-
     private var isMonitoring = false
 
     /**
@@ -53,6 +58,7 @@ class BiometricEnrollmentMonitor @Inject constructor(
         if (isMonitoring) return
 
         isMonitoring = true
+
         monitorScope.launch {
             // Initial hash capture
             updateStoredEnrollmentHash()
@@ -84,6 +90,7 @@ class BiometricEnrollmentMonitor @Inject constructor(
             val storedHash = prefs.getString(ENROLLMENT_HASH_KEY, null)
 
             if (storedHash != null && storedHash != currentHash) {
+                // ✅ Lazy auditLogger is accessed here - initialized on first use
                 auditLogger.logSecurityEvent(
                     "Biometric enrollment change detected",
                     "ELEVATED",
@@ -107,11 +114,17 @@ class BiometricEnrollmentMonitor @Inject constructor(
             prefs.edit().putString(ENROLLMENT_HASH_KEY, currentHash).apply()
             _enrollmentChangeDetected.value = false
 
+            // ✅ Lazy auditLogger is accessed here
             auditLogger.logUserAction(
-                null, "SYSTEM", AuditEventType.UPDATE,
+                null,
+                "SYSTEM",
+                AuditEventType.UPDATE,
                 "Biometric enrollment hash updated",
-                "BIOMETRIC", "ENROLLMENT_HASH",
-                AuditOutcome.SUCCESS, null, "NORMAL"
+                "BIOMETRIC",
+                "ENROLLMENT_HASH",
+                AuditOutcome.SUCCESS,
+                null,
+                "NORMAL"
             )
         } catch (e: Exception) {
             Timber.e(e, "Failed to update enrollment hash")
@@ -128,16 +141,21 @@ class BiometricEnrollmentMonitor @Inject constructor(
             val enrollmentInfo = StringBuilder()
 
             // Add biometric availability status
-            val biometricStatus = biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG)
+            val biometricStatus = biometricManager.canAuthenticate(
+                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG
+            )
             enrollmentInfo.append("biometric_status:$biometricStatus;")
 
             // Add device credential status
-            val deviceCredentialStatus = biometricManager.canAuthenticate(AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            val deviceCredentialStatus = biometricManager.canAuthenticate(
+                AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
             enrollmentInfo.append("device_credential_status:$deviceCredentialStatus;")
 
             // Add combined authentication status
             val combinedStatus = biometricManager.canAuthenticate(
-                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
+                AndroidXBiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        AndroidXBiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
             enrollmentInfo.append("combined_status:$combinedStatus;")
 
@@ -145,7 +163,6 @@ class BiometricEnrollmentMonitor @Inject constructor(
             val digest = MessageDigest.getInstance("SHA-256")
             val hashBytes = digest.digest(enrollmentInfo.toString().toByteArray())
             hashBytes.joinToString("") { "%02x".format(it) }
-
         } catch (e: Exception) {
             Timber.e(e, "Failed to get enrollment hash")
             "error_getting_hash_${System.currentTimeMillis()}"

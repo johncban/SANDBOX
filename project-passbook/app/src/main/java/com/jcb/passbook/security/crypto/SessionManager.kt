@@ -19,14 +19,19 @@ import javax.inject.Singleton
 /**
  * SessionManager handles ephemeral session keys and manages their lifecycle.
  * Session keys are derived from AMK and wiped on inactivity or app backgrounding.
+ *
+ * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
 class SessionManager @Inject constructor(
     private val masterKeyManager: MasterKeyManager,
-    private val auditLogger: AuditLogger,
+    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Lazy supplier
     private val secureMemoryUtils: SecureMemoryUtils
 ) : DefaultLifecycleObserver {
+
+    // ✅ ADDED: Lazy initialization of auditLogger
+    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
 
     companion object {
         private const val SESSION_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
@@ -53,8 +58,7 @@ class SessionManager @Inject constructor(
      * Start a new session with biometric authentication
      */
     suspend fun startSession(activity: FragmentActivity): SessionResult {
-        var unwrappedAMK: ByteArray? = null // Fixed: Declare variable in correct scope
-
+        var unwrappedAMK: ByteArray? = null
         return try {
             if (isSessionActive) {
                 auditLogger.logSecurityEvent(
@@ -92,12 +96,12 @@ class SessionManager @Inject constructor(
                 null, "SYSTEM", AuditEventType.LOGIN,
                 "Session started successfully",
                 "SESSION", sessionId,
-                AuditOutcome.SUCCESS, null, "NORMAL"
+                AuditOutcome.SUCCESS,
+                null, "NORMAL"
             )
 
             Timber.d("Session started: $sessionId")
             SessionResult.Success(sessionId!!)
-
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
                 "Failed to start session: ${e.message}",
@@ -107,7 +111,6 @@ class SessionManager @Inject constructor(
             Timber.e(e, "Failed to start session")
             SessionResult.Error(e.message ?: "Unknown error")
         } finally {
-            // Fixed: Always wipe the temporary AMK copy in proper scope
             unwrappedAMK?.let { secureMemoryUtils.secureWipe(it) }
         }
     }
@@ -188,8 +191,8 @@ class SessionManager @Inject constructor(
         esk?.let { secureMemoryUtils.secureWipe(it) }
         amk = null
         esk = null
-
         isSessionActive = false
+
         val endedSessionId = sessionId
         sessionId = null
 
@@ -197,7 +200,8 @@ class SessionManager @Inject constructor(
             null, "SYSTEM", AuditEventType.LOGOUT,
             "Session ended: $reason (duration: ${duration}ms)",
             "SESSION", endedSessionId,
-            AuditOutcome.SUCCESS, null, "NORMAL"
+            AuditOutcome.SUCCESS,
+            null, "NORMAL"
         )
 
         Timber.d("Session ended: $currentSessionId, reason: $reason, duration: ${duration}ms")
@@ -232,9 +236,8 @@ class SessionManager @Inject constructor(
         return startSession(activity)
     }
 
-    // Fixed: Lifecycle observers with configurable background behavior
+    // Lifecycle observers
     override fun onStop(owner: LifecycleOwner) {
-        // Consider making this configurable - immediate vs grace period
         sessionScope.launch {
             endSession("App backgrounded")
         }

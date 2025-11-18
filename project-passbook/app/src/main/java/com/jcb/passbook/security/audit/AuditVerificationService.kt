@@ -13,6 +13,10 @@ import javax.inject.Singleton
  * AuditVerificationService performs periodic integrity verification of the audit trail
  * and provides on-demand verification capabilities.
  *
+ * ✅ CIRCULAR DEPENDENCY FIX APPLIED:
+ * - Changed constructor to accept lazy AuditLogger provider
+ * - Uses lazy initialization to break DI cycle
+ *
  * FIXES APPLIED:
  * - ✅ Fixed verifyChain() calls - no parameters needed
  * - ✅ Fixed ChainVerificationResult handling - use isValid property
@@ -24,21 +28,25 @@ import javax.inject.Singleton
 class AuditVerificationService @Inject constructor(
     private val auditDao: AuditDao,
     private val auditChainManager: AuditChainManager,
-    private val auditLogger: AuditLogger
+    private val auditLoggerProvider: () -> AuditLogger  // ✅ CHANGED: Lazy provider
 ) {
+    // ✅ CHANGED: Lazy initialization of AuditLogger to break circular dependency
+    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
 
     private val verificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     private val _verificationResults = MutableStateFlow<VerificationStatus>(VerificationStatus.NotStarted)
     val verificationResults: StateFlow<VerificationStatus> = _verificationResults.asStateFlow()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
+    /**
+     * Starts periodic audit verification every 30 minutes
+     */
     fun startPeriodicVerification() {
         if (_isRunning.value) return
-        _isRunning.value = true
 
+        _isRunning.value = true
         verificationScope.launch {
             while (isActive) {
                 try {
@@ -46,33 +54,42 @@ class AuditVerificationService @Inject constructor(
                     delay(30 * 60 * 1000L) // 30 minutes
                 } catch (e: Exception) {
                     Timber.e(e, "Error in periodic audit verification")
-                    delay(60000)
+                    delay(60000) // Wait 1 minute before retry
                 }
             }
         }
+
         Timber.i("Started periodic audit verification")
     }
 
+    /**
+     * Stops periodic verification
+     */
     fun stopPeriodicVerification() {
         _isRunning.value = false
         verificationScope.cancel()
         Timber.i("Stopped periodic audit verification")
     }
 
+    /**
+     * Performs a full verification of the entire audit chain
+     */
     suspend fun performFullVerification(): VerificationResult {
         return try {
             _verificationResults.value = VerificationStatus.Running("Starting full verification...")
 
-            // ✅ FIXED: Methods now exist
-            val oldestTimestamp = auditDao.getOldestEntryTimestamp() ?: return VerificationResult.NoEntries
-            val latestTimestamp = auditDao.getLatestEntryTimestamp() ?: return VerificationResult.NoEntries
+            // Get time range
+            val oldestTimestamp = auditDao.getOldestEntryTimestamp()
+                ?: return VerificationResult.NoEntries
+            val latestTimestamp = auditDao.getLatestEntryTimestamp()
+                ?: return VerificationResult.NoEntries
 
             _verificationResults.value = VerificationStatus.Running("Verifying chain integrity...")
 
-            // ✅ FIXED: verifyChain() takes NO parameters
+            // Verify the chain (no parameters needed)
             val chainVerification = auditChainManager.verifyChain()
 
-            // ✅ FIXED: Use isValid property instead of sealed class
+            // Build result based on chain verification
             val result = if (chainVerification.isValid) {
                 _verificationResults.value = VerificationStatus.Running("Performing anomaly detection...")
                 val anomalies = detectAnomalies(oldestTimestamp, latestTimestamp)
@@ -92,7 +109,7 @@ class AuditVerificationService @Inject constructor(
                 )
             }
 
-            // Log the result
+            // Log the result using lazy-initialized auditLogger
             val outcome = when (result) {
                 is VerificationResult.Success -> AuditOutcome.SUCCESS
                 is VerificationResult.ChainCompromised -> AuditOutcome.FAILURE
@@ -113,6 +130,7 @@ class AuditVerificationService @Inject constructor(
                 outcome = outcome
             )
 
+            // Update status
             _verificationResults.value = when (result) {
                 is VerificationResult.Success -> VerificationStatus.Healthy(result)
                 is VerificationResult.ChainCompromised -> VerificationStatus.Compromised(result)
@@ -128,16 +146,20 @@ class AuditVerificationService @Inject constructor(
         }
     }
 
+    /**
+     * Verifies audit entries within a specific time range
+     */
     suspend fun verifyTimeRange(startTime: Long, endTime: Long): VerificationResult {
         return try {
             _verificationResults.value = VerificationStatus.Running("Verifying time range...")
 
-            // ✅ FIXED: verifyChain() takes NO parameters - we verify entire chain
+            // Verify entire chain (no time range parameter)
             val chainVerification = auditChainManager.verifyChain()
 
             // Filter to time range after verification
             val result = if (chainVerification.isValid) {
                 val anomalies = detectAnomalies(startTime, endTime)
+
                 VerificationResult.Success(
                     entriesVerified = chainVerification.totalEntries,
                     timeRange = startTime to endTime,
@@ -166,11 +188,14 @@ class AuditVerificationService @Inject constructor(
         }
     }
 
+    /**
+     * Detects anomalies in the audit trail within a time range
+     */
     private suspend fun detectAnomalies(startTime: Long, endTime: Long): List<AnomalyReport> {
         val anomalies = mutableListOf<AnomalyReport>()
 
         try {
-            // ✅ FIXED: countAllEventsSince takes Long parameter
+            // Check for excessive failed logins in last hour
             val failedLogins = auditDao.countAllEventsSince(endTime - TimeUnit.HOURS.toMillis(1))
             if (failedLogins > 10) {
                 anomalies.add(
@@ -181,7 +206,7 @@ class AuditVerificationService @Inject constructor(
                 )
             }
 
-            // Check for activity spikes in last 10 min
+            // Check for activity spikes in last 10 minutes
             val recentActivity = auditDao.countAllEventsSince(endTime - TimeUnit.MINUTES.toMillis(10))
             if (recentActivity > 50) {
                 anomalies.add(
@@ -224,6 +249,9 @@ class AuditVerificationService @Inject constructor(
         return anomalies
     }
 
+    /**
+     * Gets current verification statistics
+     */
     suspend fun getVerificationStatistics(): VerificationStatistics {
         return try {
             val totalEntries = auditDao.getTotalEntryCount()
@@ -232,7 +260,7 @@ class AuditVerificationService @Inject constructor(
             val criticalEvents = auditDao.getCriticalSecurityEvents().first()
 
             VerificationStatistics(
-                totalEntries = totalEntries,  // Already Long from DAO
+                totalEntries = totalEntries,
                 entriesWithoutChecksum = entriesWithoutChecksum,
                 entriesWithoutChainHash = entriesWithoutChain,
                 criticalEventsCount = criticalEvents.size,
@@ -241,18 +269,22 @@ class AuditVerificationService @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "Failed to get verification statistics")
             VerificationStatistics(
-                totalEntries = 0L,  // ✅ FIXED: Added L suffix
+                totalEntries = 0L,
                 entriesWithoutChecksum = 0,
                 entriesWithoutChainHash = 0,
                 criticalEventsCount = 0,
-                lastVerificationTime = 0L  // ✅ FIXED: Added L suffix
+                lastVerificationTime = 0L
             )
         }
     }
 
+    // =============================================================================================
+    // SEALED CLASSES AND DATA CLASSES
+    // =============================================================================================
 
-    // --- Sealed Classes and Data Classes ---
-
+    /**
+     * Represents the result of an audit verification
+     */
     sealed class VerificationResult {
         data class Success(
             val entriesVerified: Int,
@@ -271,6 +303,9 @@ class AuditVerificationService @Inject constructor(
         object NoEntries : VerificationResult()
     }
 
+    /**
+     * Represents the current status of verification
+     */
     sealed class VerificationStatus {
         object NotStarted : VerificationStatus()
         data class Running(val progress: String) : VerificationStatus()
@@ -279,6 +314,9 @@ class AuditVerificationService @Inject constructor(
         data class Error(val message: String) : VerificationStatus()
     }
 
+    /**
+     * Represents different types of anomalies detected
+     */
     sealed class AnomalyReport {
         data class ExcessiveFailedLogins(val count: Int, val timeWindow: String) : AnomalyReport()
         data class ActivitySpike(val eventType: String, val count: Int, val timeWindow: String) : AnomalyReport()
@@ -286,8 +324,11 @@ class AuditVerificationService @Inject constructor(
         data class AnalysisError(val message: String) : AnomalyReport()
     }
 
+    /**
+     * Statistics about audit verification
+     */
     data class VerificationStatistics(
-        val totalEntries: Long,  // ✅ FIXED: Use Long to match DAO return type
+        val totalEntries: Long,
         val entriesWithoutChecksum: Int,
         val entriesWithoutChainHash: Int,
         val criticalEventsCount: Int,

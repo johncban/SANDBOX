@@ -7,17 +7,9 @@ import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.detection.RootDetector
 import com.jcb.passbook.security.detection.SecurityManager
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import timber.log.Timber
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -25,14 +17,18 @@ import javax.inject.Singleton
 
 /**
  * SecurityAuditManager - Monitors security events and detects anomalies
- * COMPLETELY FIXED VERSION
+ *
+ * ✅ FIXED: Uses lazy AuditLogger injection to break circular dependency
  */
 @Singleton
 class SecurityAuditManager @Inject constructor(
-    private val auditLogger: AuditLogger,
+    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Provider function
     private val auditDao: AuditDao,
     @ApplicationContext private val context: Context
 ) {
+    // ✅ Lazy initialization of AuditLogger
+    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
+
     private val monitoringScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _securityAlerts = MutableStateFlow<List<SecurityAlert>>(emptyList())
     val securityAlerts: StateFlow<List<SecurityAlert>> = _securityAlerts.asStateFlow()
@@ -48,22 +44,22 @@ class SecurityAuditManager @Inject constructor(
     )
 
     // Optional: Session cache
-    private val activeSessions = mutableMapOf<String?, Long>()
+    private val activeSessions = mutableMapOf<String, Long>()
 
     /**
      * Start security monitoring
      */
     fun startSecurityMonitoring() {
         if (isMonitoring) return
-        isMonitoring = true
 
+        isMonitoring = true
         monitoringScope.launch {
             while (isActive && isMonitoring) {
                 try {
                     performSecurityChecks()
                     delay(5 * 60 * 1000) // Check every 5 minutes
                 } catch (e: Exception) {
-                    timber.log.Timber.e(e, "Error in security monitoring")
+                    Timber.e(e, "Error in security monitoring")
                     delay(60_000) // Wait 1 minute before retry
                 }
             }
@@ -81,6 +77,7 @@ class SecurityAuditManager @Inject constructor(
      */
     fun stopSecurityMonitoring() {
         if (!isMonitoring) return
+
         isMonitoring = false
         monitoringScope.cancel()
 
@@ -107,7 +104,7 @@ class SecurityAuditManager @Inject constructor(
             auditLogger.logSecurityEvent(
                 "Device security compromise detected",
                 "CRITICAL",
-                AuditOutcome.WARNING  // ✅ FIXED: Changed from BLOCKED to WARNING
+                AuditOutcome.WARNING
             )
             addSecurityAlert("CRITICAL", "Security compromise", "App access blocked")
         }
@@ -116,7 +113,13 @@ class SecurityAuditManager @Inject constructor(
         checkForAnomalousActivity()
     }
 
-    // Main anomaly detection entry point
+    // ============================================================================================
+    // ANOMALY DETECTION
+    // ============================================================================================
+
+    /**
+     * Main anomaly detection entry point
+     */
     private suspend fun checkForAnomalousActivity() {
         detectLoginAnomalies()
         detectCrudSpikeAnomalies()
@@ -124,11 +127,11 @@ class SecurityAuditManager @Inject constructor(
         detectUnusualAppUsageTimes()
     }
 
-    // 1. Detect excessive authentication failures
+    /**
+     * 1. Detect excessive authentication failures
+     */
     private suspend fun detectLoginAnomalies() {
         val since = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1)
-
-        // ✅ FIXED: Remove eventType parameter, use proper method
         val failedLogins = auditDao.countAllEventsSince(since)
 
         if (failedLogins > 10) {
@@ -137,15 +140,19 @@ class SecurityAuditManager @Inject constructor(
                 "ELEVATED",
                 AuditOutcome.WARNING
             )
-            addSecurityAlert("ELEVATED", "Excessive authentication failures", "Account lockout recommended")
+            addSecurityAlert(
+                "ELEVATED",
+                "Excessive authentication failures",
+                "Account lockout recommended"
+            )
         }
     }
 
-    // 2. Detect spikes in CRUD operations
+    /**
+     * 2. Detect spikes in CRUD operations
+     */
     private suspend fun detectCrudSpikeAnomalies() {
         val since = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(10)
-
-        // ✅ FIXED: Remove eventType parameter
         val recentCreates = auditDao.countAllEventsSince(since)
         val recentReads = auditDao.countAllEventsSince(since)
 
@@ -155,17 +162,20 @@ class SecurityAuditManager @Inject constructor(
                 "ELEVATED",
                 AuditOutcome.WARNING
             )
-            addSecurityAlert("ELEVATED", "Unusual CRUD activity", "Review user activity logs")
+            addSecurityAlert(
+                "ELEVATED",
+                "Unusual CRUD activity",
+                "Review user activity logs"
+            )
         }
     }
 
-    // 3. Detect abnormal session durations
+    /**
+     * 3. Detect abnormal session durations
+     */
     private suspend fun detectSessionAnomalies() {
-        val lastHour = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1)
-
-        // ✅ FIXED: Remove limit parameter and eventType.value
         val suspiciousSessions = auditDao.getAuditEntriesByType(
-            AuditEventType.SYSTEM_EVENT  // ✅ Use enum directly, no .value
+            AuditEventType.SYSTEM_EVENT
         ).first().filter {
             val duration = it.timestamp - (activeSessions[it.sessionId] ?: it.timestamp)
             duration > TimeUnit.HOURS.toMillis(12) || duration < TimeUnit.SECONDS.toMillis(10)
@@ -177,11 +187,17 @@ class SecurityAuditManager @Inject constructor(
                 "WARNING",
                 AuditOutcome.WARNING
             )
-            addSecurityAlert("WARNING", "Session anomaly detected", "Session forcibly terminated")
+            addSecurityAlert(
+                "WARNING",
+                "Session anomaly detected",
+                "Session forcibly terminated"
+            )
         }
     }
 
-    // 4. Detect usage at unexpected times
+    /**
+     * 4. Detect usage at unexpected times
+     */
     private suspend fun detectUnusualAppUsageTimes() {
         val nowHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val entries = auditDao.getAuditEntriesInTimeRange(
@@ -189,7 +205,6 @@ class SecurityAuditManager @Inject constructor(
             endTime = System.currentTimeMillis()
         ).first()
 
-        // ✅ FIXED: Remove .value from enum
         val nightLogins = entries.count {
             it.eventType == AuditEventType.LOGIN && (nowHour < 6 || nowHour > 22)
         }
@@ -200,9 +215,17 @@ class SecurityAuditManager @Inject constructor(
                 "WARNING",
                 AuditOutcome.WARNING
             )
-            addSecurityAlert("WARNING", "Unusual access hours", "Flag for review")
+            addSecurityAlert(
+                "WARNING",
+                "Unusual access hours",
+                "Flag for review"
+            )
         }
     }
+
+    // ============================================================================================
+    // ALERT MANAGEMENT
+    // ============================================================================================
 
     private fun addSecurityAlert(severity: String, message: String, action: String) {
         val alert = SecurityAlert(
@@ -214,6 +237,8 @@ class SecurityAuditManager @Inject constructor(
 
         val currentAlerts = _securityAlerts.value.toMutableList()
         currentAlerts.add(0, alert)
+
+        // Keep only last 50 alerts
         if (currentAlerts.size > 50) {
             currentAlerts.removeAt(currentAlerts.size - 1)
         }
@@ -239,4 +264,23 @@ class SecurityAuditManager @Inject constructor(
         val criticalAlerts: Int,
         val lastCheckTime: Long
     )
+
+    /**
+     * Clear all security alerts
+     */
+    fun clearAlerts() {
+        _securityAlerts.value = emptyList()
+        auditLogger.logSecurityEvent(
+            "Security alerts cleared",
+            "NORMAL",
+            AuditOutcome.SUCCESS
+        )
+    }
+
+    /**
+     * Get alerts by severity
+     */
+    fun getAlertsBySeverity(severity: String): List<SecurityAlert> {
+        return _securityAlerts.value.filter { it.severity == severity }
+    }
 }

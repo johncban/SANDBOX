@@ -5,21 +5,25 @@ import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
 import com.jcb.passbook.security.audit.*
 import com.jcb.passbook.security.crypto.*
-import com.jcb.passbook.security.detection.SecurityManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.Lazy
 import javax.inject.Singleton
 
 /**
- * SecurityModule provides dependency injection for security-related components.
- * FIXED: Consistent AuditLogger type throughout
+ * SecurityModule provides all security-related dependencies.
+ * FIXED: Uses Lazy<AuditLogger> to break circular dependencies
  */
 @Module
 @InstallIn(SingletonComponent::class)
 object SecurityModule {
+
+    // ============================================================================================
+    // SECURE MEMORY UTILITY
+    // ============================================================================================
 
     @Provides
     @Singleton
@@ -27,33 +31,37 @@ object SecurityModule {
         return SecureMemoryUtils()
     }
 
+    // ============================================================================================
+    // CRYPTO PROVIDERS - Using Lazy<AuditLogger> to break cycles
+    // ============================================================================================
+
     @Provides
     @Singleton
     fun provideBiometricEnrollmentMonitor(
         @ApplicationContext context: Context,
-        auditLogger: AuditLogger
+        auditLogger: Lazy<AuditLogger>  // ✅ Lazy injection
     ): BiometricEnrollmentMonitor {
-        return BiometricEnrollmentMonitor(context, auditLogger)
+        return BiometricEnrollmentMonitor(context, auditLogger.get())
     }
 
     @Provides
     @Singleton
     fun provideMasterKeyManager(
         @ApplicationContext context: Context,
-        auditLogger: AuditLogger,
+        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
         secureMemoryUtils: SecureMemoryUtils
     ): MasterKeyManager {
-        return MasterKeyManager(context, auditLogger, secureMemoryUtils)
+        return MasterKeyManager(context, auditLogger.get(), secureMemoryUtils)
     }
 
     @Provides
     @Singleton
     fun provideSessionManager(
         masterKeyManager: MasterKeyManager,
-        auditLogger: AuditLogger,
+        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
         secureMemoryUtils: SecureMemoryUtils
     ): SessionManager {
-        return SessionManager(masterKeyManager, auditLogger, secureMemoryUtils)
+        return SessionManager(masterKeyManager, auditLogger.get(), secureMemoryUtils)
     }
 
     @Provides
@@ -61,11 +69,15 @@ object SecurityModule {
     fun provideDatabaseKeyManager(
         @ApplicationContext context: Context,
         sessionManager: SessionManager,
-        auditLogger: AuditLogger,
+        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
         secureMemoryUtils: SecureMemoryUtils
     ): DatabaseKeyManager {
-        return DatabaseKeyManager(context, sessionManager, auditLogger, secureMemoryUtils)
+        return DatabaseKeyManager(context, sessionManager, auditLogger.get(), secureMemoryUtils)
     }
+
+    // ============================================================================================
+    // AUDIT PROVIDERS
+    // ============================================================================================
 
     @Provides
     @Singleton
@@ -98,7 +110,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideAuditLogger( // Fixed: Consistent naming and return type
+    fun provideAuditLogger(
         auditQueue: AuditQueue,
         auditChainManager: AuditChainManager,
         @ApplicationContext context: Context
@@ -111,24 +123,21 @@ object SecurityModule {
     fun provideAuditVerificationService(
         auditDao: AuditDao,
         auditChainManager: AuditChainManager,
-        auditLogger: AuditLogger // Fixed: Consistent type
+        auditLogger: Lazy<AuditLogger>  // ✅ Lazy injection
     ): AuditVerificationService {
-        return AuditVerificationService(auditDao, auditChainManager, auditLogger)
+        return AuditVerificationService(auditDao, auditChainManager, auditLogger.get())
     }
 
     @Provides
     @Singleton
     fun provideSecurityAuditManager(
-        auditLogger: AuditLogger,
+        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
         auditDao: AuditDao,
         @ApplicationContext context: Context
     ): SecurityAuditManager {
-        return SecurityAuditManager(auditLogger, auditDao, context)
+        return SecurityAuditManager(auditLogger.get(), auditDao, context)
     }
 
-    /**
-     * Initialize security components that need setup
-     */
     @Provides
     @Singleton
     fun provideSecurityInitializer(
@@ -137,7 +146,7 @@ object SecurityModule {
         biometricEnrollmentMonitor: BiometricEnrollmentMonitor,
         auditVerificationService: AuditVerificationService,
         securityAuditManager: SecurityAuditManager,
-        auditLogger: AuditLogger // Fixed: Consistent type
+        auditLogger: AuditLogger
     ): SecurityInitializer {
         return SecurityInitializer(
             masterKeyManager,
@@ -151,8 +160,7 @@ object SecurityModule {
 }
 
 /**
- * SecurityInitializer coordinates the initialization of security components
- * FIXED: Added session cleanup in shutdown
+ * SecurityInitializer coordinates the initialization of all security components.
  */
 class SecurityInitializer(
     private val masterKeyManager: MasterKeyManager,
@@ -160,15 +168,11 @@ class SecurityInitializer(
     private val biometricEnrollmentMonitor: BiometricEnrollmentMonitor,
     private val auditVerificationService: AuditVerificationService,
     private val securityAuditManager: SecurityAuditManager,
-    private val auditLogger: AuditLogger // Fixed: Consistent type
+    private val auditLogger: AuditLogger
 ) {
-
     suspend fun initialize(): Boolean {
         return try {
-            // Initialize audit logging first
-            SecurityManager.initializeAuditing(auditLogger)
-
-            // Initialize master key infrastructure
+            // Initialize master key first
             masterKeyManager.initializeMasterKey()
 
             // Start monitoring services
@@ -177,10 +181,9 @@ class SecurityInitializer(
             securityAuditManager.startSecurityMonitoring()
 
             auditLogger.logAppLifecycle(
-                "Security system initialized",
+                "Security system initialized successfully",
                 mapOf("components" to "all")
             )
-
             true
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
@@ -194,7 +197,6 @@ class SecurityInitializer(
 
     fun shutdown() {
         try {
-            // Fixed: End session to zeroize keys
             kotlinx.coroutines.runBlocking {
                 if (sessionManager.isSessionActive()) {
                     sessionManager.endSession("Application shutdown")
@@ -206,11 +208,10 @@ class SecurityInitializer(
             securityAuditManager.stopSecurityMonitoring()
 
             auditLogger.logAppLifecycle(
-                "Security system shutdown",
+                "Security system shutdown complete",
                 mapOf("reason" to "application_exit")
             )
         } catch (e: Exception) {
-            // Best effort logging
             timber.log.Timber.e(e, "Error during security shutdown")
         }
     }

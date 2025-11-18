@@ -32,16 +32,18 @@ import kotlin.coroutines.resumeWithException
  * The master key is used to wrap/unwrap the Application Master Key (AMK)
  * which in turn protects SQLCipher passphrases and other secrets.
  *
- * ✅ FIXED: Removed BuildConfig dependency
- * ✅ FIXED: All outcome parameters use String instead of AuditOutcome enum
+ * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
 class MasterKeyManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val auditLogger: AuditLogger,
+    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Lazy supplier
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
+    // ✅ ADDED: Lazy initialization of auditLogger
+    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
+
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
     companion object {
@@ -50,9 +52,7 @@ class MasterKeyManager @Inject constructor(
         private const val AMK_SIZE_BYTES = 32
         private const val AUTH_TIMEOUT_SECONDS = 60
         private const val TAG = "MasterKeyManager"
-
-        // ✅ ADD THIS: Control authentication requirement
-        private const val REQUIRE_AUTHENTICATION = false  // Set to true for production
+        private const val REQUIRE_AUTHENTICATION = false // Set to true for production
     }
 
     /**
@@ -109,7 +109,7 @@ class MasterKeyManager @Inject constructor(
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .setUserAuthenticationRequired(REQUIRE_AUTHENTICATION)  // ✅ FIXED: Line 107 - Use constant instead of BuildConfig
+            .setUserAuthenticationRequired(REQUIRE_AUTHENTICATION)
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setUserAuthenticationParameters(
@@ -117,6 +117,7 @@ class MasterKeyManager @Inject constructor(
                         KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
                     )
                 } else {
+                    @Suppress("DEPRECATION")
                     setUserAuthenticationValidityDurationSeconds(AUTH_TIMEOUT_SECONDS)
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -125,6 +126,7 @@ class MasterKeyManager @Inject constructor(
                 setInvalidatedByBiometricEnrollment(true)
             }
             .build()
+
         keyGenerator.init(keyGenParameterSpec)
         keyGenerator.generateKey()
     }
@@ -275,7 +277,6 @@ class MasterKeyManager @Inject constructor(
             // Re-wrap existing AMK or generate new one
             val prefs = context.getSharedPreferences("master_key_prefs", Context.MODE_PRIVATE)
             if (prefs.contains(AMK_STORAGE_KEY)) {
-                // For now, generate new AMK - in production you might want to migrate existing data
                 generateAndWrapAMK()
             }
 
