@@ -15,15 +15,11 @@ import javax.inject.Singleton
 
 /**
  * SecurityModule provides all security-related dependencies.
- * FIXED: Uses Lazy<AuditLogger> to break circular dependencies
+ * FIXED: Correct parameter ordering for constructors
  */
 @Module
 @InstallIn(SingletonComponent::class)
 object SecurityModule {
-
-    // ============================================================================================
-    // SECURE MEMORY UTILITY
-    // ============================================================================================
 
     @Provides
     @Singleton
@@ -31,37 +27,35 @@ object SecurityModule {
         return SecureMemoryUtils()
     }
 
-    // ============================================================================================
-    // CRYPTO PROVIDERS - Using Lazy<AuditLogger> to break cycles
-    // ============================================================================================
-
     @Provides
     @Singleton
     fun provideBiometricEnrollmentMonitor(
         @ApplicationContext context: Context,
-        auditLogger: Lazy<AuditLogger>  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>
     ): BiometricEnrollmentMonitor {
-        return BiometricEnrollmentMonitor(context, auditLogger.get())
+        return BiometricEnrollmentMonitor(context, { auditLogger.get() })
     }
 
     @Provides
     @Singleton
     fun provideMasterKeyManager(
         @ApplicationContext context: Context,
-        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>,
         secureMemoryUtils: SecureMemoryUtils
     ): MasterKeyManager {
-        return MasterKeyManager(context, auditLogger.get(), secureMemoryUtils)
+        // ✅ CORRECT ORDER: context, auditLoggerProvider, secureMemoryUtils
+        return MasterKeyManager(context, { auditLogger.get() }, secureMemoryUtils)
     }
 
     @Provides
     @Singleton
     fun provideSessionManager(
         masterKeyManager: MasterKeyManager,
-        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>,
         secureMemoryUtils: SecureMemoryUtils
     ): SessionManager {
-        return SessionManager(masterKeyManager, auditLogger.get(), secureMemoryUtils)
+        // ✅ CORRECT ORDER: masterKeyManager, auditLoggerProvider, secureMemoryUtils
+        return SessionManager(masterKeyManager, { auditLogger.get() }, secureMemoryUtils)
     }
 
     @Provides
@@ -69,15 +63,12 @@ object SecurityModule {
     fun provideDatabaseKeyManager(
         @ApplicationContext context: Context,
         sessionManager: SessionManager,
-        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>,
         secureMemoryUtils: SecureMemoryUtils
     ): DatabaseKeyManager {
-        return DatabaseKeyManager(context, sessionManager, auditLogger.get(), secureMemoryUtils)
+        // ✅ CORRECT ORDER: context, sessionManager, auditLoggerProvider, secureMemoryUtils
+        return DatabaseKeyManager(context, sessionManager, { auditLogger.get() }, secureMemoryUtils)
     }
-
-    // ============================================================================================
-    // AUDIT PROVIDERS
-    // ============================================================================================
 
     @Provides
     @Singleton
@@ -123,19 +114,19 @@ object SecurityModule {
     fun provideAuditVerificationService(
         auditDao: AuditDao,
         auditChainManager: AuditChainManager,
-        auditLogger: Lazy<AuditLogger>  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>
     ): AuditVerificationService {
-        return AuditVerificationService(auditDao, auditChainManager, auditLogger.get())
+        return AuditVerificationService(auditDao, auditChainManager, { auditLogger.get() })
     }
 
     @Provides
     @Singleton
     fun provideSecurityAuditManager(
-        auditLogger: Lazy<AuditLogger>,  // ✅ Lazy injection
+        auditLogger: Lazy<AuditLogger>,
         auditDao: AuditDao,
         @ApplicationContext context: Context
     ): SecurityAuditManager {
-        return SecurityAuditManager(auditLogger.get(), auditDao, context)
+        return SecurityAuditManager({ auditLogger.get() }, auditDao, context)
     }
 
     @Provides
@@ -159,9 +150,6 @@ object SecurityModule {
     }
 }
 
-/**
- * SecurityInitializer coordinates the initialization of all security components.
- */
 class SecurityInitializer(
     private val masterKeyManager: MasterKeyManager,
     private val sessionManager: SessionManager,
@@ -172,10 +160,7 @@ class SecurityInitializer(
 ) {
     suspend fun initialize(): Boolean {
         return try {
-            // Initialize master key first
             masterKeyManager.initializeMasterKey()
-
-            // Start monitoring services
             biometricEnrollmentMonitor.startMonitoring()
             auditVerificationService.startPeriodicVerification()
             securityAuditManager.startSecurityMonitoring()
@@ -202,7 +187,6 @@ class SecurityInitializer(
                     sessionManager.endSession("Application shutdown")
                 }
             }
-
             biometricEnrollmentMonitor.stopMonitoring()
             auditVerificationService.stopPeriodicVerification()
             securityAuditManager.stopSecurityMonitoring()
