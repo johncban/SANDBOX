@@ -10,7 +10,6 @@ import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.CryptoManager
-import com.jcb.passbook.security.crypto.SecureMemoryUtils
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
@@ -20,9 +19,7 @@ import javax.inject.Singleton
 
 /**
  * AppModule provides application-level dependencies.
- *
- * FIXED: Removed ALL audit-related providers to SecurityModule
- * This breaks the circular dependency cycles
+ * FIXED: Removed provideSecureMemoryUtils (now only in SecurityModule)
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -41,9 +38,7 @@ object AppModule {
     @RequiresApi(Build.VERSION_CODES.M)
     fun provideCryptoManager(): CryptoManager = CryptoManager()
 
-    @Provides
-    @Singleton
-    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
+    // ❌ REMOVED: provideSecureMemoryUtils() - Now only in SecurityModule
 
     // ============================================================================================
     // REPOSITORY PROVIDERS
