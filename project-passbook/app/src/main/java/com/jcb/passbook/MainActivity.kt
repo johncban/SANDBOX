@@ -28,6 +28,7 @@ import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -52,20 +53,37 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // ✅ Database is now initialized via Hilt (no manual initialization needed)
+        // Check if user needs to log in
+        if (!sessionManager.isSessionActive()) {
+            Timber.d("No active session - redirecting to login")
+            // Navigate to login screen (already handled by your navigation startDestination)
+        } else {
+            Timber.d("Active session detected - user can access vault")
+        }
+
         // Persistent Compose states
         val rootedOnStartup = RootDetector.isDeviceRooted(this)
         val isCompromised = SecurityManager.isCompromised
 
-        // Initial security check
-        SecurityManager.checkRootStatus(this) {
-            // Will update Compose observable state, handled in Composables' LaunchedEffect
-        }
+        // Initial security check with onCompromised callback
+        SecurityManager.checkRootStatus(
+            context = this,
+            onCompromised = {
+                Timber.w("Security compromise detected during initial check")
+                // The isCompromised state will be updated automatically
+            }
+        )
 
         // Lifecycle observer for periodic checks
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> SecurityManager.startPeriodicSecurityCheck(this)
-                Lifecycle.Event.ON_PAUSE -> SecurityManager.stopPeriodicSecurityCheck()
+                Lifecycle.Event.ON_RESUME -> {
+                    SecurityManager.startPeriodicSecurityCheck(this)
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    SecurityManager.stopPeriodicSecurityCheck()
+                }
                 else -> {}
             }
         }
@@ -106,61 +124,65 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    @Composable
+    private fun AppNavHost() {
+        val navController = rememberNavController()
+        val itemViewModel: ItemViewModel = viewModel()
+        val userViewModel: UserViewModel = viewModel()
 
-}
-
-@Composable
-private fun AppNavHost() {
-    val navController = rememberNavController()
-    val itemViewModel: ItemViewModel = viewModel()
-    val userViewModel: UserViewModel = viewModel()
-
-    NavHost(navController = navController, startDestination = Destinations.LOGIN) {
-        composable(Destinations.LOGIN) {
-            LoginScreen(
-                userViewModel = userViewModel,
-                itemViewModel = itemViewModel,
-                onLoginSuccess = { userId ->
-                    itemViewModel.setUserId(userId.toLong())
-                    userViewModel.setUserId(userId.toLong())
-                    navController.navigate(Destinations.ITEMLIST) {
-                        popUpTo(Destinations.LOGIN) { inclusive = true }
+        NavHost(navController = navController, startDestination = Destinations.LOGIN) {
+            composable(Destinations.LOGIN) {
+                LoginScreen(
+                    userViewModel = userViewModel,
+                    itemViewModel = itemViewModel,
+                    onLoginSuccess = { userId ->
+                        itemViewModel.setUserId(userId.toLong())
+                        userViewModel.setUserId(userId.toLong())
+                        navController.navigate(Destinations.ITEMLIST) {
+                            popUpTo(Destinations.LOGIN) { inclusive = true }
+                        }
+                    },
+                    onNavigateToRegister = {
+                        navController.navigate(Destinations.REGISTER)
                     }
-                },
-                onNavigateToRegister = { navController.navigate(Destinations.REGISTER) }
-            )
-        }
-        composable(Destinations.REGISTER) {
-            RegistrationScreen(
-                userViewModel = userViewModel,
-                onRegistrationSuccess = {
-                    navController.navigate(Destinations.LOGIN) {
-                        popUpTo(Destinations.LOGIN) { inclusive = true }
+                )
+            }
+
+            composable(Destinations.REGISTER) {
+                RegistrationScreen(
+                    userViewModel = userViewModel,
+                    onRegistrationSuccess = {
+                        navController.navigate(Destinations.LOGIN) {
+                            popUpTo(Destinations.LOGIN) { inclusive = true }
+                        }
+                    },
+                    onBackClick = {
+                        navController.popBackStack()
                     }
-                },
-                onBackClick = { navController.popBackStack() }
-            )
-        }
-        composable(Destinations.ITEMLIST) {
-            ItemListScreen(
-                itemViewModel = itemViewModel,
-                userViewModel = userViewModel,
-                navController = navController
-            )
+                )
+            }
+
+            composable(Destinations.ITEMLIST) {
+                ItemListScreen(
+                    itemViewModel = itemViewModel,
+                    userViewModel = userViewModel,
+                    navController = navController
+                )
+            }
         }
     }
-}
 
-private object Destinations {
-    const val LOGIN = "login"
-    const val REGISTER = "register"
-    const val ITEMLIST = "itemList"
+    private object Destinations {
+        const val LOGIN = "login"
+        const val REGISTER = "register"
+        const val ITEMLIST = "itemList"
+    }
 }
 
 @Composable
 fun RootedDeviceDialog(onExit: () -> Unit) {
     androidx.compose.material3.AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = { },
         title = { androidx.compose.material3.Text("Root Detected") },
         text = { androidx.compose.material3.Text("This device appears to be rooted. For security reasons, the app will exit.") },
         confirmButton = {
@@ -175,7 +197,7 @@ fun RootedDeviceDialog(onExit: () -> Unit) {
 @Composable
 fun CompromisedDeviceDialog(onExit: () -> Unit) {
     androidx.compose.material3.AlertDialog(
-        onDismissRequest = {},
+        onDismissRequest = { },
         title = { androidx.compose.material3.Text("Security Warning") },
         text = { androidx.compose.material3.Text("This device or environment is compromised (rooted, tampered, or debugging detected). For security reasons, the app will exit.") },
         confirmButton = {

@@ -63,12 +63,12 @@ object SecurityModule {
     fun provideDatabaseKeyManager(
         @ApplicationContext context: Context,
         sessionManager: SessionManager,
-        auditLogger: Lazy<AuditLogger>,
         secureMemoryUtils: SecureMemoryUtils
     ): DatabaseKeyManager {
-        // ✅ CORRECT ORDER: context, sessionManager, auditLoggerProvider, secureMemoryUtils
-        return DatabaseKeyManager(context, sessionManager, { auditLogger.get() }, secureMemoryUtils)
+        // ✅ FIXED: Removed auditLogger parameter entirely
+        return DatabaseKeyManager(context, sessionManager, secureMemoryUtils)
     }
+
 
     @Provides
     @Singleton

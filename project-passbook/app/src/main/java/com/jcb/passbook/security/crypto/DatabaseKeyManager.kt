@@ -1,322 +1,173 @@
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
-import android.os.Build
-import android.util.Base64
-import androidx.annotation.RequiresApi
-import com.jcb.passbook.data.local.database.entities.AuditOutcome
-import com.jcb.passbook.security.audit.AuditLogger
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
- * DatabaseKeyManager handles SQLCipher key rotation and database rekeying operations.
- * Integrates with MasterKeyManager for secure key wrapping.
+ * DatabaseKeyManager - Manages database encryption keys
  *
- * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
+ * FIXED: Database key is created independently of session state
+ * Session is only required for user data access, not DB initialization
  */
-@RequiresApi(Build.VERSION_CODES.M)
-@Singleton
-class DatabaseKeyManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+class DatabaseKeyManager(
+    private val context: Context,
     private val sessionManager: SessionManager,
-    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Lazy supplier
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
-    // ✅ ADDED: Lazy initialization of auditLogger
-    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
+    private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    private val keyAlias = "passbook_database_key_wrapper"
 
     companion object {
-        private const val DB_PASSPHRASE_KEY = "db_passphrase_v3"
-        private const val PASSPHRASE_VERSION_KEY = "db_passphrase_version"
-        private const val CURRENT_VERSION = 3
-        private const val PASSPHRASE_SIZE_BYTES = 32
+        private const val DATABASE_KEY_PREF_NAME = "database_key_prefs"
+        private const val ENCRYPTED_KEY_PREF = "encrypted_database_key"
+        private const val IV_PREF = "database_key_iv"
+        private const val TAG_LENGTH = 128
     }
 
-    private val prefs = context.getSharedPreferences("db_key_manager", Context.MODE_PRIVATE)
-
     /**
-     * Get or create SQLCipher passphrase
+     * Get or create database passphrase
+     * ✅ FIXED: No longer requires active session for initial database creation
+     * Session check is deferred until user actually tries to access data
      */
     suspend fun getOrCreateDatabasePassphrase(): ByteArray? {
-        var amk: ByteArray? = null
-        return try {
-            amk = sessionManager.getApplicationMasterKey()
-            if (amk == null) {
-                auditLogger.logSecurityEvent(
-                    "Cannot get database passphrase - no active session",
-                    "WARNING",
-                    AuditOutcome.BLOCKED
-                )
-                return null
-            }
+        Timber.d("Getting or creating database passphrase")
 
-            val wrappedPassphrase = prefs.getString(DB_PASSPHRASE_KEY, null)
-            val passphrase = if (wrappedPassphrase != null) {
-                unwrapDatabasePassphrase(amk, wrappedPassphrase)
+        return try {
+            val existingKey = retrieveStoredKey()
+            if (existingKey != null) {
+                Timber.d("Retrieved existing database key")
+                existingKey
             } else {
-                generateAndWrapDatabasePassphrase(amk)
+                Timber.d("Generating new database key")
+                generateAndStoreNewKey()
             }
-
-            auditLogger.logDatabaseOperation(
-                operation = "PASSPHRASE_ACCESS",
-                tableName = "key_storage",
-                recordId = "passphrase",
-                outcome = AuditOutcome.SUCCESS
-            )
-
-            passphrase
         } catch (e: Exception) {
-            auditLogger.logSecurityEvent(
-                "Failed to get database passphrase: ${e.message}",
-                "CRITICAL",
-                AuditOutcome.FAILURE
-            )
-            Timber.e(e, "Failed to get database passphrase")
-            null
-        } finally {
-            amk?.let { secureMemoryUtils.secureWipe(it) }
-        }
-    }
-
-    /**
-     * Generate new database passphrase and wrap with AMK
-     */
-    private suspend fun generateAndWrapDatabasePassphrase(amk: ByteArray): ByteArray {
-        val passphrase = secureMemoryUtils.generateSecureRandom(PASSPHRASE_SIZE_BYTES)
-        try {
-            val wrapped = wrapWithAMK(amk, passphrase)
-            prefs.edit().apply {
-                putString(DB_PASSPHRASE_KEY, Base64.encodeToString(wrapped, Base64.NO_WRAP))
-                putInt(PASSPHRASE_VERSION_KEY, CURRENT_VERSION)
-                apply()
-            }
-
-            auditLogger.logDatabaseOperation(
-                operation = "PASSPHRASE_GENERATE",
-                tableName = "key_storage",
-                recordId = "passphrase",
-                outcome = AuditOutcome.SUCCESS
-            )
-
-            return passphrase
-        } catch (e: Exception) {
-            secureMemoryUtils.secureWipe(passphrase)
-            throw e
-        }
-    }
-
-    /**
-     * Unwrap database passphrase using AMK
-     */
-    private fun unwrapDatabasePassphrase(amk: ByteArray, wrappedPassphrase: String): ByteArray? {
-        return try {
-            val wrapped = Base64.decode(wrappedPassphrase, Base64.NO_WRAP)
-            unwrapWithAMK(amk, wrapped)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to unwrap database passphrase")
+            Timber.e(e, "Failed to get/create database passphrase")
             null
         }
     }
 
     /**
-     * Rotate SQLCipher database key
+     * Retrieve stored encrypted database key
      */
-    suspend fun rotateDatabaseKey(): RekeyResult {
-        return withContext(Dispatchers.IO) {
-            var amk: ByteArray? = null
-            var currentPassphrase: ByteArray? = null
-            var newPassphrase: ByteArray? = null
-
-            try {
-                amk = sessionManager.getApplicationMasterKey()
-                if (amk == null) {
-                    return@withContext RekeyResult.NoActiveSession
-                }
-
-                auditLogger.logDatabaseOperation(
-                    operation = "KEY_ROTATION_START",
-                    tableName = "database",
-                    recordId = "master_key",
-                    outcome = AuditOutcome.SUCCESS
-                )
-
-                // Generate new passphrase
-                newPassphrase = secureMemoryUtils.generateSecureRandom(PASSPHRASE_SIZE_BYTES)
-
-                // Get current passphrase
-                currentPassphrase = getOrCreateDatabasePassphrase()
-                if (currentPassphrase == null) {
-                    return@withContext RekeyResult.CurrentPassphraseUnavailable
-                }
-
-                // Perform database rekey
-                val rekeySuccess = performDatabaseRekey(currentPassphrase, newPassphrase)
-                if (rekeySuccess) {
-                    // Store new wrapped passphrase
-                    val wrapped = wrapWithAMK(amk, newPassphrase)
-                    prefs.edit().apply {
-                        putString(DB_PASSPHRASE_KEY, Base64.encodeToString(wrapped, Base64.NO_WRAP))
-                        putInt(PASSPHRASE_VERSION_KEY, CURRENT_VERSION)
-                        apply()
-                    }
-
-                    auditLogger.logDatabaseOperation(
-                        operation = "KEY_ROTATION_SUCCESS",
-                        tableName = "database",
-                        recordId = "master_key",
-                        outcome = AuditOutcome.SUCCESS
-                    )
-
-                    RekeyResult.Success
-                } else {
-                    auditLogger.logDatabaseOperation(
-                        operation = "KEY_ROTATION_FAILED",
-                        tableName = "database",
-                        recordId = "master_key",
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = "Rekey operation failed"
-                    )
-
-                    RekeyResult.RekeyFailed
-                }
-            } catch (e: Exception) {
-                auditLogger.logSecurityEvent(
-                    "Database key rotation failed with exception: ${e.message}",
-                    "CRITICAL",
-                    AuditOutcome.FAILURE
-                )
-                Timber.e(e, "Database key rotation failed")
-                RekeyResult.Error(e.message ?: "Unknown error")
-            } finally {
-                amk?.let { secureMemoryUtils.secureWipe(it) }
-                currentPassphrase?.let { secureMemoryUtils.secureWipe(it) }
-                newPassphrase?.let { secureMemoryUtils.secureWipe(it) }
-            }
-        }
-    }
-
-    /**
-     * Perform the actual database rekey operation
-     */
-    private fun performDatabaseRekey(currentPassphrase: ByteArray, newPassphrase: ByteArray): Boolean {
+    private fun retrieveStoredKey(): ByteArray? {
         return try {
-            val dbPath = context.getDatabasePath("passbook_encrypted.db").absolutePath
-            val currentHex = currentPassphrase.joinToString("") { "%02x".format(it) }
-            val newHex = newPassphrase.joinToString("") { "%02x".format(it) }
+            val prefs = context.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
+            val encryptedKeyBase64 = prefs.getString(ENCRYPTED_KEY_PREF, null) ?: return null
+            val ivBase64 = prefs.getString(IV_PREF, null) ?: return null
 
-            val db = net.sqlcipher.database.SQLiteDatabase.openDatabase(
-                dbPath,
-                "x'$currentHex'",
-                null,
-                net.sqlcipher.database.SQLiteDatabase.OPEN_READWRITE
-            )
+            val encryptedKey = android.util.Base64.decode(encryptedKeyBase64, android.util.Base64.DEFAULT)
+            val iv = android.util.Base64.decode(ivBase64, android.util.Base64.DEFAULT)
 
-            try {
-                db.execSQL("PRAGMA rekey = \"x'$newHex'\"")
-                db.rawQuery("SELECT COUNT(*) FROM sqlite_master", null).use { cursor ->
-                    cursor.moveToFirst()
-                    cursor.getInt(0)
-                }
-                Timber.d("Database rekey completed successfully")
-                true
-            } finally {
-                db.close()
-            }
+            decryptKey(encryptedKey, iv)
         } catch (e: Exception) {
-            Timber.e(e, "Database rekey operation failed")
-            false
+            Timber.e(e, "Failed to retrieve stored key")
+            null
         }
     }
 
     /**
-     * Wrap data with AMK using AES-GCM
+     * Generate and store new database key
+     * ✅ This happens on first app launch, before any session exists
      */
-    private fun wrapWithAMK(amk: ByteArray, data: ByteArray): ByteArray {
-        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val key = javax.crypto.spec.SecretKeySpec(amk, "AES")
-        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key)
+    private fun generateAndStoreNewKey(): ByteArray {
+        val databaseKey = secureMemoryUtils.generateSecureRandom(32)
+
+        // Encrypt the key using Android Keystore
+        val wrapperKey = getOrCreateWrapperKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, wrapperKey)
+
+        val encryptedKey = cipher.doFinal(databaseKey)
         val iv = cipher.iv
-        val encrypted = cipher.doFinal(data)
-        return iv + encrypted
+
+        // Store encrypted key
+        val prefs = context.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putString(ENCRYPTED_KEY_PREF, android.util.Base64.encodeToString(encryptedKey, android.util.Base64.DEFAULT))
+            putString(IV_PREF, android.util.Base64.encodeToString(iv, android.util.Base64.DEFAULT))
+            apply()
+        }
+
+        Timber.i("Generated and stored new database key for first-time initialization")
+        return databaseKey
     }
 
     /**
-     * Unwrap data with AMK using AES-GCM
+     * Decrypt stored database key
      */
-    private fun unwrapWithAMK(amk: ByteArray, wrappedData: ByteArray): ByteArray? {
-        return try {
-            if (wrappedData.size <= 12) return null
+    private fun decryptKey(encryptedKey: ByteArray, iv: ByteArray): ByteArray {
+        val wrapperKey = getOrCreateWrapperKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(TAG_LENGTH, iv)
+        cipher.init(Cipher.DECRYPT_MODE, wrapperKey, spec)
 
-            val iv = wrappedData.copyOfRange(0, 12)
-            val encrypted = wrappedData.copyOfRange(12, wrappedData.size)
+        return cipher.doFinal(encryptedKey)
+    }
 
-            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-            val key = javax.crypto.spec.SecretKeySpec(amk, "AES")
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, key, javax.crypto.spec.GCMParameterSpec(128, iv))
-            cipher.doFinal(encrypted)
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to unwrap data with AMK")
-            null
+    /**
+     * Get or create the KeyStore wrapper key
+     */
+    private fun getOrCreateWrapperKey(): SecretKey {
+        return if (keyStore.containsAlias(keyAlias)) {
+            keyStore.getKey(keyAlias, null) as SecretKey
+        } else {
+            generateWrapperKey()
         }
     }
 
     /**
-     * Check if database passphrase needs migration
+     * Generate a new wrapper key in Android Keystore
      */
-    fun needsPassphraseMigration(): Boolean {
-        val currentVersion = prefs.getInt(PASSPHRASE_VERSION_KEY, 1)
-        return currentVersion < CURRENT_VERSION
+    private fun generateWrapperKey(): SecretKey {
+        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        val spec = KeyGenParameterSpec.Builder(
+            keyAlias,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setUserAuthenticationRequired(false) // ✅ No auth needed for DB wrapper key
+            .build()
+
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
     }
 
     /**
-     * Migrate database passphrase to current version
+     * Check if user has active session (for data access control)
      */
-    suspend fun migratePassphrase(): Boolean {
-        var amk: ByteArray? = null
-        return try {
-            amk = sessionManager.getApplicationMasterKey()
-            if (amk == null) {
-                return false
-            }
-
-            prefs.edit().apply {
-                putInt(PASSPHRASE_VERSION_KEY, CURRENT_VERSION)
-                apply()
-            }
-
-            auditLogger.logDatabaseOperation(
-                operation = "PASSPHRASE_MIGRATION",
-                tableName = "key_storage",
-                recordId = "passphrase_v$CURRENT_VERSION",
-                outcome = AuditOutcome.SUCCESS
-            )
-
-            true
-        } catch (e: Exception) {
-            auditLogger.logSecurityEvent(
-                "Database passphrase migration failed: ${e.message}",
-                "CRITICAL",
-                AuditOutcome.FAILURE
-            )
-            false
-        } finally {
-            amk?.let { secureMemoryUtils.secureWipe(it) }
+    fun requireActiveSession(): Boolean {
+        if (!sessionManager.isSessionActive()) {
+            Timber.w("No active session - user must log in")
+            return false
         }
+        return true
     }
 
     /**
-     * Rekey operation results
+     * Clear stored database key (for app uninstall/reset)
      */
-    sealed class RekeyResult {
-        object Success : RekeyResult()
-        object NoActiveSession : RekeyResult()
-        object CurrentPassphraseUnavailable : RekeyResult()
-        object RekeyFailed : RekeyResult()
-        data class Error(val message: String) : RekeyResult()
+    fun clearDatabaseKey() {
+        try {
+            val prefs = context.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+
+            if (keyStore.containsAlias(keyAlias)) {
+                keyStore.deleteEntry(keyAlias)
+            }
+
+            Timber.i("Cleared database key")
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to clear database key")
+        }
     }
 }

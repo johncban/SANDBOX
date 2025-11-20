@@ -29,15 +29,14 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(
         @ApplicationContext context: Context,
-        dbKeyManager: DatabaseKeyManager,
-        auditLogger: Lazy<AuditLogger>  // ✅ Lazy injection
+        dbKeyManager: DatabaseKeyManager
     ): AppDatabase {
         return try {
             SQLiteDatabase.loadLibs(context)
 
             val passphrase: ByteArray = runBlocking {
                 dbKeyManager.getOrCreateDatabasePassphrase()
-                    ?: throw IllegalStateException("Cannot create database without passphrase")
+                    ?: throw IllegalStateException("Failed to generate database passphrase")
             }
 
             val factory = SupportFactory(passphrase)
@@ -52,44 +51,17 @@ object DatabaseModule {
                 .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
                 .enableMultiInstanceInvalidation()
                 .fallbackToDestructiveMigrationOnDowngrade()
-                .addCallback(DatabaseCallback { auditLogger.get() })  // ✅ Pass as lambda
                 .build()
 
-            auditLogger.get().logUserAction(
-                userId = null,
-                username = "SYSTEM",
-                eventType = AuditEventType.SYSTEM_EVENT,
-                action = "Database initialized with SQLCipher encryption",
-                resourceType = "DATABASE",
-                resourceId = "passbook_encrypted.db",
-                outcome = AuditOutcome.SUCCESS,
-                errorMessage = null,
-                securityLevel = "HIGH"
-            )
-
+            Timber.i("✅ Database initialized successfully")
             database
         } catch (e: Exception) {
-            Timber.e(e, "Failed to initialize encrypted database")
-
-            try {
-                auditLogger.get().logUserAction(
-                    userId = null,
-                    username = "SYSTEM",
-                    eventType = AuditEventType.SYSTEM_EVENT,
-                    action = "Database initialization failed",
-                    resourceType = "DATABASE",
-                    resourceId = "passbook_encrypted.db",
-                    outcome = AuditOutcome.FAILURE,
-                    errorMessage = e.message,
-                    securityLevel = "CRITICAL"
-                )
-            } catch (ignored: Exception) {
-                Timber.e(ignored, "Could not log database error")
-            }
-
-            throw SecurityException("Failed to initialize secure database", e)
+            Timber.e(e, "❌ Failed to initialize encrypted database")
+            throw SecurityException("Failed to initialize secure database: ${e.message}", e)
         }
     }
+
+
 
     private class DatabaseCallback(
         private val auditLoggerProvider: () -> AuditLogger
