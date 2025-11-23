@@ -45,13 +45,14 @@ fun ItemListScreen(
     var showEditDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showRecoveryConfirmDialog by remember { mutableStateOf(false) } // ✅ NEW: Recovery confirmation
 
-    // Dialog data states - ✅ FIXED: Add explicit type <Item?>
+    // Dialog data states
     var currentEditItem by remember { mutableStateOf<Item?>(null) }
     var selectedItemForDetails by remember { mutableStateOf<Item?>(null) }
     var itemToDelete by remember { mutableStateOf<Item?>(null) }
 
-    // KeyRotation
+    // KeyRotation state
     val keyRotationState by userViewModel.keyRotationState.collectAsState()
     val context = LocalContext.current
 
@@ -64,15 +65,22 @@ fun ItemListScreen(
         }
     }
 
+    // ✅ ENHANCED: Key rotation state handling with recovery feedback
     LaunchedEffect(keyRotationState) {
         when (keyRotationState) {
             is ItemOperationState.Success -> {
-                snackbarHostState.showSnackbar("Database key rotated successfully!")
+                snackbarHostState.showSnackbar(
+                    message = "Database key rotated successfully!",
+                    duration = SnackbarDuration.Short
+                )
                 userViewModel.clearKeyRotationState()
             }
             is ItemOperationState.Error -> {
                 val message = (keyRotationState as ItemOperationState.Error).message
-                snackbarHostState.showSnackbar(message)
+                snackbarHostState.showSnackbar(
+                    message = message,
+                    duration = SnackbarDuration.Long
+                )
                 userViewModel.clearKeyRotationState()
             }
             else -> {}
@@ -92,14 +100,36 @@ fun ItemListScreen(
             TopAppBar(
                 title = { Text("My Items") },
                 actions = {
-                    // Key Rotation Button
-                    if (keyRotationState is ItemOperationState.Loading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    } else {
-                        IconButton(onClick = { userViewModel.rotateDatabaseKey() }) {
-                            Icon(Icons.Filled.VpnKey, contentDescription = "Rotate Database Key")
+                    // ✅ NEW: Emergency Database Recovery Button
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        IconButton(
+                            onClick = { showRecoveryConfirmDialog = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Build,
+                                contentDescription = "Emergency Database Recovery",
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
+
+                    // Key Rotation Button
+                    if (keyRotationState is ItemOperationState.Loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .padding(horizontal = 12.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        IconButton(onClick = { userViewModel.rotateDatabaseKey() }) {
+                            Icon(
+                                imageVector = Icons.Filled.VpnKey,
+                                contentDescription = "Rotate Database Key"
+                            )
+                        }
+                    }
+
                     // Logout Button
                     IconButton(onClick = {
                         userViewModel.logout()
@@ -108,7 +138,10 @@ fun ItemListScreen(
                             popUpTo(navController.graph.startDestinationId) { inclusive = true }
                         }
                     }) {
-                        Icon(Icons.Filled.ExitToApp, contentDescription = "Logout")
+                        Icon(
+                            imageVector = Icons.Filled.ExitToApp,
+                            contentDescription = "Logout"
+                        )
                     }
                 }
             )
@@ -133,7 +166,6 @@ fun ItemListScreen(
                     .padding(paddingValues),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                // ✅ FIXED: Add explicit type parameter <Item>
                 items(items = items, key = { it.id }) { item ->
                     ItemRow(
                         item = item,
@@ -145,83 +177,104 @@ fun ItemListScreen(
                 }
             }
         }
+    }
 
-        // --- Dialog Composables ---
-        if (showAddDialog) {
-            ItemAddDialog(
-                onDismiss = { showAddDialog = false },
-                onAddItem = { title, password ->
-                    itemViewModel.insert(title, password)
-                    showAddDialog = false
-                }
-            )
-        }
+    // --- Dialog Composables ---
 
-        if (showEditDialog && currentEditItem != null) {
-            ItemEditDialog(
-                item = currentEditItem!!,
-                onDismiss = {
-                    showEditDialog = false
-                    currentEditItem = null
-                },
-                onEditItem = { originalItem, newTitle, newPassword ->
-                    itemViewModel.update(originalItem, newTitle, newPassword)
-                    showEditDialog = false
-                    currentEditItem = null
-                }
-            )
-        }
-
-        if (showDetailsDialog && selectedItemForDetails != null) {
-            val decryptedPassword by remember(selectedItemForDetails) {
-                derivedStateOf {
-                    itemViewModel.getDecryptedPassword(selectedItemForDetails!!)
-                }
+    if (showAddDialog) {
+        ItemAddDialog(
+            onDismiss = { showAddDialog = false },
+            onAddItem = { title, password ->
+                itemViewModel.insert(title, password)
+                showAddDialog = false
             }
+        )
+    }
 
-            ItemDetailsDialog(
-                item = selectedItemForDetails!!,
-                decryptedPassword = decryptedPassword,
-                onDismiss = {
-                    showDetailsDialog = false
-                    selectedItemForDetails = null
-                },
-                onItemEdit = { editItem ->
-                    currentEditItem = editItem
-                    showDetailsDialog = false
-                    selectedItemForDetails = null
-                    showEditDialog = true
-                },
-                onItemDelete = { deleteItem ->
-                    itemToDelete = deleteItem
-                    showDetailsDialog = false
-                    selectedItemForDetails = null
-                    showDeleteConfirmDialog = true
-                }
-            )
+    if (showEditDialog && currentEditItem != null) {
+        ItemEditDialog(
+            item = currentEditItem!!,
+            onDismiss = {
+                showEditDialog = false
+                currentEditItem = null
+            },
+            onEditItem = { originalItem, newTitle, newPassword ->
+                itemViewModel.update(originalItem, newTitle, newPassword)
+                showEditDialog = false
+                currentEditItem = null
+            }
+        )
+    }
+
+    if (showDetailsDialog && selectedItemForDetails != null) {
+        val decryptedPassword by remember(selectedItemForDetails) {
+            derivedStateOf {
+                itemViewModel.getDecryptedPassword(selectedItemForDetails!!)
+            }
         }
 
-        if (showDeleteConfirmDialog && itemToDelete != null) {
-            ConfirmDeleteDialog(
-                itemTitle = itemToDelete!!.title,  // ✅ FIXED: Changed from .name to .title
-                onConfirm = {
-                    val toDelete = itemToDelete!!
-                    coroutineScope.launch {
-                        itemViewModel.delete(toDelete)
-                    }
-                    showDeleteConfirmDialog = false
-                    itemToDelete = null
-                },
-                onDismiss = {
-                    showDeleteConfirmDialog = false
-                    itemToDelete = null
+        ItemDetailsDialog(
+            item = selectedItemForDetails!!,
+            decryptedPassword = decryptedPassword,
+            onDismiss = {
+                showDetailsDialog = false
+                selectedItemForDetails = null
+            },
+            onItemEdit = { editItem ->
+                currentEditItem = editItem
+                showDetailsDialog = false
+                selectedItemForDetails = null
+                showEditDialog = true
+            },
+            onItemDelete = { deleteItem ->
+                itemToDelete = deleteItem
+                showDetailsDialog = false
+                selectedItemForDetails = null
+                showDeleteConfirmDialog = true
+            }
+        )
+    }
+
+    if (showDeleteConfirmDialog && itemToDelete != null) {
+        ConfirmDeleteDialog(
+            itemTitle = itemToDelete!!.title,
+            onConfirm = {
+                val toDelete = itemToDelete!!
+                coroutineScope.launch {
+                    itemViewModel.delete(toDelete)
                 }
-            )
-        }
+                showDeleteConfirmDialog = false
+                itemToDelete = null
+            },
+            onDismiss = {
+                showDeleteConfirmDialog = false
+                itemToDelete = null
+            }
+        )
+    }
+
+    // ✅ NEW: Emergency Database Recovery Confirmation Dialog
+    if (showRecoveryConfirmDialog) {
+        RecoveryConfirmDialog(
+            onConfirm = {
+                showRecoveryConfirmDialog = false
+                coroutineScope.launch {
+                    userViewModel.attemptDatabaseRecovery()
+                    snackbarHostState.showSnackbar(
+                        message = "Database recovery attempted. Check logs for results.",
+                        duration = SnackbarDuration.Long
+                    )
+                }
+            },
+            onDismiss = {
+                showRecoveryConfirmDialog = false
+            }
+        )
     }
 }
 
 // --- Reusable Composables ---
+
 @Composable
 fun ItemRow(item: Item, onClick: () -> Unit) {
     Card(
@@ -237,7 +290,7 @@ fun ItemRow(item: Item, onClick: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = item.title,  // ✅ FIXED: Changed from item.name to item.title
+                text = item.title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier
@@ -340,13 +393,14 @@ fun ConfirmCancelButtons(
 }
 
 // --- Modular Dialogs ---
+
 @RequiresApi(Build.VERSION_CODES.M)
 @Composable
 fun ItemAddDialog(
     onDismiss: () -> Unit,
     onAddItem: (String, String) -> Unit
 ) {
-    var itemTitle by remember { mutableStateOf("") }  // ✅ FIXED: Changed itemName to itemTitle
+    var itemTitle by remember { mutableStateOf("") }
     var password by remember { mutableStateOf(CharArray(0)) }
     var passwordVisible by remember { mutableStateOf(false) }
 
@@ -359,7 +413,7 @@ fun ItemAddDialog(
         text = {
             Column {
                 TextInputField(
-                    label = "Item Title",  // ✅ FIXED: Changed from "Item Name"
+                    label = "Item Title",
                     value = itemTitle,
                     onValueChange = { itemTitle = it }
                 )
@@ -407,7 +461,7 @@ fun ItemEditDialog(
     onDismiss: () -> Unit,
     onEditItem: (Item, String?, String?) -> Unit
 ) {
-    var itemTitle by remember { mutableStateOf(item.title) }  // ✅ FIXED: Changed from item.name
+    var itemTitle by remember { mutableStateOf(item.title) }
     var newPassword by remember { mutableStateOf(CharArray(0)) }
     var passwordVisible by remember { mutableStateOf(false) }
 
@@ -420,7 +474,7 @@ fun ItemEditDialog(
         text = {
             Column {
                 TextInputField(
-                    label = "Item Title",  // ✅ FIXED: Changed from "Item Name"
+                    label = "Item Title",
                     value = itemTitle,
                     onValueChange = { itemTitle = it }
                 )
@@ -478,7 +532,7 @@ fun ItemDetailsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(item.title) },  // ✅ FIXED: Changed from item.name
+        title = { Text(item.title) },
         text = {
             Column {
                 OutlinedTextField(
@@ -536,14 +590,14 @@ fun ItemDetailsDialog(
 
 @Composable
 fun ConfirmDeleteDialog(
-    itemTitle: String,  // ✅ FIXED: Changed from itemName to itemTitle
+    itemTitle: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Confirm Delete") },
-        text = { Text("Are you sure you want to delete '$itemTitle'?") },  // ✅ FIXED
+        text = { Text("Are you sure you want to delete '$itemTitle'?") },
         confirmButton = {
             Button(onClick = onConfirm) {
                 Text("Yes")
@@ -552,6 +606,56 @@ fun ConfirmDeleteDialog(
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
                 Text("No")
+            }
+        }
+    )
+}
+
+// ✅ NEW: Emergency Database Recovery Confirmation Dialog
+@Composable
+fun RecoveryConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Build,
+                contentDescription = "Recovery",
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = {
+            Text(
+                "Emergency Database Recovery",
+                color = MaterialTheme.colorScheme.error
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("⚠️ This will attempt to recover database access by restoring the backup passphrase.")
+                Text("Only use this if you cannot login after a failed key rotation.")
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Do you want to proceed?",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Yes, Attempt Recovery")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
     )

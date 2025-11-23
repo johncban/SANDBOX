@@ -11,10 +11,11 @@ import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditEventType
-import com.jcb.passbook.data.local.database.entities.AuditOutcome  // ✅ ADDED THIS IMPORT
+import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.security.audit.AuditLogger
-import com.jcb.passbook.security.crypto.KeystorePassphraseManager
+import com.jcb.passbook.security.crypto.DatabaseKeyManager
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
 import com.lambdapioneer.argon2kt.Argon2Version
@@ -58,7 +59,9 @@ class UserViewModel @Inject constructor(
     private val userRepository: UserRepository,
     private val userDao: UserDao,
     private val argon2Kt: Argon2Kt,
-    private val auditLogger: AuditLogger
+    private val auditLogger: AuditLogger,
+    private val databaseKeyManager: DatabaseKeyManager,  // ✅ INJECT DatabaseKeyManager
+    private val secureMemoryUtils: SecureMemoryUtils    // ✅ INJECT SecureMemoryUtils
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -81,23 +84,172 @@ class UserViewModel @Inject constructor(
         _keyRotationState.value = KeyRotationState.Idle
     }
 
+    /**
+     * ✅ COMPLETELY FIXED: Database key rotation using DatabaseKeyManager
+     * This version works with the actual database encryption system
+     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun rotateDatabaseKey() {
         _keyRotationState.value = KeyRotationState.Loading
+
         viewModelScope.launch(Dispatchers.IO) {
+            var newPassphrase: ByteArray? = null
+
             try {
-                val newPassphrase = KeystorePassphraseManager.rotatePassphrase(context)
-                val supportDb = db.openHelper.writableDatabase
-                supportDb.query("PRAGMA rekey = '$newPassphrase';").close()
-                Arrays.fill(newPassphrase.toCharArray(), ' ')
+                Timber.i("🔄 Starting database key rotation...")
+
+                // Step 1: Get current passphrase from DatabaseKeyManager
+                val currentPassphrase = databaseKeyManager.getCurrentDatabasePassphrase()
+                if (currentPassphrase == null) {
+                    throw IllegalStateException("Cannot rotate: no current database key found in DatabaseKeyManager")
+                }
+                Timber.d("✅ Retrieved current database key (${currentPassphrase.size} bytes)")
+
+                // Step 2: Verify database can be opened with current passphrase
+                try {
+                    val testDb = db.openHelper.writableDatabase
+                    testDb.beginTransaction()
+                    testDb.query("SELECT COUNT(*) FROM sqlite_master").use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            Timber.d("✅ Database accessible with current key")
+                        }
+                    }
+                    testDb.setTransactionSuccessful()
+                    testDb.endTransaction()
+                } catch (e: Exception) {
+                    throw IllegalStateException("Database not accessible with current key", e)
+                }
+
+                // Step 3: Generate NEW passphrase (NOT stored yet)
+                newPassphrase = databaseKeyManager.generateNewDatabasePassphrase()
+                Timber.d("✅ Generated new database key (${newPassphrase.size} bytes)")
+
+                // Step 4: Convert ByteArray to hex string for SQLCipher
+                val currentPassphraseHex = "x'${currentPassphrase.joinToString("") { "%02x".format(it) }}'"
+                val newPassphraseHex = "x'${newPassphrase.joinToString("") { "%02x".format(it) }}'"
+
+                // Step 5: Close any open connections first
+                db.close()
+
+                // Step 6: Reopen with current passphrase
+                val dbPath = context.getDatabasePath("passbook.db").absolutePath
+                val tempDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
+                    dbPath,
+                    currentPassphraseHex,
+                    null,
+                    net.sqlcipher.database.SQLiteDatabase.OPEN_READWRITE
+                )
+
+                // Step 7: Execute PRAGMA rekey
+                tempDb.execSQL("PRAGMA rekey = $newPassphraseHex")
+                Timber.d("✅ PRAGMA rekey executed")
+
+                // CRITICAL: Close and verify rekey succeeded
+                tempDb.close()
+
+                // Step 8: Verify rekey succeeded by opening with new passphrase
+                val verifyDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
+                    dbPath,
+                    newPassphraseHex,
+                    null,
+                    net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
+                )
+
+                verifyDb.rawQuery("SELECT COUNT(*) FROM sqlite_master", null).use { cursor ->
+                    if (!cursor.moveToFirst()) {
+                        throw IllegalStateException("Rekey verification failed: cannot read database")
+                    }
+                    Timber.d("✅ Rekey verification successful - database readable with new key")
+                }
+                verifyDb.close()
+
+                // Step 9: ONLY NOW commit the new passphrase to storage
+                val commitSuccess = databaseKeyManager.commitNewDatabasePassphrase(newPassphrase)
+                if (!commitSuccess) {
+                    throw IllegalStateException("Failed to commit new passphrase to storage")
+                }
+                Timber.i("✅ New database key committed to storage")
+
+                // Step 10: Clear backup after successful rotation
+                databaseKeyManager.clearBackup()
+
+                // Clear sensitive data
+                secureMemoryUtils.wipeByteArray(currentPassphrase)
+                secureMemoryUtils.wipeByteArray(newPassphrase)
+
                 _keyRotationState.value = KeyRotationState.Success
+                Timber.i("✅✅✅ Database key rotation completed successfully!")
+
             } catch (e: Exception) {
-                Timber.e(e, "Database key rotation failed")
-                _keyRotationState.value = KeyRotationState.Error("Key rotation failed: ${e.message}")
+                Timber.e(e, "❌ Database key rotation FAILED")
+
+                // CRITICAL: Rollback if new passphrase was committed
+                if (newPassphrase != null) {
+                    Timber.w("Attempting rollback...")
+                    val rollbackSuccess = databaseKeyManager.rollbackToBackup()
+                    if (rollbackSuccess) {
+                        Timber.i("✅ Rollback successful - original key restored")
+                    } else {
+                        Timber.e("❌ CRITICAL: Rollback failed - manual recovery may be needed")
+                    }
+                }
+
+                // Clear sensitive data
+                newPassphrase?.let { secureMemoryUtils.wipeByteArray(it) }
+
+                _keyRotationState.value = KeyRotationState.Error(
+                    "Key rotation failed: ${e.message}. " +
+                            "${if (newPassphrase != null) "Original key restored." else "No changes made."}"
+                )
             }
         }
     }
 
+    /**
+     * ✅ FIXED: Emergency recovery function using DatabaseKeyManager
+     */
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun attemptDatabaseRecovery() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Timber.w("🆘 Attempting emergency database recovery...")
+
+                // Try to rollback to backup passphrase
+                val rollbackSuccess = databaseKeyManager.rollbackToBackup()
+
+                if (rollbackSuccess) {
+                    Timber.i("✅ Backup key restored")
+
+                    // Try to open database with restored passphrase
+                    val passphrase = databaseKeyManager.getCurrentDatabasePassphrase()
+                    if (passphrase != null) {
+                        try {
+                            val passphraseHex = "x'${passphrase.joinToString("") { "%02x".format(it) }}'"
+                            val testDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
+                                context.getDatabasePath("passbook.db").absolutePath,
+                                passphraseHex,
+                                null,
+                                net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
+                            )
+                            testDb.rawQuery("SELECT COUNT(*) FROM sqlite_master", null).use { it.moveToFirst() }
+                            testDb.close()
+
+                            Timber.i("✅✅ Recovery successful! Database is accessible again.")
+                        } catch (e: Exception) {
+                            Timber.e(e, "❌ Database still inaccessible after recovery attempt")
+                        }
+                    }
+                } else {
+                    Timber.e("❌ No backup available for recovery")
+                }
+
+            } catch (e: Exception) {
+                Timber.e(e, "Emergency recovery failed")
+            }
+        }
+    }
+
+    // Keep all your existing login, register, logout methods unchanged...
     private fun hashPassword(password: String, salt: ByteArray): ByteArray {
         val hashResult = argon2Kt.hash(
             mode = Argon2Mode.ARGON2_ID,
@@ -127,7 +279,7 @@ class UserViewModel @Inject constructor(
             auditLogger.logAuthentication(
                 username = username.takeIf { it.isNotBlank() } ?: "UNKNOWN",
                 eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                outcome = AuditOutcome.FAILURE,  // ✅ FIX #1: Changed from "FAILURE" to enum
+                outcome = AuditOutcome.FAILURE,
                 errorMessage = "Empty credentials provided"
             )
             _authState.value = AuthState.Error(R.string.error_credentials_empty)
@@ -143,14 +295,14 @@ class UserViewModel @Inject constructor(
                     auditLogger.logAuthentication(
                         username = user.username,
                         eventType = AuditEventType.LOGIN,
-                        outcome = AuditOutcome.SUCCESS  // ✅ FIX #2: Changed from "SUCCESS" to enum
+                        outcome = AuditOutcome.SUCCESS
                     )
                     _authState.value = AuthState.Success(user.id)
                 } else {
                     auditLogger.logAuthentication(
                         username = username,
                         eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                        outcome = AuditOutcome.FAILURE,  // ✅ FIX #3: Changed from "FAILURE" to enum
+                        outcome = AuditOutcome.FAILURE,
                         errorMessage = "Invalid username or password"
                     )
                     _authState.value = AuthState.Error(R.string.error_invalid_credentials)
@@ -159,7 +311,7 @@ class UserViewModel @Inject constructor(
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.AUTHENTICATION_FAILURE,
-                    outcome = AuditOutcome.FAILURE,  // ✅ FIX #4: Changed from "FAILURE" to enum
+                    outcome = AuditOutcome.FAILURE,
                     errorMessage = "Login exception: ${e.message}"
                 )
                 Timber.e(e, "Login failure")
@@ -191,7 +343,7 @@ class UserViewModel @Inject constructor(
                     auditLogger.logAuthentication(
                         username = username,
                         eventType = AuditEventType.REGISTER,
-                        outcome = AuditOutcome.FAILURE,  // ✅ FIX #5: Changed from "FAILURE" to enum
+                        outcome = AuditOutcome.FAILURE,
                         errorMessage = "Username already exists"
                     )
                     _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
@@ -210,16 +362,16 @@ class UserViewModel @Inject constructor(
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
-                    outcome = AuditOutcome.SUCCESS  // ✅ FIX #6: Changed from "SUCCESS" to enum
+                    outcome = AuditOutcome.SUCCESS
                 )
-
                 _userId.value = userId
                 _registrationState.value = RegistrationState.Success
+
             } catch (e: Exception) {
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
-                    outcome = AuditOutcome.FAILURE,  // ✅ FIX #7: Changed from "FAILURE" to enum
+                    outcome = AuditOutcome.FAILURE,
                     errorMessage = "Registration failed: ${e.message}"
                 )
                 Timber.e(e, "Registration failed")
@@ -246,7 +398,7 @@ class UserViewModel @Inject constructor(
                         auditLogger.logAuthentication(
                             username = user.username,
                             eventType = AuditEventType.LOGOUT,
-                            outcome = AuditOutcome.SUCCESS  // ✅ FIX #8: Changed from "SUCCESS" to enum
+                            outcome = AuditOutcome.SUCCESS
                         )
                     }
                 }
