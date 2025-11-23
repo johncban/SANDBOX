@@ -16,28 +16,6 @@ import java.net.Socket
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * SecurityManager provides comprehensive runtime security monitoring.
- * 
- * THREAT DETECTION:
- * - Root/jailbreak detection via RootBeer + custom heuristics
- * - Debugging/instrumentation detection (ADB, debugger attachment)
- * - Emulator detection patterns
- * - Frida/dynamic analysis framework detection
- * - SELinux enforcement validation
- * - Runtime integrity checks
- * 
- * RESPONSE ACTIONS:
- * - Immediate session invalidation on compromise
- * - Security event audit logging
- * - Application termination for critical threats
- * 
- * FIXED ISSUES:
- * - Merged two companion objects into one
- * - Fixed unresolved Build references
- * - Removed unused detectEmulator() in favor of companion version
- * - Made performSecurityCheck() public for external usage
- */
 @Singleton
 class SecurityManager @Inject constructor(
     private val sessionManager: SessionManager,
@@ -50,7 +28,7 @@ class SecurityManager @Inject constructor(
      */
     suspend fun performSecurityCheck(context: Context): Boolean {
         val isCompromised = isDeviceCompromised(context)
-        
+
         if (isCompromised) {
             // Immediate session invalidation on compromise
             try {
@@ -70,31 +48,31 @@ class SecurityManager @Inject constructor(
                 )
                 Timber.e(e, "Error terminating session on security compromise")
             }
-            
+
             Companion.isCompromised.value = true
         }
-        
+
         return isCompromised
     }
 
-    // ========== COMPANION OBJECT (MERGED - ONLY ONE ALLOWED) ==========
-    
     companion object {
         // Observable state for UI components
         val isCompromised = mutableStateOf(false)
-        
+
+        // ✅ FIXED: Use SupervisorJob to prevent child failures from cancelling parent
+        private val securityScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         private var periodicCheckJob: Job? = null
         private var auditLoggerInstance: AuditLogger? = null
-        
+
         // ===== PUBLIC API FOR STATIC USAGE =====
-        
+
         /**
          * Initialize auditing for static methods
          */
         fun initializeAuditing(auditLogger: AuditLogger) {
             auditLoggerInstance = auditLogger
         }
-        
+
         /**
          * Check root status and invoke callback if compromised
          */
@@ -104,44 +82,79 @@ class SecurityManager @Inject constructor(
                 onCompromised()
             }
         }
-        
+
         /**
-         * Start periodic security checks (every 30 seconds)
+         * ✅ FIXED: Start periodic security checks with proper exception handling
          */
         fun startPeriodicSecurityCheck(context: Context) {
             stopPeriodicSecurityCheck() // Ensure no duplicate jobs
-            
-            periodicCheckJob = CoroutineScope(Dispatchers.Default).launch {
-                while (isActive) {
-                    try {
-                        if (isDeviceCompromised(context)) {
-                            isCompromised.value = true
+
+            periodicCheckJob = securityScope.launch {
+                // ✅ FIXED: Add exception handler to prevent crashes
+                val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+                    when (exception) {
+                        is CancellationException -> {
+                            Timber.d("Security check job cancelled (normal app lifecycle)")
+                        }
+                        else -> {
+                            Timber.e(exception, "Error during periodic security check")
                             auditLoggerInstance?.logSecurityEvent(
-                                "Periodic security check detected compromise",
+                                "Security check error: ${exception.message}",
                                 "CRITICAL",
                                 com.jcb.passbook.data.local.database.entities.AuditOutcome.FAILURE
                             )
-                            break // Exit monitoring on compromise
                         }
-                        delay(30_000) // Check every 30 seconds
-                    } catch (e: Exception) {
-                        Timber.e(e, "Error during periodic security check")
-                        delay(60_000) // Back off on error
+                    }
+                }
+
+                withContext(exceptionHandler) {
+                    while (isActive) {
+                        try {
+                            if (isDeviceCompromised(context)) {
+                                isCompromised.value = true
+                                auditLoggerInstance?.logSecurityEvent(
+                                    "Periodic security check detected compromise",
+                                    "CRITICAL",
+                                    com.jcb.passbook.data.local.database.entities.AuditOutcome.FAILURE
+                                )
+                                break // Exit monitoring on compromise
+                            }
+                            delay(30_000) // Check every 30 seconds
+                        } catch (e: CancellationException) {
+                            // ✅ FIXED: Don't log cancellation as error (normal lifecycle)
+                            Timber.d("Security monitoring cancelled")
+                            throw e // Re-throw to properly cancel coroutine
+                        } catch (e: Exception) {
+                            Timber.e(e, "Error during periodic security check")
+                            delay(60_000) // Back off on error
+                        }
                     }
                 }
             }
         }
-        
+
         /**
-         * Stop periodic security checks
+         * ✅ FIXED: Stop periodic security checks safely
          */
         fun stopPeriodicSecurityCheck() {
             periodicCheckJob?.cancel()
             periodicCheckJob = null
         }
-        
+
+        /**
+         * ✅ NEW: Clean up all resources when app is destroyed
+         */
+        fun shutdown() {
+            try {
+                stopPeriodicSecurityCheck()
+                securityScope.cancel()
+            } catch (e: Exception) {
+                Timber.e(e, "Error during SecurityManager shutdown")
+            }
+        }
+
         // ===== PRIVATE DETECTION METHODS =====
-        
+
         /**
          * Comprehensive device compromise detection.
          * Combines multiple heuristics for robust detection.
@@ -158,16 +171,16 @@ class SecurityManager @Inject constructor(
                     )
                     return true
                 }
-                
+
                 // Additional detection methods
-                isDebuggerAttached() || 
-                isAdbEnabled(context) ||
-                isSELinuxPermissive() ||
-                isFridaDetected() ||
-                isEmulatorDetected() ||
-                hasRootBinaries() ||
-                hasXposedFramework()
-                
+                isDebuggerAttached() ||
+                        isAdbEnabled(context) ||
+                        isSELinuxPermissive() ||
+                        isFridaDetected() ||
+                        isEmulatorDetected() ||
+                        hasRootBinaries() ||
+                        hasXposedFramework()
+
             } catch (e: Exception) {
                 Timber.e(e, "Error during compromise detection")
                 // Fail-safe: assume compromised if detection fails
@@ -179,10 +192,9 @@ class SecurityManager @Inject constructor(
                 true
             }
         }
-        
-        /**
-         * Check if debugger is attached
-         */
+
+        // ... (rest of detection methods remain the same)
+
         private fun isDebuggerAttached(): Boolean {
             return try {
                 Debug.isDebuggerConnected() || Debug.waitingForDebugger()
@@ -190,10 +202,7 @@ class SecurityManager @Inject constructor(
                 false
             }
         }
-        
-        /**
-         * Check if ADB debugging is enabled
-         */
+
         private fun isAdbEnabled(context: Context): Boolean {
             return try {
                 Settings.Global.getInt(
@@ -204,100 +213,78 @@ class SecurityManager @Inject constructor(
                 false
             }
         }
-        
-        /**
-         * Check if SELinux is in permissive mode (should be enforcing)
-         */
+
         private fun isSELinuxPermissive(): Boolean {
             return try {
                 val selinuxFile = File("/sys/fs/selinux/enforce")
                 if (selinuxFile.exists()) {
                     val enforce = selinuxFile.readText().trim()
-                    enforce != "1" // Should be "1" for enforcing mode
+                    enforce != "1"
                 } else {
-                    // No SELinux file suggests compromised system
                     true
                 }
             } catch (_: Exception) {
-                // Assume compromised if can't read SELinux status
                 true
             }
         }
-        
-        /**
-         * Detect Frida dynamic instrumentation framework
-         */
+
         private fun isFridaDetected(): Boolean {
             return try {
-                // Check for common Frida ports
                 val fridaPorts = listOf(27042, 27043)
-                
+
                 fridaPorts.any { port ->
                     try {
                         Socket().use { socket ->
                             socket.connect(InetSocketAddress("127.0.0.1", port), 100)
-                            true // Port is open
+                            true
                         }
                     } catch (_: Exception) {
-                        false // Port not reachable
+                        false
                     }
-                } || 
-                // Check for Frida libraries in memory maps
-                checkFridaInMaps()
-                
+                } || checkFridaInMaps()
+
             } catch (_: Exception) {
                 false
             }
         }
-        
-        /**
-         * Check process memory maps for Frida signatures
-         */
+
         private fun checkFridaInMaps(): Boolean {
             return try {
                 val mapsFile = File("/proc/self/maps")
                 if (mapsFile.exists()) {
                     val maps = mapsFile.readText()
                     maps.contains("frida", ignoreCase = true) ||
-                    maps.contains("gum-js-loop", ignoreCase = true) ||
-                    maps.contains("linjector", ignoreCase = true)
+                            maps.contains("gum-js-loop", ignoreCase = true) ||
+                            maps.contains("linjector", ignoreCase = true)
                 } else false
             } catch (_: Exception) {
                 false
             }
         }
-        
-        /**
-         * Detect if running on emulator
-         * FIXED: Proper Build class references
-         */
+
         private fun isEmulatorDetected(): Boolean {
             return try {
-                // Check build properties for emulator indicators
                 (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic")) ||
-                Build.FINGERPRINT.startsWith("generic") ||
-                Build.FINGERPRINT.startsWith("unknown") ||
-                Build.HARDWARE.contains("goldfish") ||
-                Build.HARDWARE.contains("vbox") ||
-                Build.MODEL.contains("google_sdk") ||
-                Build.MODEL.contains("Emulator") ||
-                Build.MODEL.contains("Android SDK built for x86") ||
-                Build.PRODUCT.contains("sdk_gphone") ||
-                Build.PRODUCT.contains("google_sdk") ||
-                Build.PRODUCT.contains("sdk") ||
-                Build.PRODUCT.contains("sdk_x86") ||
-                Build.PRODUCT.contains("vbox86p") ||
-                Build.SERIAL.equals("unknown", ignoreCase = true) ||
-                Build.SERIAL.equals("android", ignoreCase = true)
-                
+                        Build.FINGERPRINT.startsWith("generic") ||
+                        Build.FINGERPRINT.startsWith("unknown") ||
+                        Build.HARDWARE.contains("goldfish") ||
+                        Build.HARDWARE.contains("vbox") ||
+                        Build.MODEL.contains("google_sdk") ||
+                        Build.MODEL.contains("Emulator") ||
+                        Build.MODEL.contains("Android SDK built for x86") ||
+                        Build.PRODUCT.contains("sdk_gphone") ||
+                        Build.PRODUCT.contains("google_sdk") ||
+                        Build.PRODUCT.contains("sdk") ||
+                        Build.PRODUCT.contains("sdk_x86") ||
+                        Build.PRODUCT.contains("vbox86p") ||
+                        Build.SERIAL.equals("unknown", ignoreCase = true) ||
+                        Build.SERIAL.equals("android", ignoreCase = true)
+
             } catch (_: Exception) {
                 false
             }
         }
-        
-        /**
-         * Check for common root binary locations
-         */
+
         private fun hasRootBinaries(): Boolean {
             val rootPaths = arrayOf(
                 "/system/bin/su",
@@ -315,7 +302,7 @@ class SecurityManager @Inject constructor(
                 "/system/app/Superuser.apk",
                 "/system/etc/init.d/99SuperSUDaemon"
             )
-            
+
             return rootPaths.any { path ->
                 try {
                     File(path).exists()
@@ -324,10 +311,7 @@ class SecurityManager @Inject constructor(
                 }
             }
         }
-        
-        /**
-         * Check for Xposed Framework installation
-         */
+
         private fun hasXposedFramework(): Boolean {
             return try {
                 val xposedPaths = arrayOf(
@@ -336,7 +320,7 @@ class SecurityManager @Inject constructor(
                     "/system/lib/libxposed_art.so",
                     "/system/lib64/libxposed_art.so"
                 )
-                
+
                 xposedPaths.any { path ->
                     try {
                         File(path).exists()
