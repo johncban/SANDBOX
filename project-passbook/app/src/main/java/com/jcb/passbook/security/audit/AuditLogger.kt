@@ -12,10 +12,14 @@ import javax.inject.Singleton
 
 @Singleton
 class AuditLogger @Inject constructor(
-    private val auditQueue: AuditQueue,
-    private val auditChainManager: AuditChainManager,
+    private val auditQueueProvider: () -> AuditQueue?,
+    private val auditChainManagerProvider: () -> AuditChainManager?,
     @ApplicationContext private val context: Context
 ) {
+    // ✅ FIX: Lazy initialization from providers
+    private val auditQueue: AuditQueue? by lazy { auditQueueProvider() }
+    private val auditChainManager: AuditChainManager? by lazy { auditChainManagerProvider() }
+
     private val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Log user action */
@@ -43,8 +47,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = securityLevel
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log user action")
             }
@@ -71,8 +75,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = securityLevel
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log security event")
             }
@@ -99,8 +103,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "ELEVATED"
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log authentication")
             }
@@ -127,8 +131,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = if (discrepancies > 0) "$discrepancies discrepancies found" else null,
                     securityLevel = if (discrepancies > 0) "CRITICAL" else "NORMAL"
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log audit verification")
             }
@@ -153,8 +157,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = null,
                     securityLevel = "NORMAL"
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log app lifecycle")
             }
@@ -182,8 +186,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "NORMAL"
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log database operation")
             }
@@ -212,8 +216,8 @@ class AuditLogger @Inject constructor(
                     errorMessage = errorMessage,
                     securityLevel = "NORMAL"
                 )
-                val chainedEntry = auditChainManager.addEntryToChain(auditEntry)
-                auditQueue.enqueue(chainedEntry)
+                val chainedEntry = auditChainManager?.addEntryToChain(auditEntry) ?: auditEntry
+                auditQueue?.enqueue(chainedEntry)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to log item operation")
             }
@@ -239,6 +243,7 @@ class AuditLogger @Inject constructor(
             action.contains("Viewed", true) -> AuditEventType.VIEW_ITEM
             else -> AuditEventType.VIEW_ITEM
         }
+
         logUserAction(
             userId = userId,
             username = username,
@@ -310,7 +315,7 @@ class AuditLogger @Inject constructor(
 
     // ---- Specific event-typed wrappers ----
     fun logLogin(userId: Long, username: String, outcome: AuditOutcome) =
-        logUserAction(userId, username, AuditEventType.LOGIN, "User login", "AUTH", userId.toString(), outcome, securityLevel="ELEVATED")
+        logUserAction(userId, username, AuditEventType.LOGIN, "User login", "AUTH", userId.toString(), outcome, securityLevel = "ELEVATED")
 
     fun logLogout(userId: Long, username: String) =
         logUserAction(userId, username, AuditEventType.LOGOUT, "User logout", "AUTH", userId.toString(), AuditOutcome.SUCCESS)
@@ -319,7 +324,7 @@ class AuditLogger @Inject constructor(
         logUserAction(null, username, AuditEventType.AUTHENTICATION_FAILURE, "Authentication failed", "AUTH", null, AuditOutcome.FAILURE, reason, "HIGH")
 
     fun logKeyRotation(userId: Long, username: String, outcome: AuditOutcome) =
-        logUserAction(userId, username, AuditEventType.KEY_ROTATION, "Database key rotation", "ENCRYPTION", "MASTER_KEY", outcome, securityLevel="CRITICAL")
+        logUserAction(userId, username, AuditEventType.KEY_ROTATION, "Database key rotation", "ENCRYPTION", "MASTER_KEY", outcome, securityLevel = "CRITICAL")
 
     fun logItemCreated(userId: Long, username: String, itemId: Long, outcome: AuditOutcome) =
         logUserAction(userId, username, AuditEventType.CREATE_ITEM, "Item created", "ITEM", itemId.toString(), outcome)
@@ -334,7 +339,7 @@ class AuditLogger @Inject constructor(
         logUserAction(userId, username, AuditEventType.VIEW_ITEM, "Item viewed", "ITEM", itemId.toString(), AuditOutcome.SUCCESS)
 
     fun logSecurityBreach(message: String, severity: String = "CRITICAL") =
-        logSecurityEvent(message, severity, AuditOutcome.ERROR, errorMessage="Security breach detected")
+        logSecurityEvent(message, severity, AuditOutcome.ERROR, errorMessage = "Security breach detected")
 
     fun logAccessDenied(userId: Long?, username: String, resource: String, reason: String) =
         logUserAction(userId, username, AuditEventType.ACCESS_DENIED, "Access denied to $resource", "SECURITY", resource, AuditOutcome.FAILURE, reason, "HIGH")

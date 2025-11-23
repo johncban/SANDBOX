@@ -38,7 +38,7 @@ import kotlin.coroutines.resumeWithException
 @Singleton
 class MasterKeyManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Lazy supplier
+    private val auditLoggerProvider: () -> AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
     // ✅ ADDED: Lazy initialization of auditLogger

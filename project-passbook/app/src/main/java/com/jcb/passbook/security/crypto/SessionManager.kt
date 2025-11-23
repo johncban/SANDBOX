@@ -26,7 +26,7 @@ import javax.inject.Singleton
 @Singleton
 class SessionManager @Inject constructor(
     private val masterKeyManager: MasterKeyManager,
-    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Lazy supplier
+    private val auditLoggerProvider: () -> AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
 ) : DefaultLifecycleObserver {
 
