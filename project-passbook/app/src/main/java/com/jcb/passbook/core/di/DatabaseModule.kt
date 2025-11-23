@@ -2,21 +2,21 @@ package com.jcb.passbook.core.di
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.RoomDatabase
 import com.jcb.passbook.data.local.database.AppDatabase
-import com.jcb.passbook.data.local.database.dao.*
-import com.jcb.passbook.security.crypto.DatabaseKeyManager
+import com.jcb.passbook.data.local.database.dao.AuditDao
+import com.jcb.passbook.data.local.database.dao.ItemDao
+import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.audit.AuditLogger
-import com.jcb.passbook.data.local.database.entities.AuditEventType
-import com.jcb.passbook.data.local.database.entities.AuditOutcome
+import com.jcb.passbook.security.crypto.DatabaseKeyManager
+import com.jcb.passbook.security.crypto.MasterKeyManager
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
+import com.jcb.passbook.security.crypto.SessionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dagger.Lazy
 import kotlinx.coroutines.runBlocking
-import net.sqlcipher.database.SQLiteDatabase
 import net.sqlcipher.database.SupportFactory
 import timber.log.Timber
 import javax.inject.Singleton
@@ -27,58 +27,90 @@ object DatabaseModule {
 
     @Provides
     @Singleton
+    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
+
+    @Provides
+    @Singleton
+    fun provideMasterKeyManager(
+        @ApplicationContext context: Context
+    ): MasterKeyManager = MasterKeyManager(context)
+
+    @Provides
+    @Singleton
+    fun provideAuditLogger(): AuditLogger = AuditLogger()
+
+    @Provides
+    @Singleton
+    fun provideSessionManager(
+        masterKeyManager: MasterKeyManager,
+        auditLogger: AuditLogger,
+        secureMemoryUtils: SecureMemoryUtils
+    ): SessionManager = SessionManager(
+        masterKeyManager = masterKeyManager,
+        auditLoggerProvider = { auditLogger },  // ✅ Pass as lambda
+        secureMemoryUtils = secureMemoryUtils
+    )
+
+    @Provides
+    @Singleton
+    fun provideDatabaseKeyManager(
+        @ApplicationContext context: Context,
+        sessionManager: SessionManager,
+        secureMemoryUtils: SecureMemoryUtils
+    ): DatabaseKeyManager = DatabaseKeyManager(
+        context = context,
+        sessionManager = sessionManager,
+        secureMemoryUtils = secureMemoryUtils
+    )
+
+    @Provides
+    @Singleton
     fun provideAppDatabase(
         @ApplicationContext context: Context,
-        dbKeyManager: DatabaseKeyManager
+        databaseKeyManager: DatabaseKeyManager
     ): AppDatabase {
         return try {
-            SQLiteDatabase.loadLibs(context)
+            System.loadLibrary("sqlcipher")
+            Timber.d("Getting or creating database passphrase")
+            val passphrase = runBlocking {
+                databaseKeyManager.getOrCreateDatabasePassphrase()
+            } ?: throw IllegalStateException("Failed to get database passphrase")
 
-            val passphrase: ByteArray = runBlocking {
-                dbKeyManager.getOrCreateDatabasePassphrase()
-                    ?: throw IllegalStateException("Failed to generate database passphrase")
-            }
-
-            val factory = SupportFactory(passphrase)
-            java.util.Arrays.fill(passphrase, 0.toByte())
-
+            @Suppress("DEPRECATION")
+            val factory = SupportFactory(passphrase, null, false)
             val database = Room.databaseBuilder(
-                context,
+                context.applicationContext,
                 AppDatabase::class.java,
-                "passbook_encrypted.db"
+                "passbook_database"
             )
                 .openHelperFactory(factory)
-                .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
-                .enableMultiInstanceInvalidation()
-                .fallbackToDestructiveMigrationOnDowngrade()
+                .addMigrations(
+                    AppDatabase.MIGRATION_1_2,
+                    AppDatabase.MIGRATION_2_3,
+                    AppDatabase.MIGRATION_3_4,
+                    AppDatabase.MIGRATION_4_5,
+                    AppDatabase.MIGRATION_5_6
+                )
+                .fallbackToDestructiveMigration()
                 .build()
 
-            Timber.i("✅ Database initialized successfully")
+            Timber.i("Database initialized successfully")
             database
         } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to initialize encrypted database")
-            throw SecurityException("Failed to initialize secure database: ${e.message}", e)
+            Timber.e(e, "Failed to initialize database")
+            throw RuntimeException("Database initialization failed: ${e.message}", e)
         }
     }
 
-
-
-    private class DatabaseCallback(
-        private val auditLoggerProvider: () -> AuditLogger
-    ) : RoomDatabase.Callback() {
-        // Same implementation as before, using auditLoggerProvider()
-    }
-
     @Provides
-    fun provideItemDao(database: AppDatabase): ItemDao = database.itemDao()
-
-    @Provides
+    @Singleton
     fun provideUserDao(database: AppDatabase): UserDao = database.userDao()
 
     @Provides
-    fun provideAuditDao(database: AppDatabase): AuditDao = database.auditDao()
+    @Singleton
+    fun provideItemDao(database: AppDatabase): ItemDao = database.itemDao()
 
     @Provides
-    fun provideAuditMetadataDao(database: AppDatabase): AuditMetadataDao =
-        database.auditMetadataDao()
+    @Singleton
+    fun provideAuditDao(database: AppDatabase): AuditDao = database.auditDao()
 }

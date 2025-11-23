@@ -38,8 +38,6 @@ import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -52,266 +50,108 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var sessionManager: SessionManager
 
-    // ✅ TESTING MODE: Set to false for production
+    // ✅ TESTING MODE: Set to true to enable visual security prompts instead of app exit
     private val TESTING_MODE = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
 
-        Timber.d("═══════════════════════════════════════")
-        Timber.d("MainActivity onCreate started")
-        Timber.d("═══════════════════════════════════════")
-
-        try {
-            enableEdgeToEdge()
-
-            // ✅ FIXED: Initialize security with timeout and error handling
-            initializeSecurity()
-
-            // ✅ FIXED: Check session safely
-            checkSession()
-
-            // ✅ FIXED: Setup security monitoring with lifecycle awareness
-            setupSecurityMonitoring()
-
-            // ✅ FIXED: Setup UI
-            setupUI()
-
-            Timber.d("✅ MainActivity onCreate completed successfully")
-
-        } catch (e: Exception) {
-            Timber.e(e, "❌ CRITICAL: MainActivity onCreate failed")
-            handleCriticalError(e)
-        }
-    }
-
-    /**
-     * ✅ FIXED: Initialize security with timeout protection
-     */
-    private fun initializeSecurity() {
+        // Initialize security system
         lifecycleScope.launch {
-            try {
-                withTimeout(5000L) { // 5 second timeout
-                    Timber.d("🔐 Initializing security system...")
-
-                    if (!securityInitializer.initialize()) {
-                        Timber.e("Security initialization returned false")
-
-                        if (!TESTING_MODE) {
-                            Timber.w("Production mode: exiting due to security init failure")
-                            finish()
-                            return@launch
-                        } else {
-                            Timber.w("Testing mode: continuing despite security init failure")
-                        }
-                    } else {
-                        Timber.d("✅ Security system initialized")
-                    }
-                }
-            } catch (e: TimeoutCancellationException) {
-                Timber.e("⏱️ Security initialization timed out")
+            if (!securityInitializer.initialize()) {
+                // Handle security initialization failure
                 if (!TESTING_MODE) {
                     finish()
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "❌ Security initialization crashed")
-                if (!TESTING_MODE) {
-                    finish()
+                    return@launch
                 }
             }
         }
-    }
 
-    /**
-     * ✅ FIXED: Check session with null safety
-     */
-    private fun checkSession() {
-        try {
-            val isActive = sessionManager.isSessionActive()
-            if (!isActive) {
-                Timber.d("🔓 No active session - user will see login screen")
-            } else {
-                Timber.d("🔒 Active session detected")
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Error checking session status")
-        }
-    }
-
-    /**
-     * ✅ FIXED: Setup security monitoring with proper lifecycle management
-     */
-    private fun setupSecurityMonitoring() {
-        try {
-            val lifecycleObserver = LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_RESUME -> {
-                        try {
-                            Timber.d("📱 Activity resumed - starting security checks")
-                            SecurityManager.startPeriodicSecurityCheck(this)
-                        } catch (e: Exception) {
-                            Timber.e(e, "❌ Failed to start periodic security check")
-                        }
-                    }
-                    Lifecycle.Event.ON_PAUSE -> {
-                        try {
-                            Timber.d("📱 Activity paused - stopping security checks")
-                            SecurityManager.stopPeriodicSecurityCheck()
-                        } catch (e: Exception) {
-                            Timber.e(e, "❌ Failed to stop periodic security check")
-                        }
-                    }
-                    else -> {}
-                }
-            }
-
-            lifecycle.addObserver(lifecycleObserver)
-            Timber.d("✅ Security monitoring lifecycle observer attached")
-
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Error setting up security monitoring")
-        }
-    }
-
-    /**
-     * ✅ FIXED: Setup UI with proper state management
-     */
-    private fun setupUI() {
-        try {
-            // Perform security checks
-            val rootedOnStartup = try {
-                RootDetector.isDeviceRooted(this)
-            } catch (e: Exception) {
-                Timber.e(e, "Root detection failed")
-                false
-            }
-
-            val isCompromised = SecurityManager.isCompromised
-
-            // Initial security check
-            try {
-                SecurityManager.checkRootStatus(
-                    context = this,
-                    onCompromised = {
-                        Timber.w("⚠️ Security compromise detected during initial check")
-                    }
-                )
-            } catch (e: Exception) {
-                Timber.e(e, "Error during initial security check")
-            }
-
-            setContent {
-                PassBookTheme {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        if (TESTING_MODE) {
-                            TestingModeUI(rootedOnStartup, isCompromised)
-                        } else {
-                            ProductionModeUI(rootedOnStartup, isCompromised)
-                        }
-                    }
-                }
-            }
-
-            Timber.d("✅ UI setup completed")
-
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Error setting up UI")
-        }
-    }
-
-    /**
-     * ✅ NEW: Testing mode UI with navigation
-     */
-    @Composable
-    private fun TestingModeUI(
-        rootedOnStartup: Boolean,
-        isCompromised: MutableState<Boolean>
-    ) {
-        var showSecurityScreen by remember { mutableStateOf(true) }
-
-        if (showSecurityScreen) {
-            SecurityTestingScreen(
-                rootedOnStartup = rootedOnStartup,
-                isCompromised = isCompromised.value,
-                onContinue = {
-                    Timber.d("🚀 User clicked Continue - navigating to app")
-                    showSecurityScreen = false
-                }
-            )
+        // Check if user needs to log in
+        if (!sessionManager.isSessionActive()) {
+            Timber.d("No active session - redirecting to login")
         } else {
-            AppNavHost()
+            Timber.d("Active session detected - user can access vault")
         }
-    }
 
-    /**
-     * ✅ NEW: Production mode UI with security enforcement
-     */
-    @Composable
-    private fun ProductionModeUI(
-        rootedOnStartup: Boolean,
-        isCompromised: MutableState<Boolean>
-    ) {
-        var shouldFinish by remember { mutableStateOf(false) }
+        // Persistent Compose states for security testing
+        val rootedOnStartup = RootDetector.isDeviceRooted(this)
+        val isCompromised = SecurityManager.isCompromised
 
-        LaunchedEffect(rootedOnStartup, isCompromised.value) {
-            if (rootedOnStartup || isCompromised.value) {
-                shouldFinish = true
+        // Initial security check with onCompromised callback
+        SecurityManager.checkRootStatus(
+            context = this,
+            onCompromised = {
+                Timber.w("Security compromise detected during initial check")
+            }
+        )
+
+        // Lifecycle observer for periodic checks
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    SecurityManager.startPeriodicSecurityCheck(this)
+                }
+                Lifecycle.Event.ON_PAUSE -> {
+                    SecurityManager.stopPeriodicSecurityCheck()
+                }
+                else -> {}
             }
         }
+        lifecycle.addObserver(lifecycleObserver)
 
-        if (shouldFinish) {
-            if (rootedOnStartup) {
-                RootedDeviceDialog { finish() }
-            } else {
-                CompromisedDeviceDialog { finish() }
-            }
-        } else {
-            AppNavHost()
-        }
-    }
-
-    /**
-     * ✅ FIXED: Handle critical errors gracefully
-     */
-    private fun handleCriticalError(error: Exception) {
         setContent {
             PassBookTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    CriticalErrorDialog(error)
+                    if (TESTING_MODE) {
+                        // ✅ TESTING MODE: Show security status overlay with navigation
+                        var showSecurityScreen by remember { mutableStateOf(true) }
+
+                        if (showSecurityScreen) {
+                            SecurityTestingScreen(
+                                rootedOnStartup = rootedOnStartup,
+                                isCompromised = isCompromised.value,
+                                onContinue = {
+                                    showSecurityScreen = false
+                                }
+                            )
+                        } else {
+                            AppNavHost()
+                        }
+                    } else {
+                        // PRODUCTION MODE: Exit on security compromise
+                        var shouldFinish by remember { mutableStateOf(false) }
+
+                        LaunchedEffect(rootedOnStartup, isCompromised.value) {
+                            if (rootedOnStartup || isCompromised.value) {
+                                shouldFinish = true
+                            }
+                        }
+
+                        if (shouldFinish) {
+                            if (rootedOnStartup) {
+                                RootedDeviceDialog { finish() }
+                            } else {
+                                CompromisedDeviceDialog { finish() }
+                            }
+                        } else {
+                            AppNavHost()
+                        }
+                    }
                 }
             }
         }
     }
 
     override fun onDestroy() {
-        Timber.d("🛑 MainActivity onDestroy - cleaning up resources")
-
-        try {
-            SecurityManager.stopPeriodicSecurityCheck()
-        } catch (e: Exception) {
-            Timber.e(e, "Error stopping security check")
-        }
-
-        try {
-            SecurityManager.shutdown()
-        } catch (e: Exception) {
-            Timber.e(e, "Error shutting down SecurityManager")
-        }
-
-        try {
-            securityInitializer.shutdown()
-        } catch (e: Exception) {
-            Timber.e(e, "Error shutting down SecurityInitializer")
-        }
-
+        SecurityManager.stopPeriodicSecurityCheck()
+        SecurityManager.shutdown()
+        securityInitializer.shutdown()
         super.onDestroy()
-        Timber.d("✅ MainActivity destroyed")
     }
 
     @Composable
@@ -369,7 +209,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ✅ Testing mode screen with detailed security status
+// ✅ NEW: Testing mode screen with detailed security status
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SecurityTestingScreen(
@@ -382,6 +222,7 @@ fun SecurityTestingScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // Top app bar
         TopAppBar(
             title = { Text("Security Testing Mode") },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -534,7 +375,7 @@ fun SecurityTestingScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Continue button
+            // Continue button (navigates to app)
             Button(
                 onClick = onContinue,
                 modifier = Modifier.fillMaxWidth(),
@@ -631,25 +472,5 @@ fun CompromisedDeviceDialog(onExit: () -> Unit) {
             }
         },
         dismissButton = null
-    )
-}
-
-@Composable
-fun CriticalErrorDialog(error: Exception) {
-    AlertDialog(
-        onDismissRequest = { },
-        title = { Text("Application Error") },
-        text = {
-            Text(
-                "The application encountered a critical error:\n\n" +
-                        "${error.message}\n\n" +
-                        "Please check the logs or contact support."
-            )
-        },
-        confirmButton = {
-            Button(onClick = { System.exit(0) }) {
-                Text("Exit")
-            }
-        }
     )
 }
