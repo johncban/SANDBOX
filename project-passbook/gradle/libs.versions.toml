@@ -1,6 +1,7 @@
 [versions]
 # Build tools and Android
-agp = "8.13.1"
+# agp = "8.13.1"
+agp = "8.7.3"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.28"
 compose-compiler = "1.5.14"
