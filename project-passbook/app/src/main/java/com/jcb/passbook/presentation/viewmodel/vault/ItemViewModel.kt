@@ -5,6 +5,7 @@ import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jcb.passbook.data.repository.ItemRepository
+import com.jcb.passbook.data.local.database.AppDatabase // ✅ ADD THIS
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.Item
@@ -18,34 +19,22 @@ import javax.inject.Inject
 
 private const val TAG = "ItemViewModel"
 
-/**
- * ItemViewModel - FINAL FIXED VERSION
- *
- * ALL 14 REMAINING TYPE MISMATCHES FIXED:
- * ✅ Changed ALL Item.userId from Int to Long (lines 48, 93, 109, 155, 170, 197, 211, 239, 256)
- * ✅ Changed ALL _userId.value from Int to Long
- * ✅ Changed ALL currentUserId from Int to Long
- * ✅ Fixed ALL getItemsForUser() calls to use Long
- * ✅ All type parameters are now consistent
- */
-
 @HiltViewModel
 class ItemViewModel @Inject constructor(
     private val repository: ItemRepository,
     private val cryptoManager: CryptoManager,
     private val auditLogger: AuditLogger,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val db: AppDatabase // ✅ ADD THIS INJECTION
 ) : ViewModel() {
 
-    // ✅ FIXED: Changed from Int to Long throughout entire file
-    private val _userId = MutableStateFlow<Long>(-1L)
+    private val _userId = MutableStateFlow(-1L)
     val userId: StateFlow<Long> = _userId.asStateFlow()
 
-    // ✅ FIXED: Explicit type parameter and Long type for getItemsForUser
     val items: StateFlow<List<Item>> = _userId
         .flatMapLatest { id ->
             if (id != -1L) {
-                repository.getItemsForUser(id)  // ✅ FIXED: id is Long now
+                repository.getItemsForUser(id)
             } else {
                 flowOf(emptyList())
             }
@@ -55,7 +44,6 @@ class ItemViewModel @Inject constructor(
     private val _operationState = MutableStateFlow<ItemOperationState>(ItemOperationState.Idle)
     val operationState: StateFlow<ItemOperationState> = _operationState.asStateFlow()
 
-    // ✅ FIXED: Parameter changed from Int to Long
     fun setUserId(userId: Long) {
         _userId.value = userId
     }
@@ -68,12 +56,8 @@ class ItemViewModel @Inject constructor(
         _operationState.value = ItemOperationState.Idle
     }
 
-    /**
-     * Insert new password item with encryption and audit logging
-     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun insert(itemName: String, plainTextPassword: String) {
-        // ✅ FIXED: currentUserId is now Long (line 48)
         val currentUserId: Long = _userId.value
         if (currentUserId == -1L) {
             _operationState.value = ItemOperationState.Error("No user ID set")
@@ -87,12 +71,11 @@ class ItemViewModel @Inject constructor(
                 val newItem = Item(
                     title = itemName,
                     encryptedPassword = encryptedData,
-                    userId = currentUserId  // ✅ FIXED: Long type (line 93)
+                    userId = currentUserId
                 )
 
                 repository.insert(newItem)
 
-                // ✅ FIXED: UserDao.getUser() with Long parameter (line 109)
                 val user = userDao.getUser(currentUserId)
                 auditLogger.logDataAccess(
                     userId = currentUserId,
@@ -123,9 +106,6 @@ class ItemViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Update existing password item
-     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun update(item: Item, newName: String?, newPlainTextPassword: String?) {
         _operationState.value = ItemOperationState.Loading
@@ -145,7 +125,6 @@ class ItemViewModel @Inject constructor(
                         encryptedPassword = updatedData
                     ))
 
-                    // ✅ FIXED: item.userId is Long (lines 155, 170)
                     val user = userDao.getUser(item.userId)
                     val actionDetails = buildString {
                         append("Updated password item: ${item.title}")
@@ -154,7 +133,7 @@ class ItemViewModel @Inject constructor(
                     }
 
                     auditLogger.logDataAccess(
-                        userId = item.userId,  // ✅ FIXED: Long type
+                        userId = item.userId,
                         username = user?.username ?: "Unknown",
                         action = actionDetails,
                         resourceType = "ITEM",
@@ -168,7 +147,7 @@ class ItemViewModel @Inject constructor(
                 viewModelScope.launch {
                     val user = userDao.getUser(item.userId)
                     auditLogger.logDataAccess(
-                        userId = item.userId,  // ✅ FIXED: Long type
+                        userId = item.userId,
                         username = user?.username ?: "Unknown",
                         action = "Failed to update password item: ${item.title}",
                         resourceType = "ITEM",
@@ -184,18 +163,22 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * Delete password item
+     * ✅ FIXED: Delete with database check
      */
     fun delete(item: Item) {
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
+                // ✅ Check if database is open
+                if (!db.isOpen) {
+                    throw IllegalStateException("Database is not available")
+                }
+
                 repository.delete(item)
 
-                // ✅ FIXED: item.userId is Long (lines 197, 211)
                 val user = userDao.getUser(item.userId)
                 auditLogger.logDataAccess(
-                    userId = item.userId,  // ✅ FIXED: Long type
+                    userId = item.userId,
                     username = user?.username ?: "Unknown",
                     action = "Deleted password item: ${item.title}",
                     resourceType = "ITEM",
@@ -205,37 +188,42 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
-                viewModelScope.launch {
-                    val user = userDao.getUser(item.userId)
-                    auditLogger.logDataAccess(
-                        userId = item.userId,  // ✅ FIXED: Long type
-                        username = user?.username ?: "Unknown",
-                        action = "Failed to delete password item: ${item.title}",
-                        resourceType = "ITEM",
-                        resourceId = item.id.toString(),
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = e.localizedMessage
-                    )
-                }
                 Timber.tag(TAG).e(e, "Failed to delete item")
+
+                // Try to log error only if database is available
+                viewModelScope.launch {
+                    try {
+                        if (db.isOpen) {
+                            val user = userDao.getUser(item.userId)
+                            auditLogger.logDataAccess(
+                                userId = item.userId,
+                                username = user?.username ?: "Unknown",
+                                action = "Failed to delete password item: ${item.title}",
+                                resourceType = "ITEM",
+                                resourceId = item.id.toString(),
+                                outcome = AuditOutcome.FAILURE,
+                                errorMessage = e.localizedMessage
+                            )
+                        }
+                    } catch (logError: Exception) {
+                        Timber.tag(TAG).w(logError, "Could not log audit - database unavailable")
+                    }
+                }
+
                 _operationState.value = ItemOperationState.Error("Failed to delete item: ${e.localizedMessage}")
             }
         }
     }
 
-    /**
-     * Get decrypted password for viewing/copying
-     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun getDecryptedPassword(item: Item): String? {
         return try {
             val decrypted = cryptoManager.decrypt(item.encryptedPassword)
 
             viewModelScope.launch {
-                // ✅ FIXED: _userId.value is Long (lines 239, 256)
                 val user = userDao.getUser(_userId.value)
                 auditLogger.logDataAccess(
-                    userId = _userId.value,  // ✅ FIXED: Long type
+                    userId = _userId.value,
                     username = user?.username ?: "Unknown",
                     action = "Accessed password for: ${item.title}",
                     resourceType = "ITEM",
@@ -250,7 +238,7 @@ class ItemViewModel @Inject constructor(
             viewModelScope.launch {
                 val user = userDao.getUser(_userId.value)
                 auditLogger.logDataAccess(
-                    userId = _userId.value,  // ✅ FIXED: Long type
+                    userId = _userId.value,
                     username = user?.username ?: "Unknown",
                     action = "Failed to decrypt password for: ${item.title}",
                     resourceType = "ITEM",

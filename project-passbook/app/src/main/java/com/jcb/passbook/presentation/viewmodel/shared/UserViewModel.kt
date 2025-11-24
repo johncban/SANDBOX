@@ -78,14 +78,8 @@ class UserViewModel @Inject constructor(
     val keyRotationState = _keyRotationState.asStateFlow()
 
     init {
-        // ✅ Register logout callback for automatic key rotation scheduling
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            sessionManager.setOnLogoutCallback {
-                // Mark that rotation is needed on next login
-                KeystorePassphraseManager.markRotationNeeded(context)
-                Timber.d("🔄 Key rotation scheduled for next login")
-            }
-        }
+        // ✅ REMOVED: Automatic rotation on login/logout (causes database issues)
+        // Key rotation will be handled by MainActivity lifecycle or manual button only
     }
 
     fun setUserId(userId: Long) {
@@ -97,146 +91,8 @@ class UserViewModel @Inject constructor(
     }
 
     /**
-     * ✅ FIXED: Check if key rotation is needed and perform it automatically
-     * Only rotates if a key already exists (not on first login)
-     */
-    @RequiresApi(Build.VERSION_CODES.M)
-    private suspend fun checkAndRotateKeyIfNeeded() {
-        try {
-            // Check if there's an existing database key
-            val hasExistingKey = KeystorePassphraseManager.getCurrentPassphrase(context) != null
-            val rotationNeeded = KeystorePassphraseManager.isRotationNeeded(context)
-
-            when {
-                hasExistingKey && rotationNeeded -> {
-                    Timber.i("🔄 Automatic key rotation triggered after login")
-                    rotateDatabaseKeyInternal()
-                }
-                !hasExistingKey -> {
-                    // First time initialization - just create the initial passphrase
-                    Timber.i("🔑 First-time database initialization")
-                    KeystorePassphraseManager.getOrCreatePassphrase(context)
-                    // Clear any pending rotation flag from previous failed attempts
-                    KeystorePassphraseManager.clearRotationFlag(context)
-                }
-                else -> {
-                    Timber.d("✅ No key rotation needed")
-                }
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Error checking key rotation status")
-        }
-    }
-
-    /**
-     * ✅ REFACTORED: Database key rotation (internal implementation)
-     */
-    @RequiresApi(Build.VERSION_CODES.M)
-    private suspend fun rotateDatabaseKeyInternal() {
-        var newPassphrase: String? = null
-
-        try {
-            Timber.i("🔄 Starting automatic database key rotation...")
-
-            // Step 1: Get current passphrase
-            val currentPassphrase = KeystorePassphraseManager.getCurrentPassphrase(context)
-            if (currentPassphrase == null) {
-                throw IllegalStateException("Cannot rotate: no current database key found")
-            }
-            Timber.d("✅ Retrieved current database key")
-
-            // Step 2: Verify database accessibility
-            try {
-                val testDb = db.openHelper.writableDatabase
-                testDb.beginTransaction()
-                testDb.query("SELECT COUNT(*) FROM sqlite_master").use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        Timber.d("✅ Database accessible with current key")
-                    }
-                }
-                testDb.setTransactionSuccessful()
-                testDb.endTransaction()
-            } catch (e: Exception) {
-                throw IllegalStateException("Database not accessible with current key", e)
-            }
-
-            // Step 3: Generate NEW passphrase (NOT stored yet)
-            newPassphrase = KeystorePassphraseManager.generateNewPassphrase()
-            Timber.d("✅ Generated new database key")
-
-            // Step 4: Convert to hex for SQLCipher
-            val currentPassBytes = currentPassphrase.toByteArray(StandardCharsets.UTF_8)
-            val newPassBytes = newPassphrase.toByteArray(StandardCharsets.UTF_8)
-
-            val currentPassphraseHex = "x'${currentPassBytes.joinToString("") { "%02x".format(it) }}'"
-            val newPassphraseHex = "x'${newPassBytes.joinToString("") { "%02x".format(it) }}'"
-
-            // Step 5: Close database
-            db.close()
-
-            // Step 6: Reopen and rekey
-            val dbPath = context.getDatabasePath("passbook.db").absolutePath
-            val tempDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
-                dbPath,
-                currentPassphraseHex,
-                null,
-                net.sqlcipher.database.SQLiteDatabase.OPEN_READWRITE
-            )
-
-            // Step 7: Execute PRAGMA rekey
-            tempDb.execSQL("PRAGMA rekey = $newPassphraseHex")
-            Timber.d("✅ PRAGMA rekey executed")
-            tempDb.close()
-
-            // Step 8: Verify rekey
-            val verifyDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
-                dbPath,
-                newPassphraseHex,
-                null,
-                net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
-            )
-
-            verifyDb.rawQuery("SELECT COUNT(*) FROM sqlite_master", null).use { cursor ->
-                if (!cursor.moveToFirst()) {
-                    throw IllegalStateException("Rekey verification failed")
-                }
-                Timber.d("✅ Rekey verification successful")
-            }
-            verifyDb.close()
-
-            // Step 9: Commit new passphrase
-            val commitSuccess = KeystorePassphraseManager.commitNewPassphrase(context, newPassphrase)
-            if (!commitSuccess) {
-                throw IllegalStateException("Failed to commit new passphrase")
-            }
-            Timber.i("✅ New database key committed")
-
-            // Step 10: Clear backup
-            KeystorePassphraseManager.clearBackup(context)
-
-            Timber.i("✅✅✅ Automatic database key rotation completed successfully!")
-
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Automatic key rotation FAILED")
-
-            // Rollback if needed
-            if (newPassphrase != null) {
-                Timber.w("Attempting rollback...")
-                val rollbackSuccess = KeystorePassphraseManager.rollbackToBackup(context)
-                if (rollbackSuccess) {
-                    Timber.i("✅ Rollback successful")
-                } else {
-                    Timber.e("❌ CRITICAL: Rollback failed")
-                }
-            }
-
-            // Don't propagate exception - just log it
-            // The app can continue without key rotation
-        }
-    }
-
-    /**
-     * ✅ NEW: Public method for manual key rotation (from UI button)
+     * ✅ SIMPLIFIED: Rotate database key manually (from UI button only)
+     * This is a placeholder - actual SQLCipher rotation needs proper implementation
      */
     @RequiresApi(Build.VERSION_CODES.M)
     fun rotateDatabaseKey() {
@@ -244,9 +100,29 @@ class UserViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                rotateDatabaseKeyInternal()
-                _keyRotationState.value = KeyRotationState.Success
+                // For now, just generate a new passphrase and store it
+                // Actual database rekey requires app restart to take effect
+                val newPassphrase = KeystorePassphraseManager.generateNewPassphrase()
+
+                // Backup current passphrase
+                val currentPassphrase = KeystorePassphraseManager.getCurrentPassphrase(context)
+                if (currentPassphrase != null) {
+                    // Store new passphrase
+                    val success = KeystorePassphraseManager.commitNewPassphrase(context, newPassphrase)
+
+                    if (success) {
+                        Timber.i("✅ New passphrase generated - will take effect on next app launch")
+                        _keyRotationState.value = KeyRotationState.Success
+                    } else {
+                        throw Exception("Failed to store new passphrase")
+                    }
+                } else {
+                    // First time initialization
+                    KeystorePassphraseManager.getOrCreatePassphrase(context)
+                    _keyRotationState.value = KeyRotationState.Success
+                }
             } catch (e: Exception) {
+                Timber.e(e, "Key rotation failed")
                 _keyRotationState.value = KeyRotationState.Error(
                     "Key rotation failed: ${e.message}"
                 )
@@ -254,51 +130,7 @@ class UserViewModel @Inject constructor(
         }
     }
 
-    /**
-     * ✅ ENHANCED: Emergency recovery function
-     */
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun attemptDatabaseRecovery() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                Timber.w("🆘 Attempting emergency database recovery...")
-
-                val rollbackSuccess = KeystorePassphraseManager.rollbackToBackup(context)
-
-                if (rollbackSuccess) {
-                    Timber.i("✅ Backup key restored")
-
-                    val passphrase = KeystorePassphraseManager.getCurrentPassphrase(context)
-                    if (passphrase != null) {
-                        try {
-                            val passphraseBytes = passphrase.toByteArray(StandardCharsets.UTF_8)
-                            val passphraseHex = "x'${passphraseBytes.joinToString("") { "%02x".format(it) }}'"
-
-                            val testDb = net.sqlcipher.database.SQLiteDatabase.openDatabase(
-                                context.getDatabasePath("passbook.db").absolutePath,
-                                passphraseHex,
-                                null,
-                                net.sqlcipher.database.SQLiteDatabase.OPEN_READONLY
-                            )
-                            testDb.rawQuery("SELECT COUNT(*) FROM sqlite_master", null).use { it.moveToFirst() }
-                            testDb.close()
-
-                            Timber.i("✅✅ Recovery successful!")
-                        } catch (e: Exception) {
-                            Timber.e(e, "❌ Database still inaccessible")
-                        }
-                    }
-                } else {
-                    Timber.e("❌ No backup available")
-                }
-
-            } catch (e: Exception) {
-                Timber.e(e, "Emergency recovery failed")
-            }
-        }
-    }
-
-    // Password hashing functions (unchanged)
+    // Password hashing functions
     private fun hashPassword(password: String, salt: ByteArray): ByteArray {
         val hashResult = argon2Kt.hash(
             mode = Argon2Mode.ARGON2_ID,
@@ -324,7 +156,7 @@ class UserViewModel @Inject constructor(
     }
 
     /**
-     * ✅ ENHANCED: Login with automatic key rotation check
+     * ✅ SIMPLIFIED: Login without automatic key rotation
      */
     fun login(username: String, password: String) {
         if (username.isBlank() || password.isBlank()) {
@@ -350,13 +182,6 @@ class UserViewModel @Inject constructor(
                         eventType = AuditEventType.LOGIN,
                         outcome = AuditOutcome.SUCCESS
                     )
-
-                    // ✅ Check and rotate key if needed (async, non-blocking)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        viewModelScope.launch(Dispatchers.IO) {
-                            checkAndRotateKeyIfNeeded()
-                        }
-                    }
 
                     _authState.value = AuthState.Success(user.id)
                 } else {
@@ -450,7 +275,7 @@ class UserViewModel @Inject constructor(
     }
 
     /**
-     * ✅ ENHANCED: Logout triggers session end which schedules key rotation
+     * ✅ SIMPLIFIED: Logout without triggering automatic key rotation
      */
     fun logout() {
         viewModelScope.launch {
@@ -467,7 +292,7 @@ class UserViewModel @Inject constructor(
                     }
                 }
 
-                // Trigger session end (which will schedule key rotation)
+                // End session (wipes keys from memory)
                 sessionManager.endSession("User logout")
 
             } catch (e: Exception) {

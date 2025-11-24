@@ -9,23 +9,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.jcb.passbook.presentation.viewmodel.vault.ItemOperationState
-import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+import com.jcb.passbook.data.local.database.entities.Item
+import com.jcb.passbook.presentation.viewmodel.shared.KeyRotationState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import kotlinx.coroutines.launch
 import java.util.Arrays
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import com.jcb.passbook.data.local.database.entities.Item
 
 @RequiresApi(Build.VERSION_CODES.M)
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,7 +37,6 @@ fun ItemListScreen(
     navController: NavController
 ) {
     val items by itemViewModel.items.collectAsState()
-    val operationState by itemViewModel.operationState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
@@ -45,7 +45,6 @@ fun ItemListScreen(
     var showEditDialog by remember { mutableStateOf(false) }
     var showDetailsDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    var showRecoveryConfirmDialog by remember { mutableStateOf(false) } // ✅ NEW: Recovery confirmation
 
     // Dialog data states
     var currentEditItem by remember { mutableStateOf<Item?>(null) }
@@ -54,31 +53,20 @@ fun ItemListScreen(
 
     // KeyRotation state
     val keyRotationState by userViewModel.keyRotationState.collectAsState()
-    val context = LocalContext.current
 
-    // Show snackbars for errors
-    LaunchedEffect(operationState) {
-        if (operationState is ItemOperationState.Error) {
-            val message = (operationState as ItemOperationState.Error).message
-            snackbarHostState.showSnackbar(message)
-            itemViewModel.clearOperationState()
-        }
-    }
-
-    // ✅ ENHANCED: Key rotation state handling with recovery feedback
+    // ✅ FIXED: Key rotation state handling
     LaunchedEffect(keyRotationState) {
-        when (keyRotationState) {
-            is ItemOperationState.Success -> {
+        when (val state = keyRotationState) {
+            is KeyRotationState.Success -> {
                 snackbarHostState.showSnackbar(
                     message = "Database key rotated successfully!",
                     duration = SnackbarDuration.Short
                 )
                 userViewModel.clearKeyRotationState()
             }
-            is ItemOperationState.Error -> {
-                val message = (keyRotationState as ItemOperationState.Error).message
+            is KeyRotationState.Error -> {
                 snackbarHostState.showSnackbar(
-                    message = message,
+                    message = state.message,
                     duration = SnackbarDuration.Long
                 )
                 userViewModel.clearKeyRotationState()
@@ -100,42 +88,7 @@ fun ItemListScreen(
             TopAppBar(
                 title = { Text("My Items") },
                 actions = {
-                    // ✅ Optional: Keep manual rotation button for advanced users
-                    // (Key rotation now happens automatically on logout)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        // Emergency Database Recovery Button
-                        IconButton(
-                            onClick = { showRecoveryConfirmDialog = true }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Build,
-                                contentDescription = "Emergency Database Recovery",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-
-                        // Manual Key Rotation Button (optional - now auto-rotates on logout)
-                        if (keyRotationState is ItemOperationState.Loading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .padding(horizontal = 12.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            IconButton(
-                                onClick = { userViewModel.rotateDatabaseKey() }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.VpnKey,
-                                    contentDescription = "Manually Rotate Database Key (Auto-rotates on logout)"
-                                )
-                            }
-                        }
-
-                    }
-
-                    // Logout Button (now triggers auto key rotation)
+                    // ✅ Logout Button (triggers automatic key rotation on app close)
                     IconButton(onClick = {
                         userViewModel.logout()
                         itemViewModel.clearAllItems()
@@ -144,7 +97,7 @@ fun ItemListScreen(
                         }
                     }) {
                         Icon(
-                            imageVector = Icons.Filled.ExitToApp,
+                            imageVector = Icons.AutoMirrored.Filled.Logout, // ✅ Using non-deprecated icon
                             contentDescription = "Logout"
                         )
                     }
@@ -185,7 +138,6 @@ fun ItemListScreen(
     }
 
     // --- Dialog Composables ---
-
     if (showAddDialog) {
         ItemAddDialog(
             onDismiss = { showAddDialog = false },
@@ -257,29 +209,9 @@ fun ItemListScreen(
             }
         )
     }
-
-    // ✅ NEW: Emergency Database Recovery Confirmation Dialog
-    if (showRecoveryConfirmDialog) {
-        RecoveryConfirmDialog(
-            onConfirm = {
-                showRecoveryConfirmDialog = false
-                coroutineScope.launch {
-                    userViewModel.attemptDatabaseRecovery()
-                    snackbarHostState.showSnackbar(
-                        message = "Database recovery attempted. Check logs for results.",
-                        duration = SnackbarDuration.Long
-                    )
-                }
-            },
-            onDismiss = {
-                showRecoveryConfirmDialog = false
-            }
-        )
-    }
 }
 
 // --- Reusable Composables ---
-
 @Composable
 fun ItemRow(item: Item, onClick: () -> Unit) {
     Card(
@@ -368,37 +300,7 @@ fun TextInputField(
     )
 }
 
-// Common Confirm/Cancel buttons Row
-@Composable
-fun ConfirmCancelButtons(
-    onConfirmClick: () -> Unit,
-    onCancelClick: () -> Unit,
-    confirmText: String = "Confirm",
-    cancelText: String = "Cancel",
-    confirmEnabled: Boolean = true
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Button(
-            onClick = onConfirmClick,
-            enabled = confirmEnabled,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(confirmText)
-        }
-        OutlinedButton(
-            onClick = onCancelClick,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(cancelText)
-        }
-    }
-}
-
 // --- Modular Dialogs ---
-
 @RequiresApi(Build.VERSION_CODES.M)
 @Composable
 fun ItemAddDialog(
@@ -533,7 +435,6 @@ fun ItemDetailsDialog(
     onItemDelete: (Item) -> Unit
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -611,56 +512,6 @@ fun ConfirmDeleteDialog(
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
                 Text("No")
-            }
-        }
-    )
-}
-
-// ✅ NEW: Emergency Database Recovery Confirmation Dialog
-@Composable
-fun RecoveryConfirmDialog(
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Filled.Build,
-                contentDescription = "Recovery",
-                tint = MaterialTheme.colorScheme.error
-            )
-        },
-        title = {
-            Text(
-                "Emergency Database Recovery",
-                color = MaterialTheme.colorScheme.error
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("⚠️ This will attempt to recover database access by restoring the backup passphrase.")
-                Text("Only use this if you cannot login after a failed key rotation.")
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Do you want to proceed?",
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
-            ) {
-                Text("Yes, Attempt Recovery")
-            }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
-                Text("Cancel")
             }
         }
     )
