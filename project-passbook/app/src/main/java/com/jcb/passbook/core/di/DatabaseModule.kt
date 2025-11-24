@@ -24,6 +24,11 @@ import net.sqlcipher.database.SupportFactory
 import timber.log.Timber
 import javax.inject.Singleton
 
+/**
+ * DatabaseModule - Dependency injection module for database and security components
+ *
+ * ✅ FIXED VERSION - Removed .fallbackToDestructiveMigration() for production safety
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
@@ -75,6 +80,18 @@ object DatabaseModule {
         secureMemoryUtils = secureMemoryUtils
     )
 
+    /**
+     * Provides the encrypted Room database instance
+     *
+     * ✅ CRITICAL FIX: Removed .fallbackToDestructiveMigration()
+     * This method would delete all user data on migration failure - unacceptable for a password manager
+     *
+     * If migration fails, the app should:
+     * 1. Display an error to the user
+     * 2. Offer data export/backup options
+     * 3. Guide user through recovery process
+     * 4. Never silently delete data
+     */
     @Provides @Singleton
     fun provideAppDatabase(
         @ApplicationContext context: Context,
@@ -88,6 +105,7 @@ object DatabaseModule {
 
         @Suppress("DEPRECATION")
         val factory = SupportFactory(passphrase, null, false)
+
         return Room.databaseBuilder(
             context.applicationContext,
             AppDatabase::class.java,
@@ -101,7 +119,9 @@ object DatabaseModule {
                 AppDatabase.MIGRATION_4_5,
                 AppDatabase.MIGRATION_5_6
             )
-            .fallbackToDestructiveMigration()
+            // ✅ REMOVED: .fallbackToDestructiveMigration()
+            // Production safety: Never delete user data automatically
+            // Instead, migrations must be complete and tested
             .build()
     }
 
@@ -131,8 +151,8 @@ object DatabaseModule {
         auditChainManager: dagger.Lazy<AuditChainManager>,
         auditQueue: dagger.Lazy<AuditQueue>
     ): AuditLogger = AuditLogger(
-        auditQueueProvider = { auditQueue.get() },           // ✅ FIRST parameter
-        auditChainManagerProvider = { auditChainManager.get() },  // ✅ SECOND parameter
-        context = context                                     // ✅ THIRD parameter
+        auditQueueProvider = { auditQueue.get() },
+        auditChainManagerProvider = { auditChainManager.get() },
+        context = context
     )
 }

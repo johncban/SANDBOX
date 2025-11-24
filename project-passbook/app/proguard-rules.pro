@@ -1,40 +1,50 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ============================================
+# PassBook Password Manager - ProGuard Rules
+# ✅ FIXED VERSION: Preserves error logging for crash analysis
+# ============================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ========== LOGGING RULES - CRITICAL FIX ==========
+# Remove debug/verbose/info logging in release builds
+# ✅ KEEP error and warning logs for crash reporting and diagnostics
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    # ✅ PRESERVED: Log.w() and Log.e() are kept for production diagnostics
+}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep Timber for structured logging with release-safe trees
+-keep class timber.log.Timber { *; }
+-keep class timber.log.Timber$Tree { *; }
+-keepclassmembers class timber.log.Timber {
+    public static void e(...);
+    public static void w(...);
+    public static *** tag(...);
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep custom error reporting methods
+-keepclassmembers class com.jcb.passbook.** {
+    public void logError(...);
+    public void reportError(...);
+    public void handleException(...);
+}
 
-# ========== PASSBOOK SECURITY-SPECIFIC RULES ==========
+# ========== SECURITY-CRITICAL CLASSES ==========
+# These must never be obfuscated or removed
 
-# CRITICAL: Keep all security-related classes from obfuscation/removal
 -keep class com.jcb.passbook.security.** { *; }
 -keep class com.jcb.passbook.data.local.database.entities.** { *; }
 -keep class com.jcb.passbook.core.security.** { *; }
 
-# Keep audit logging intact for forensic analysis
+# Audit logging - forensic analysis requires intact class/method names
 -keep class com.jcb.passbook.security.audit.** { *; }
 -keepclassmembers class com.jcb.passbook.security.audit.** {
     public <methods>;
     public <fields>;
 }
 
-# Cryptographic classes must not be obfuscated
+# Cryptographic operations
 -keep class com.jcb.passbook.security.crypto.** { *; }
 -keepclassmembers class com.jcb.passbook.security.crypto.** {
     native <methods>;
@@ -42,17 +52,19 @@
     protected <methods>;
 }
 
-# Root/tamper detection classes
+# Root/tamper detection
 -keep class com.jcb.passbook.security.detection.** { *; }
 -keepclassmembers class com.jcb.passbook.security.detection.** {
     public <methods>;
 }
 
-# Keep AndroidX Security classes
+# ========== THIRD-PARTY SECURITY LIBRARIES ==========
+
+# AndroidX Security
 -keep class androidx.security.crypto.** { *; }
 -keep interface androidx.security.crypto.** { *; }
 
-# Keep SQLCipher classes
+# SQLCipher
 -keep class net.sqlcipher.** { *; }
 -keep class net.sqlcipher.database.** { *; }
 -keepclassmembers class net.sqlcipher.** {
@@ -60,14 +72,14 @@
     public <methods>;
 }
 
-# Keep Argon2 native methods
+# Argon2
 -keep class com.lambdapioneer.argon2kt.** { *; }
 -keepclassmembers class com.lambdapioneer.argon2kt.** {
     native <methods>;
     public <methods>;
 }
 
-# Keep RootBeer detection
+# RootBeer
 -keep class com.scottyab.rootbeer.** { *; }
 -keepclassmembers class com.scottyab.rootbeer.** {
     native <methods>;
@@ -81,8 +93,6 @@
 -keep class **_HiltModules { *; }
 -keep class **_HiltModules$* { *; }
 -keep class * extends dagger.hilt.internal.GeneratedEntryPoint
-
-# Keep Hilt generated classes
 -keep class **_Factory { *; }
 -keep class **_MembersInjector { *; }
 -keep class **$HiltWrapper { *; }
@@ -93,10 +103,7 @@
 -keep @androidx.room.Entity class * { *; }
 -keep @androidx.room.Dao class * { *; }
 -keep @androidx.room.Database class * { *; }
-
-# Keep Room generated classes
 -keep class **_Impl { *; }
--keep class **$Companion { *; }
 
 # ========== KOTLINX SERIALIZATION ==========
 -keepattributes *Annotation*, InnerClasses
@@ -111,7 +118,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Keep @Serializable classes
 -keep @kotlinx.serialization.Serializable class ** {
     public <fields>;
     public <methods>;
@@ -122,34 +128,32 @@
 # ========== COMPOSE ==========
 -keep class androidx.compose.** { *; }
 -keep class kotlin.Metadata { *; }
-
-# Keep Compose compiler generated classes
 -keep class **ComposerKt { *; }
--keep class **$Companion { *; }
 
 # ========== GENERAL ANDROID ==========
 -keepattributes Signature
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
 -keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
 
-# Keep native methods
+# Native methods
 -keepclasseswithmembernames class * {
     native <methods>;
 }
 
-# Keep enum classes
+# Enums
 -keepclassmembers enum * {
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
 
-# Keep Parcelable classes
+# Parcelable
 -keep class * implements android.os.Parcelable {
     public static final ** CREATOR;
 }
 
-# Keep Serializable classes
+# Serializable
 -keepclassmembers class * implements java.io.Serializable {
     static final long serialVersionUID;
     private static final java.io.ObjectStreamField[] serialPersistentFields;
@@ -159,45 +163,13 @@
     java.lang.Object readResolve();
 }
 
-# ========== SECURITY HARDENING ==========
-# Remove debug information in release builds
--keepattributes !LocalVariableTable
--keepattributes !LocalVariableTypeTable
-
-# Remove logging calls in release (except security audit logs)
--assumenosideeffects class android.util.Log {
-    public static boolean isLoggable(java.lang.String, int);
-    public static int v(...);
-    public static int i(...);
-    public static int w(...);
-    public static int d(...);
-    public static int e(...);
-}
-
-# Keep Timber for security logging but remove debug trees
--keep class timber.log.Timber { *; }
--keep class com.jcb.passbook.utils.logging.RestrictiveReleaseTree { *; }
-
-# Remove test-related code from release builds
--dontwarn junit.**
--dontwarn org.junit.**
--dontwarn org.hamcrest.**
--dontwarn com.squareup.javawriter.JavaWriter
-
-# ========== OBFUSCATION ENHANCEMENT ==========
-# Use aggressive obfuscation for non-security classes
+# ========== OPTIMIZATION ==========
+-optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
+-optimizationpasses 5
 -overloadaggressively
 -repackageclasses 'o'
 -allowaccessmodification
 -mergeinterfacesaggressively
-
-# But preserve security-critical debugging info
--keepattributes SourceFile,LineNumberTable
-
-# ========== OPTIMIZATION ==========
-# Enable all optimizations
--optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
--optimizationpasses 5
 
 # ========== WARNING SUPPRESSIONS ==========
 -dontwarn java.lang.invoke.StringConcatFactory

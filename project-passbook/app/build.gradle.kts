@@ -12,8 +12,6 @@ plugins {
 configurations.all {
     resolutionStrategy {
         force("androidx.biometric:biometric:1.1.0")
-        force("androidx.room:room-runtime:2.6.1")  // ✅ CHANGED: Downgraded to 2.6.1
-        force("androidx.room:room-ktx:2.6.1")      // ✅ CHANGED: Downgraded to 2.6.1
     }
 }
 
