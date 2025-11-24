@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels  // ✅ ADD THIS
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,7 +17,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
-import com.jcb.passbook.presentation.ui.screens.auth.RegisterScreen
+import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.theme.PassbookTheme
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
@@ -35,27 +36,24 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var sessionManager: SessionManager
 
-    @Inject
-    lateinit var userViewModel: UserViewModel
-
-    @Inject
-    lateinit var itemViewModel: ItemViewModel
+    // ✅ FIXED: Use viewModels() delegate instead of @Inject
+    private val userViewModel: UserViewModel by viewModels()
+    private val itemViewModel: ItemViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // ✅ Rotate passphrase on app open (if needed)
+        // Rotate passphrase on app open (if needed)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             lifecycleScope.launch(Dispatchers.IO) {
                 performPassphraseRotationOnOpen()
-            } // ✅ FIXED: Added missing closing brace
+            }
         }
 
-        // ✅ Observe lifecycle for app close event
+        // Observe lifecycle for app close event
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                // App is going to background - schedule rotation for next open
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     schedulePassphraseRotationOnClose()
                 }
@@ -72,11 +70,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    } // ✅ FIXED: Added missing closing brace for onCreate
+    }
 
-    /**
-     * ✅ FIXED: Extracted navigation to @Composable function
-     */
     @Composable
     private fun AppNavigation() {
         val navController = rememberNavController()
@@ -98,10 +93,10 @@ class MainActivity : ComponentActivity() {
                         navController.navigate("register")
                     }
                 )
-            } // ✅ FIXED: Added missing closing brace
+            }
 
             composable("register") {
-                RegisterScreen(
+                RegistrationScreen(
                     userViewModel = userViewModel,
                     itemViewModel = itemViewModel,
                     onRegisterSuccess = {
@@ -113,7 +108,7 @@ class MainActivity : ComponentActivity() {
                         navController.popBackStack()
                     }
                 )
-            } // ✅ FIXED: Added missing closing brace
+            }
 
             composable("itemList") {
                 ItemListScreen(
@@ -121,23 +116,16 @@ class MainActivity : ComponentActivity() {
                     itemViewModel = itemViewModel,
                     navController = navController
                 )
-            } // ✅ FIXED: Added missing closing brace
-        } // ✅ FIXED: Added missing closing brace for NavHost
-    } // ✅ FIXED: Added missing closing brace for AppNavigation
+            }
+        }
+    }
 
-    /**
-     * ✅ Rotate passphrase when app opens (if scheduled)
-     */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.M)
     private fun performPassphraseRotationOnOpen() {
         try {
             if (KeystorePassphraseManager.isRotationNeeded(this)) {
                 Timber.i("🔄 Performing passphrase rotation on app open")
-
-                // Generate new passphrase
                 val newPassphrase = KeystorePassphraseManager.generateNewPassphrase()
-
-                // Commit it (will be used by database on next initialization)
                 val success = KeystorePassphraseManager.commitNewPassphrase(this, newPassphrase)
 
                 if (success) {
@@ -154,9 +142,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * ✅ Schedule passphrase rotation for next app open
-     */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.M)
     private fun schedulePassphraseRotationOnClose() {
         try {
@@ -169,10 +154,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-
-        // Ensure session is ended when activity is destroyed
         lifecycleScope.launch {
             sessionManager.endSession("Activity destroyed")
         }
     }
-} // ✅ FIXED: Added missing closing brace for MainActivity class
+}
