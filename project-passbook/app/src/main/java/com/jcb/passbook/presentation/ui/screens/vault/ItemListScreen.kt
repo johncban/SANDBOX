@@ -100,8 +100,10 @@ fun ItemListScreen(
             TopAppBar(
                 title = { Text("My Items") },
                 actions = {
-                    // ✅ NEW: Emergency Database Recovery Button
+                    // ✅ Optional: Keep manual rotation button for advanced users
+                    // (Key rotation now happens automatically on logout)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        // Emergency Database Recovery Button
                         IconButton(
                             onClick = { showRecoveryConfirmDialog = true }
                         ) {
@@ -111,26 +113,29 @@ fun ItemListScreen(
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
-                    }
 
-                    // Key Rotation Button
-                    if (keyRotationState is ItemOperationState.Loading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .padding(horizontal = 12.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        IconButton(onClick = { userViewModel.rotateDatabaseKey() }) {
-                            Icon(
-                                imageVector = Icons.Filled.VpnKey,
-                                contentDescription = "Rotate Database Key"
+                        // Manual Key Rotation Button (optional - now auto-rotates on logout)
+                        if (keyRotationState is ItemOperationState.Loading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .padding(horizontal = 12.dp),
+                                strokeWidth = 2.dp
                             )
+                        } else {
+                            IconButton(
+                                onClick = { userViewModel.rotateDatabaseKey() }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.VpnKey,
+                                    contentDescription = "Manually Rotate Database Key (Auto-rotates on logout)"
+                                )
+                            }
                         }
+
                     }
 
-                    // Logout Button
+                    // Logout Button (now triggers auto key rotation)
                     IconButton(onClick = {
                         userViewModel.logout()
                         itemViewModel.clearAllItems()

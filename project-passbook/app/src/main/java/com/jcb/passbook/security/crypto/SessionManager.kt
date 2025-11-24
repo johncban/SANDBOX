@@ -20,7 +20,7 @@ import javax.inject.Singleton
  * SessionManager handles ephemeral session keys and manages their lifecycle.
  * Session keys are derived from AMK and wiped on inactivity or app backgrounding.
  *
- * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
+ * ✅ ENHANCED: Now automatically triggers key rotation on logout
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
@@ -50,8 +50,18 @@ class SessionManager @Inject constructor(
     @Volatile
     private var isSessionActive = false
 
+    // ✅ NEW: Callback for logout event
+    private var onLogoutCallback: (suspend () -> Unit)? = null
+
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+    }
+
+    /**
+     * ✅ NEW: Set callback to be invoked on logout (for key rotation trigger)
+     */
+    fun setOnLogoutCallback(callback: suspend () -> Unit) {
+        onLogoutCallback = callback
     }
 
     /**
@@ -102,6 +112,7 @@ class SessionManager @Inject constructor(
 
             Timber.d("Session started: $sessionId")
             SessionResult.Success(sessionId!!)
+
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
                 "Failed to start session: ${e.message}",
@@ -175,7 +186,8 @@ class SessionManager @Inject constructor(
     }
 
     /**
-     * End the current session and wipe keys
+     * ✅ ENHANCED: End the current session and wipe keys
+     * Now triggers key rotation callback on manual logout
      */
     suspend fun endSession(reason: String = "Manual") {
         if (!isSessionActive) return
@@ -205,6 +217,11 @@ class SessionManager @Inject constructor(
         )
 
         Timber.d("Session ended: $currentSessionId, reason: $reason, duration: ${duration}ms")
+
+        // ✅ NEW: Trigger key rotation callback if this is a manual logout
+        if (reason == "Manual" || reason == "User logout") {
+            onLogoutCallback?.invoke()
+        }
     }
 
     /**

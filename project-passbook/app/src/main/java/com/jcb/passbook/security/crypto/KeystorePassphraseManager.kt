@@ -17,11 +17,14 @@ import javax.crypto.spec.GCMParameterSpec
 
 @RequiresApi(Build.VERSION_CODES.M)
 object KeystorePassphraseManager {
-
     private const val KEY_ALIAS = "passbook_db_key"
     private const val PREF_NAME = "db_key_prefs"
     private const val ENC_KEY = "enc_pass"
-    private const val ENC_KEY_BACKUP = "enc_pass_backup"  // ✅ NEW: Backup key storage
+    private const val ENC_KEY_BACKUP = "enc_pass_backup"
+
+    // ✅ Track rotation state
+    private const val ROTATION_NEEDED = "rotation_needed"
+    private const val LAST_ROTATION_TIME = "last_rotation_ms"
 
     /**
      * Get or create the current database passphrase
@@ -29,6 +32,7 @@ object KeystorePassphraseManager {
     fun getOrCreatePassphrase(context: Context): String {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val encrypted = prefs.getString(ENC_KEY, null)
+
         return if (encrypted != null) {
             try {
                 decryptPassphrase(encrypted)
@@ -45,11 +49,12 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ FIXED: Get current passphrase WITHOUT creating new one
+     * ✅ Get current passphrase WITHOUT creating new one
      */
     fun getCurrentPassphrase(context: Context): String? {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val encrypted = prefs.getString(ENC_KEY, null) ?: return null
+
         return try {
             decryptPassphrase(encrypted)
         } catch (e: Exception) {
@@ -59,7 +64,36 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ NEW: Create backup of current passphrase before rotation
+     * ✅ Mark that key rotation is needed on next login
+     */
+    fun markRotationNeeded(context: Context) {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(ROTATION_NEEDED, true).apply()
+        Timber.d("🔄 Key rotation marked as needed")
+    }
+
+    /**
+     * ✅ Check if rotation is needed
+     */
+    fun isRotationNeeded(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(ROTATION_NEEDED, false)
+    }
+
+    /**
+     * ✅ PUBLIC: Clear rotation flag after successful rotation or initialization
+     */
+    fun clearRotationFlag(context: Context) {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean(ROTATION_NEEDED, false)
+            .putLong(LAST_ROTATION_TIME, System.currentTimeMillis())
+            .apply()
+        Timber.d("✅ Rotation flag cleared")
+    }
+
+    /**
+     * ✅ Create backup of current passphrase before rotation
      */
     private fun backupCurrentPassphrase(context: Context): Boolean {
         return try {
@@ -81,7 +115,7 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ NEW: Restore passphrase from backup (rollback mechanism)
+     * ✅ Restore passphrase from backup (rollback mechanism)
      */
     fun rollbackToBackup(context: Context): Boolean {
         return try {
@@ -103,8 +137,7 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ FIXED: Generate and return new passphrase WITHOUT storing it
-     * Storage happens ONLY after successful database rekey
+     * ✅ Generate and return new passphrase WITHOUT storing it
      */
     fun generateNewPassphrase(): String {
         val random = SecureRandom()
@@ -114,7 +147,7 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ NEW: Commit new passphrase to storage (call ONLY after rekey success)
+     * ✅ Commit new passphrase to storage (call ONLY after rekey success)
      */
     fun commitNewPassphrase(context: Context, newPassphrase: String): Boolean {
         return try {
@@ -128,6 +161,7 @@ object KeystorePassphraseManager {
 
             if (success) {
                 Timber.i("✅ New passphrase committed to storage")
+                clearRotationFlag(context)
             } else {
                 Timber.e("❌ Failed to commit new passphrase")
             }
@@ -140,7 +174,7 @@ object KeystorePassphraseManager {
     }
 
     /**
-     * ✅ NEW: Clear backup after successful rotation
+     * ✅ Clear backup after successful rotation
      */
     fun clearBackup(context: Context) {
         try {
@@ -189,7 +223,6 @@ object KeystorePassphraseManager {
 
     private fun getAesKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-
         val existingKey = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
         if (existingKey != null) return existingKey
 
@@ -203,6 +236,7 @@ object KeystorePassphraseManager {
             .setKeySize(256)
             .setUserAuthenticationRequired(false)
             .build()
+
         keyGenerator.init(keyGenParameterSpec)
         return keyGenerator.generateKey()
     }
@@ -220,11 +254,14 @@ object KeystorePassphraseManager {
     private fun decryptPassphrase(enc: String): String {
         val data = Base64.decode(enc, Base64.NO_WRAP)
         if (data.size <= 12) throw IllegalArgumentException("Invalid encrypted data")
+
         val iv = data.copyOfRange(0, 12)
         val encrypted = data.copyOfRange(12, data.size)
+
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, getAesKey(), GCMParameterSpec(128, iv))
         val decryptedBytes = cipher.doFinal(encrypted)
+
         return String(decryptedBytes, StandardCharsets.UTF_8)
     }
 }
