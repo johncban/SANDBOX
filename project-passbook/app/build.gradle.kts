@@ -183,6 +183,7 @@ android {
 dependencies {
     // BOM management
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.appcompat)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
     // Core Android
@@ -255,6 +256,12 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.compiler)
+
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("junit:junit:4.13.2")
+
+
 
     // Instrumentation Testing
     androidTestImplementation(libs.androidx.junit)

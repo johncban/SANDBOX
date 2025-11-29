@@ -1,9 +1,12 @@
+// @/app/src/main/java/com/jcb/passbook/security/crypto/DatabaseKeyManager.kt
+
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import timber.log.Timber
@@ -83,7 +86,7 @@ class DatabaseKeyManager(
 
             Timber.i("First-time initialization - generating NEW database key")
             val newKey = generateAndStoreNewKey()
-            prefs.edit().putBoolean(KEY_INITIALIZED_FLAG, true).apply()
+            // No need to set the flag here, as generateAndStoreNewKey now handles it.
             Timber.i("✅ NEW database key generated and stored (${newKey.size} bytes)")
             newKey
 
@@ -94,16 +97,40 @@ class DatabaseKeyManager(
     }
 
     /**
-     * ✅ Get current database passphrase as ByteArray
+     * ✅ FIXED: Get current database passphrase as ByteArray.
+     * This function was completely broken and has been rewritten.
      */
     fun getCurrentDatabasePassphrase(): ByteArray? {
         return try {
-            retrieveStoredKey()
+            val prefs = getEncryptedPrefs()
+            val encryptedKeyBase64 = prefs.getString(ENCRYPTED_KEY_PREF, null)
+            val ivBase64 = prefs.getString(IV_PREF, null)
+
+            if (encryptedKeyBase64 == null || ivBase64 == null) {
+                Timber.d("No existing database passphrase found")
+                return null
+            }
+
+            // Decode from Base64 before decrypting
+            val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
+            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
+
+            // Decrypt and return using the correct internal function
+            val decryptedKey = decryptKey(encryptedKey, iv)
+
+            if (decryptedKey.size == KEY_SIZE_BYTES) {
+                Timber.d("Successfully retrieved current passphrase (${decryptedKey.size} bytes)")
+                return decryptedKey
+            } else {
+                Timber.w("Decrypted key is invalid or wrong size: ${decryptedKey.size}")
+                return null
+            }
         } catch (e: Exception) {
-            Timber.e(e, "Failed to get current database passphrase")
+            Timber.e(e, "Error retrieving current passphrase")
             null
         }
     }
+
 
     /**
      * ✅ Generate new database passphrase without storing
@@ -163,8 +190,8 @@ class DatabaseKeyManager(
             val encryptedKey = cipher.doFinal(newKey)
             val iv = cipher.iv
 
-            val encryptedKeyBase64 = android.util.Base64.encodeToString(encryptedKey, android.util.Base64.NO_WRAP)
-            val ivBase64 = android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP)
+            val encryptedKeyBase64 = Base64.encodeToString(encryptedKey, Base64.NO_WRAP)
+            val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
 
             // ✅ CRITICAL FIX: Use editor.commit() properly to get Boolean return
             val prefs = getEncryptedPrefs()
@@ -224,11 +251,10 @@ class DatabaseKeyManager(
     fun clearBackup() {
         try {
             val prefs = getEncryptedPrefs()
-            prefs.edit().apply {
-                remove("${ENCRYPTED_KEY_PREF}_backup")
-                remove("${IV_PREF}_backup")
-                apply()
-            }
+            prefs.edit()
+                .remove("${ENCRYPTED_KEY_PREF}_backup")
+                .remove("${IV_PREF}_backup")
+                .apply()
             Timber.d("Backup cleared")
         } catch (e: Exception) {
             Timber.e(e, "Failed to clear backup")
@@ -251,8 +277,8 @@ class DatabaseKeyManager(
 
             Timber.d("Found stored encrypted key, attempting to decrypt...")
 
-            val encryptedKey = android.util.Base64.decode(encryptedKeyBase64, android.util.Base64.NO_WRAP)
-            val iv = android.util.Base64.decode(ivBase64, android.util.Base64.NO_WRAP)
+            val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
+            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
 
             val decryptedKey = decryptKey(encryptedKey, iv)
 
@@ -290,15 +316,20 @@ class DatabaseKeyManager(
 
             Timber.d("Encrypted key size: ${encryptedKey.size} bytes, IV size: ${iv.size} bytes")
 
-            val encryptedKeyBase64 = android.util.Base64.encodeToString(encryptedKey, android.util.Base64.NO_WRAP)
-            val ivBase64 = android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP)
+            val encryptedKeyBase64 = Base64.encodeToString(encryptedKey, Base64.NO_WRAP)
+            val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
 
             val prefs = getEncryptedPrefs()
-            prefs.edit().apply {
-                putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
-                putString(IV_PREF, ivBase64)
-                putBoolean(KEY_INITIALIZED_FLAG, true)
-                apply()
+            // ✅ FIXED: Use commit() for safer synchronous write on first-time initialization
+            val success = prefs.edit()
+                .putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
+                .putString(IV_PREF, ivBase64)
+                .putBoolean(KEY_INITIALIZED_FLAG, true)
+                .commit()
+
+            if (!success) {
+                Timber.e("❌ CRITICAL: Failed to commit initial database key!")
+                throw IllegalStateException("Failed to commit initial database key to storage")
             }
 
             Timber.i("✅ Database key generated and securely stored")
@@ -369,20 +400,19 @@ class DatabaseKeyManager(
             val ivBase64 = regularPrefs.getString(IV_PREF, null)
 
             if (encryptedKeyBase64 != null && ivBase64 != null) {
-                val encryptedKey = android.util.Base64.decode(encryptedKeyBase64, android.util.Base64.NO_WRAP)
-                val iv = android.util.Base64.decode(ivBase64, android.util.Base64.NO_WRAP)
+                val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
+                val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
 
                 val recoveredKey = decryptKey(encryptedKey, iv)
 
                 Timber.i("✅ Emergency recovery successful!")
 
                 val prefs = getEncryptedPrefs()
-                prefs.edit().apply {
-                    putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
-                    putString(IV_PREF, ivBase64)
-                    putBoolean(KEY_INITIALIZED_FLAG, true)
-                    apply()
-                }
+                prefs.edit()
+                    .putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
+                    .putString(IV_PREF, ivBase64)
+                    .putBoolean(KEY_INITIALIZED_FLAG, true)
+                    .apply() // Apply is fine here as it's a recovery, not the primary path
 
                 return recoveredKey
             }

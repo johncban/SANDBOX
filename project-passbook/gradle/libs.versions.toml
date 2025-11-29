@@ -108,6 +108,7 @@ leakcanary = "2.14"
 flipper = "0.259.0"
 soloader = "0.10.5"
 roomCommonJvm = "2.6.1"
+appcompat = "1.7.1"
 
 [libraries]
 # Core Android
@@ -249,6 +250,7 @@ leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-and
 flipper = { group = "com.facebook.flipper", name = "flipper", version.ref = "flipper" }
 soloader = { group = "com.facebook.soloader", name = "soloader", version.ref = "soloader" }
 androidx-room-common-jvm = { group = "androidx.room", name = "room-common-jvm", version.ref = "roomCommonJvm" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 
 [plugins]
 # Build plugins
