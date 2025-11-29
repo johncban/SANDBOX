@@ -67,34 +67,40 @@ class DatabaseKeyManager(
      * Get or create database passphrase
      */
     suspend fun getOrCreateDatabasePassphrase(): ByteArray? {
-        Timber.d("Getting or creating database passphrase...")
+        Timber.d("=== getOrCreateDatabasePassphrase: START ===")
 
         return try {
-            val existingKey = retrieveStoredKey()
-            if (existingKey != null) {
-                Timber.i("✅ Successfully retrieved existing database key (${existingKey.size} bytes)")
-                return existingKey
-            }
-
+            // Check if already initialized
             val prefs = getEncryptedPrefs()
             val wasInitialized = prefs.getBoolean(KEY_INITIALIZED_FLAG, false)
 
             if (wasInitialized) {
-                Timber.e("❌ CRITICAL: Key was initialized but retrieval failed!")
-                return attemptEmergencyKeyRecovery()
+                Timber.d("Database key was previously initialized - retrieving existing key")
+                val existingKey = retrieveStoredKey()
+
+                if (existingKey != null) {
+                    Timber.i("✅ Successfully retrieved existing database key (${existingKey.size} bytes)")
+                    return existingKey
+                } else {
+                    Timber.e("❌ CRITICAL: Key was initialized but retrieval failed!")
+                    return attemptEmergencyKeyRecovery()
+                }
             }
 
+            // First-time initialization
             Timber.i("First-time initialization - generating NEW database key")
             val newKey = generateAndStoreNewKey()
-            // No need to set the flag here, as generateAndStoreNewKey now handles it.
             Timber.i("✅ NEW database key generated and stored (${newKey.size} bytes)")
             newKey
 
         } catch (e: Exception) {
             Timber.e(e, "❌ Fatal error in getOrCreateDatabasePassphrase")
             null
+        } finally {
+            Timber.d("=== getOrCreateDatabasePassphrase: END ===")
         }
     }
+
 
     /**
      * ✅ FIXED: Get current database passphrase as ByteArray.

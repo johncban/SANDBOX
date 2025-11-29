@@ -14,13 +14,14 @@ import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 
 @Composable
-fun RegistrationScreen(  // ✅ Name is correct
+fun RegistrationScreen(
     userViewModel: UserViewModel,
-    itemViewModel: ItemViewModel,  // ✅ ADDED: Missing parameter
-    onRegisterSuccess: () -> Unit,  // ✅ FIXED: Renamed from onRegistrationSuccess
-    onNavigateToLogin: () -> Unit  // ✅ FIXED: Renamed from onBackClick
+    itemViewModel: ItemViewModel,
+    onRegisterSuccess: () -> Unit,
+    onNavigateToLogin: () -> Unit
 ) {
     val registrationState by userViewModel.registrationState.collectAsState()
+    val userId by userViewModel.userId.collectAsState() // ✅ ADD: Observe userId
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
@@ -31,12 +32,14 @@ fun RegistrationScreen(  // ✅ Name is correct
     val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessageId else null
     val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessageId else null
 
-    LaunchedEffect(registrationState) {
-        if (registrationState is RegistrationState.Success) {
+    // ✅ FIX: Set ItemViewModel userId when registration succeeds
+    LaunchedEffect(registrationState, userId) {
+        if (registrationState is RegistrationState.Success && userId != -1L) {
+            itemViewModel.setUserId(userId) // ✅ CRITICAL FIX
             onRegisterSuccess()
             userViewModel.clearRegistrationState()
         }
-    } // ✅ FIXED: Added missing closing brace
+    }
 
     Column(
         modifier = Modifier
@@ -58,8 +61,8 @@ fun RegistrationScreen(  // ✅ Name is correct
                 if (usernameError != null) {
                     Text(stringResource(usernameError))
                 }
-            } // ✅ FIXED: Added missing closing brace
-        ) // ✅ FIXED: Added missing closing brace
+            }
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -77,8 +80,8 @@ fun RegistrationScreen(  // ✅ Name is correct
                 if (passwordError != null) {
                     Text(stringResource(passwordError))
                 }
-            } // ✅ FIXED: Added missing closing brace
-        ) // ✅ FIXED: Added missing closing brace
+            }
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -88,7 +91,7 @@ fun RegistrationScreen(  // ✅ Name is correct
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-        } // ✅ FIXED: Added missing closing brace
+        }
 
         Button(
             onClick = { userViewModel.register(username, password) },
@@ -96,7 +99,7 @@ fun RegistrationScreen(  // ✅ Name is correct
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.register))
-        } // ✅ FIXED: Added missing closing brace
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -106,6 +109,6 @@ fun RegistrationScreen(  // ✅ Name is correct
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.back))
-        } // ✅ FIXED: Added missing closing brace
-    } // ✅ FIXED: Added missing closing brace for Column
-} // ✅ FIXED: Added missing closing brace for RegistrationScreen function
+        }
+    }
+}

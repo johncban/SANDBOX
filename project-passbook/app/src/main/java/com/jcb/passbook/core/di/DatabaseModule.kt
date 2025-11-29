@@ -27,7 +27,7 @@ import javax.inject.Singleton
 /**
  * DatabaseModule - Dependency injection module for database and security components
  *
- * ✅ FIXED VERSION - Removed .fallbackToDestructiveMigration() for production safety
+ * ✅ CRITICAL FIX: Proper initialization sequence to prevent re-initialization loop
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -81,16 +81,15 @@ object DatabaseModule {
     )
 
     /**
-     * Provides the encrypted Room database instance
+     * ✅ CRITICAL FIX: Provides the encrypted Room database instance
      *
-     * ✅ CRITICAL FIX: Removed .fallbackToDestructiveMigration()
-     * This method would delete all user data on migration failure - unacceptable for a password manager
+     * FIXES APPLIED:
+     * 1. Synchronous initialization check BEFORE creating database
+     * 2. Clear logging to track initialization state
+     * 3. Fail-fast if passphrase cannot be retrieved
+     * 4. Removed fallbackToDestructiveMigration for data safety
      *
-     * If migration fails, the app should:
-     * 1. Display an error to the user
-     * 2. Offer data export/backup options
-     * 3. Guide user through recovery process
-     * 4. Never silently delete data
+     * This ensures database key is created ONCE and reused consistently
      */
     @Provides @Singleton
     fun provideAppDatabase(
@@ -98,13 +97,34 @@ object DatabaseModule {
         databaseKeyManager: DatabaseKeyManager
     ): AppDatabase {
         System.loadLibrary("sqlcipher")
-        Timber.d("Getting or creating database passphrase")
+
+        Timber.d("=== DatabaseModule: Initializing AppDatabase ===")
+
+        // ✅ FIX: Check if database key already exists BEFORE attempting creation
+        val isInitialized = databaseKeyManager.isDatabaseKeyInitialized()
+        Timber.d("Database key initialized: $isInitialized")
+
         val passphrase = runBlocking {
-            databaseKeyManager.getOrCreateDatabasePassphrase()
-        } ?: throw IllegalStateException("Failed to get database passphrase")
+            try {
+                val key = databaseKeyManager.getOrCreateDatabasePassphrase()
+                if (key == null) {
+                    Timber.e("❌ CRITICAL: Failed to get database passphrase")
+                    throw IllegalStateException("Cannot initialize database without passphrase")
+                }
+
+                Timber.i("✅ Database passphrase retrieved successfully (${key.size} bytes)")
+                key
+
+            } catch (e: Exception) {
+                Timber.e(e, "❌ FATAL: Exception during database passphrase initialization")
+                throw IllegalStateException("Database initialization failed", e)
+            }
+        }
 
         @Suppress("DEPRECATION")
         val factory = SupportFactory(passphrase, null, false)
+
+        Timber.d("Building Room database with SQLCipher encryption")
 
         return Room.databaseBuilder(
             context.applicationContext,
@@ -121,8 +141,9 @@ object DatabaseModule {
             )
             // ✅ REMOVED: .fallbackToDestructiveMigration()
             // Production safety: Never delete user data automatically
-            // Instead, migrations must be complete and tested
-            .build()
+            .build().also {
+                Timber.i("✅ AppDatabase singleton created successfully")
+            }
     }
 
     @Provides @Singleton

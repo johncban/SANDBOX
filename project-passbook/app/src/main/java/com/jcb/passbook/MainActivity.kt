@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
@@ -117,9 +118,20 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable("itemList") {
+                val userViewModel: UserViewModel = hiltViewModel()
+                val itemViewModel: ItemViewModel = hiltViewModel()
+
+                // ✅ SAFETY CHECK: Ensure ItemViewModel has userId
+                LaunchedEffect(Unit) {
+                    val currentUserId = userViewModel.userId.value
+                    if (currentUserId != -1L && itemViewModel.userId.value == -1L) {
+                        itemViewModel.setUserId(currentUserId)
+                    }
+                }
+
                 ItemListScreen(
-                    userViewModel = userViewModel,
                     itemViewModel = itemViewModel,
+                    userViewModel = userViewModel,
                     navController = navController
                 )
             }
