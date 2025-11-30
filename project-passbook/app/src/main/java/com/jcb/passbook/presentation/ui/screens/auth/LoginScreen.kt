@@ -2,11 +2,13 @@
 
 package com.jcb.passbook.presentation.ui.screens.auth
 
+import android.content.res.Resources
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -26,57 +28,107 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
-    // ✅ CRITICAL FIX: Use remember to prevent recomposition on every keystroke
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-
     val authState by userViewModel.authState.collectAsState()
+    val context = LocalContext.current
 
-    val errorMessageId = (authState as? AuthState.Error)?.messageId
+    // ✅ CRITICAL FIX: Safely get error message with proper fallback
+    val errorMessage = remember(authState) {
+        when (val state = authState) {
+            is AuthState.Error -> {
+                try {
+                    // Attempt to get the string resource
+                    context.getString(state.messageId)
+                } catch (e: Resources.NotFoundException) {
+                    // Log the specific resource ID that failed
+                    Timber.tag(TAG).e(
+                        e,
+                        "String resource not found for ID: ${state.messageId} (0x${Integer.toHexString(state.messageId)})"
+                    )
+                    "Authentication failed. Please check your credentials."
+                } catch (e: Exception) {
+                    // Catch any other exceptions
+                    Timber.tag(TAG).e(
+                        e,
+                        "Unexpected error loading string resource: ${state.messageId}"
+                    )
+                    "Login failed. Please try again."
+                }
+            }
+            else -> null
+        }
+    }
 
-    val usernameError = if (authState is AuthState.Error && username.isBlank()) errorMessageId else null
-    val passwordError = if (authState is AuthState.Error && password.isBlank()) errorMessageId else null
+    // ✅ Input validation error messages
+    val usernameError = if (authState is AuthState.Error && username.isBlank()) {
+        "Username cannot be empty"
+    } else null
 
-    // ✅ FIXED: Only handle auth state changes, not field changes
+    val passwordError = if (authState is AuthState.Error && password.isBlank()) {
+        "Password cannot be empty"
+    } else null
+
+    // ✅ Enhanced authentication state handling
     LaunchedEffect(authState) {
         when (val state = authState) {
             is AuthState.Success -> {
                 val successUserId = state.userId
-                Timber.tag(TAG).i("Login successful, userId: $successUserId")
+                Timber.tag(TAG).i("✓ Login successful, userId: $successUserId")
 
                 if (successUserId != -1L) {
                     Timber.tag(TAG).i("Setting ItemViewModel userId to: $successUserId")
                     itemViewModel.setUserId(successUserId)
 
+                    // Verify userId was set correctly
                     delay(150)
-
                     val verifiedUserId = itemViewModel.userId.value
+
                     if (verifiedUserId == successUserId) {
                         Timber.tag(TAG).i("✓ ItemViewModel userId verified: $verifiedUserId")
                         onLoginSuccess()
                         userViewModel.clearAuthState()
                     } else {
-                        Timber.tag(TAG).e("UserId verification failed! Expected: $successUserId, Got: $verifiedUserId")
+                        // Retry once
+                        Timber.tag(TAG).w(
+                            "UserId verification failed! Expected: $successUserId, Got: $verifiedUserId. Retrying..."
+                        )
                         itemViewModel.setUserId(successUserId)
                         delay(100)
+
                         val retryUserId = itemViewModel.userId.value
                         if (retryUserId == successUserId) {
                             Timber.tag(TAG).i("✓ ItemViewModel userId set on retry: $retryUserId")
                             onLoginSuccess()
                             userViewModel.clearAuthState()
                         } else {
-                            Timber.tag(TAG).e("CRITICAL: UserId still not set after retry!")
+                            Timber.tag(TAG).e(
+                                "CRITICAL: UserId still not set after retry! Expected: $successUserId, Got: $retryUserId"
+                            )
+                            // Navigate anyway to prevent deadlock
                             onLoginSuccess()
                             userViewModel.clearAuthState()
                         }
                     }
+                } else {
+                    Timber.tag(TAG).e("Invalid userId received: -1")
                 }
             }
+
             is AuthState.Error -> {
-                Timber.tag(TAG).e("Login failed: ${state.messageId}")
+                // Log detailed error information
+                Timber.tag(TAG).e(
+                    "Login failed with resource ID: ${state.messageId} (0x${Integer.toHexString(state.messageId)}). " +
+                            "Error message: $errorMessage"
+                )
             }
-            else -> {
-                Timber.tag(TAG).d("Auth state: $authState")
+
+            is AuthState.Loading -> {
+                Timber.tag(TAG).d("Authentication in progress...")
+            }
+
+            is AuthState.Idle -> {
+                Timber.tag(TAG).d("Auth state: Idle")
             }
         }
     }
@@ -88,21 +140,26 @@ fun LoginScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Text(
+            text = "PassBook Login",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 32.dp)
+        )
+
         OutlinedTextField(
             value = username,
             onValueChange = {
                 username = it
-                if (authState is AuthState.Error) userViewModel.clearAuthState()
+                if (authState is AuthState.Error) {
+                    userViewModel.clearAuthState()
+                }
             },
             label = { Text(stringResource(R.string.username)) },
             modifier = Modifier.fillMaxWidth(),
             isError = usernameError != null,
-            supportingText = {
-                if (usernameError != null) {
-                    Text(stringResource(usernameError))
-                }
-            },
-            singleLine = true
+            supportingText = usernameError?.let { { Text(it) } },
+            singleLine = true,
+            enabled = authState !is AuthState.Loading
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -111,36 +168,57 @@ fun LoginScreen(
             value = password,
             onValueChange = {
                 password = it
-                if (authState is AuthState.Error) userViewModel.clearAuthState()
+                if (authState is AuthState.Error) {
+                    userViewModel.clearAuthState()
+                }
             },
             label = { Text(stringResource(R.string.password)) },
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
             isError = passwordError != null,
-            supportingText = {
-                if (passwordError != null) {
-                    Text(stringResource(passwordError))
-                }
-            },
-            singleLine = true
+            supportingText = passwordError?.let { { Text(it) } },
+            singleLine = true,
+            enabled = authState !is AuthState.Loading
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (authState is AuthState.Error && errorMessageId != null && username.isNotBlank() && password.isNotBlank()) {
-            Text(
-                text = stringResource(errorMessageId),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+        // ✅ FIXED: Display error message with proper validation
+        if (authState is AuthState.Error && errorMessage != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
 
         Button(
             onClick = {
-                Timber.tag(TAG).d("Login button clicked for username: $username")
-                userViewModel.login(username, password)
+                // ✅ Enhanced validation before login
+                when {
+                    username.isBlank() -> {
+                        Timber.tag(TAG).w("Login attempt with blank username")
+                    }
+                    password.isBlank() -> {
+                        Timber.tag(TAG).w("Login attempt with blank password")
+                    }
+                    else -> {
+                        Timber.tag(TAG).d("Login button clicked for username: '$username'")
+                        userViewModel.login(username, password)
+                    }
+                }
             },
-            enabled = authState !is AuthState.Loading,
+            enabled = authState !is AuthState.Loading && username.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
         ) {
             if (authState is AuthState.Loading) {
@@ -148,6 +226,8 @@ fun LoginScreen(
                     modifier = Modifier.size(20.dp),
                     color = MaterialTheme.colorScheme.onPrimary
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Authenticating...")
             } else {
                 Text(stringResource(R.string.login))
             }
@@ -161,6 +241,16 @@ fun LoginScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.register))
+        }
+
+        // ✅ Debug info (remove in production)
+        if (authState is AuthState.Error) {
+            Text(
+                text = "Debug: Resource ID = ${(authState as AuthState.Error).messageId}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(top = 16.dp)
+            )
         }
     }
 }

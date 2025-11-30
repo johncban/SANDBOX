@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -26,18 +27,30 @@ fun RegistrationScreen(
     onRegisterSuccess: () -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
-    // ✅ CRITICAL FIX: Use remember to prevent recomposition on every keystroke
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
     val registrationState by userViewModel.registrationState.collectAsState()
+    val context = LocalContext.current
 
-    val errorMessageId = (registrationState as? RegistrationState.Error)?.messageId
+    // ✅ CORRECT FIX: Get error message safely without try-catch in composable
+    val errorMessage = remember(registrationState) {
+        when (val state = registrationState) {
+            is RegistrationState.Error -> {
+                try {
+                    context.getString(state.messageId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to load error string resource: ${state.messageId}", e)
+                    "Registration failed. Please try again."
+                }
+            }
+            else -> null
+        }
+    }
 
-    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessageId else null
-    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessageId else null
+    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessage else null
+    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessage else null
 
-    // ✅ FIXED: Only react to registration state changes, not field changes
     LaunchedEffect(registrationState) {
         when (registrationState) {
             is RegistrationState.Success -> {
@@ -98,11 +111,7 @@ fun RegistrationScreen(
             label = { Text(stringResource(R.string.username)) },
             modifier = Modifier.fillMaxWidth(),
             isError = usernameError != null,
-            supportingText = {
-                if (usernameError != null) {
-                    Text(stringResource(usernameError))
-                }
-            },
+            supportingText = usernameError?.let { { Text(it) } },
             singleLine = true
         )
 
@@ -118,19 +127,15 @@ fun RegistrationScreen(
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
             isError = passwordError != null,
-            supportingText = {
-                if (passwordError != null) {
-                    Text(stringResource(passwordError))
-                }
-            },
+            supportingText = passwordError?.let { { Text(it) } },
             singleLine = true
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (registrationState is RegistrationState.Error && errorMessageId != null && username.isNotBlank() && password.isNotBlank()) {
+        if (registrationState is RegistrationState.Error && errorMessage != null && username.isNotBlank() && password.isNotBlank()) {
             Text(
-                text = stringResource(errorMessageId),
+                text = errorMessage,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )

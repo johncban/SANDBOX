@@ -6,15 +6,25 @@
     <string name="username">Username</string>
     <string name="password">Password</string>
     <string name="back">Back</string>
+
+
+    <!-- Error messages -->
     <string name="error_credentials_empty">Username and password cannot be empty.</string>
-    <string name="error_invalid_credentials">Invalid username or password.</string>
-    <string name="error_login_failed">Login Failed. Please try again.</string>
-    <string name="error_empty_username">Username cannot be empty.</string>
-    <string name="error_empty_password">Password cannot be empty.</string>
-    <string name="error_username_exists">Username already exists.</string>
-    <string name="error_password_length">Password must be at least 8 characters.</string>
     <string name="registration_success">Registration successful.</string>
     <string name="registration_failed">Registration failed. Please try again.</string>
+    <string name="error_network">Network error. Please check your connection.</string>
+    <string name="error_database">Database error. Please try again.</string>
+
+
+    <!-- Authentication Error Messages -->
+    <string name="error_empty_credentials">Please enter both username and password</string>
+    <string name="error_empty_username">Username cannot be empty</string>
+    <string name="error_empty_password">Password cannot be empty</string>
+    <string name="error_password_length">Password must be at least 8 characters</string>
+    <string name="error_username_exists">Username already exists</string>
+    <string name="error_invalid_credentials">Invalid username or password</string>
+    <string name="error_login_failed">Login failed. Please try again.</string>
+    <string name="error_unknown">An unknown error occurred</string>
 
 
     <!-- Item List & Dialogs -->
