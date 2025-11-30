@@ -45,7 +45,9 @@ class ItemViewModel @Inject constructor(
     val operationState: StateFlow<ItemOperationState> = _operationState.asStateFlow()
 
     fun setUserId(userId: Long) {
+        Timber.tag("ItemViewModel").i("setUserId called with: $userId (previous: ${_userId.value})")
         _userId.value = userId
+        Timber.tag("ItemViewModel").i("userId successfully updated to: ${_userId.value}")
     }
 
     fun clearAllItems() {
@@ -59,10 +61,17 @@ class ItemViewModel @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.M)
     fun insert(itemName: String, plainTextPassword: String) {
         val currentUserId: Long = _userId.value
+        Timber.tag("ItemViewModel")
+            .d("Insert called - itemName: $itemName, currentUserId: $currentUserId")
+
         if (currentUserId == -1L) {
+            Timber.tag("ItemViewModel").e("Insert BLOCKED - No user ID set!")
             _operationState.value = ItemOperationState.Error("No user ID set")
             return
         }
+
+        Timber.tag("ItemViewModel").i("Insert proceeding for user: $currentUserId")
+        _operationState.value = ItemOperationState.Loading
 
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {

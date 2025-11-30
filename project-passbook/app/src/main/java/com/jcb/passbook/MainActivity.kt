@@ -78,14 +78,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    PassBookNavigation()
                 }
             }
         }
     }
 
     @Composable
-    private fun AppNavigation() {
+    private fun PassBookNavigation() {
         val navController = rememberNavController()
 
         NavHost(navController = navController, startDestination = "login") {

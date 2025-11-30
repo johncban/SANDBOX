@@ -1,5 +1,6 @@
 package com.jcb.passbook.presentation.ui.screens.auth
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,10 +14,12 @@ import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 
+private const val TAG = "LoginScreen"
+
 @Composable
 fun LoginScreen(
     userViewModel: UserViewModel,
-    itemViewModel: ItemViewModel, // ✅ ENSURE this parameter exists
+    itemViewModel: ItemViewModel,
     onLoginSuccess: () -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
@@ -29,13 +32,24 @@ fun LoginScreen(
     val usernameError = if (authState is AuthState.Error && username.isBlank()) errorMessageId else null
     val passwordError = if (authState is AuthState.Error && password.isBlank()) errorMessageId else null
 
-    // ✅ FIX: Set ItemViewModel userId when login succeeds
+    // ✅ CRITICAL FIX: Set ItemViewModel userId when login succeeds
     LaunchedEffect(authState) {
-        if (authState is AuthState.Success) {
-            val userId = (authState as AuthState.Success).userId
-            itemViewModel.setUserId(userId) // ✅ CRITICAL FIX
-            onLoginSuccess()
-            userViewModel.clearAuthState()
+        when (authState) {
+            is AuthState.Success -> {
+                val userId = (authState as AuthState.Success).userId
+                Log.d(TAG, "Login successful, userId: $userId")
+                Log.i(TAG, "Setting ItemViewModel userId to: $userId")
+                itemViewModel.setUserId(userId)
+                Log.i(TAG, "ItemViewModel userId set successfully")
+                onLoginSuccess()
+                userViewModel.clearAuthState()
+            }
+            is AuthState.Error -> {
+                Log.e(TAG, "Login failed: ${(authState as AuthState.Error).messageId}")
+            }
+            else -> {
+                Log.d(TAG, "Auth state: $authState")
+            }
         }
     }
 
@@ -92,7 +106,10 @@ fun LoginScreen(
         }
 
         Button(
-            onClick = { userViewModel.login(username, password) },
+            onClick = {
+                Log.d(TAG, "Login button clicked for username: $username")
+                userViewModel.login(username, password)
+            },
             enabled = authState !is AuthState.Loading,
             modifier = Modifier.fillMaxWidth()
         ) {

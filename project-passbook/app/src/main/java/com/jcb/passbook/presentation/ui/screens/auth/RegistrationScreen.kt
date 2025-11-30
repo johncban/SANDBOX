@@ -1,5 +1,6 @@
 package com.jcb.passbook.presentation.ui.screens.auth
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,6 +14,8 @@ import com.jcb.passbook.presentation.viewmodel.shared.RegistrationState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 
+private const val TAG = "RegistrationScreen"
+
 @Composable
 fun RegistrationScreen(
     userViewModel: UserViewModel,
@@ -21,23 +24,36 @@ fun RegistrationScreen(
     onNavigateToLogin: () -> Unit
 ) {
     val registrationState by userViewModel.registrationState.collectAsState()
-    val userId by userViewModel.userId.collectAsState() // ✅ ADD: Observe userId
+    val userId by userViewModel.userId.collectAsState()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    // Extract error message resource ID if present
     val errorMessageId = (registrationState as? RegistrationState.Error)?.messageId
 
-    // Field-level error logic
     val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessageId else null
     val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessageId else null
 
-    // ✅ FIX: Set ItemViewModel userId when registration succeeds
+    // ✅ CRITICAL FIX: Set ItemViewModel userId when registration succeeds
     LaunchedEffect(registrationState, userId) {
-        if (registrationState is RegistrationState.Success && userId != -1L) {
-            itemViewModel.setUserId(userId) // ✅ CRITICAL FIX
-            onRegisterSuccess()
-            userViewModel.clearRegistrationState()
+        when (registrationState) {
+            is RegistrationState.Success -> {
+                Log.d(TAG, "Registration successful, userId from UserViewModel: $userId")
+                if (userId != -1L) {
+                    Log.i(TAG, "Setting ItemViewModel userId to: $userId")
+                    itemViewModel.setUserId(userId)
+                    Log.i(TAG, "ItemViewModel userId set successfully")
+                    onRegisterSuccess()
+                    userViewModel.clearRegistrationState()
+                } else {
+                    Log.e(TAG, "Registration succeeded but userId is still -1L, waiting...")
+                }
+            }
+            is RegistrationState.Error -> {
+                Log.e(TAG, "Registration failed: ${(registrationState as RegistrationState.Error).messageId}")
+            }
+            else -> {
+                Log.d(TAG, "Registration state: $registrationState")
+            }
         }
     }
 
@@ -94,7 +110,10 @@ fun RegistrationScreen(
         }
 
         Button(
-            onClick = { userViewModel.register(username, password) },
+            onClick = {
+                Log.d(TAG, "Register button clicked for username: $username")
+                userViewModel.register(username, password)
+            },
             enabled = registrationState !is RegistrationState.Loading,
             modifier = Modifier.fillMaxWidth()
         ) {
