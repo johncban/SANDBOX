@@ -1,3 +1,5 @@
+// @/app/src/main/java/com/jcb/passbook/presentation/ui/screens/auth/RegistrationScreen.kt
+
 package com.jcb.passbook.presentation.ui.screens.auth
 
 import android.util.Log
@@ -13,6 +15,7 @@ import com.jcb.passbook.R
 import com.jcb.passbook.presentation.viewmodel.shared.RegistrationState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+import kotlinx.coroutines.delay
 
 private const val TAG = "RegistrationScreen"
 
@@ -23,29 +26,51 @@ fun RegistrationScreen(
     onRegisterSuccess: () -> Unit,
     onNavigateToLogin: () -> Unit
 ) {
-    val registrationState by userViewModel.registrationState.collectAsState()
-    val userId by userViewModel.userId.collectAsState()
+    // ✅ CRITICAL FIX: Use remember to prevent recomposition on every keystroke
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+
+    val registrationState by userViewModel.registrationState.collectAsState()
 
     val errorMessageId = (registrationState as? RegistrationState.Error)?.messageId
 
     val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessageId else null
     val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessageId else null
 
-    // ✅ CRITICAL FIX: Set ItemViewModel userId when registration succeeds
-    LaunchedEffect(registrationState, userId) {
+    // ✅ FIXED: Only react to registration state changes, not field changes
+    LaunchedEffect(registrationState) {
         when (registrationState) {
             is RegistrationState.Success -> {
-                Log.d(TAG, "Registration successful, userId from UserViewModel: $userId")
+                val userId = userViewModel.userId.value
+                Log.i(TAG, "Registration successful, userId from UserViewModel: $userId")
                 if (userId != -1L) {
                     Log.i(TAG, "Setting ItemViewModel userId to: $userId")
                     itemViewModel.setUserId(userId)
-                    Log.i(TAG, "ItemViewModel userId set successfully")
-                    onRegisterSuccess()
-                    userViewModel.clearRegistrationState()
+
+                    delay(150)
+
+                    val verifiedUserId = itemViewModel.userId.value
+                    if (verifiedUserId == userId) {
+                        Log.i(TAG, "✓ ItemViewModel userId verified: $verifiedUserId")
+                        onRegisterSuccess()
+                        userViewModel.clearRegistrationState()
+                    } else {
+                        Log.e(TAG, "UserId verification failed! Expected: $userId, Got: $verifiedUserId")
+                        itemViewModel.setUserId(userId)
+                        delay(100)
+                        val retryUserId = itemViewModel.userId.value
+                        if (retryUserId == userId) {
+                            Log.i(TAG, "✓ ItemViewModel userId set on retry: $retryUserId")
+                            onRegisterSuccess()
+                            userViewModel.clearRegistrationState()
+                        } else {
+                            Log.e(TAG, "CRITICAL: UserId still not set after retry!")
+                            onRegisterSuccess()
+                            userViewModel.clearRegistrationState()
+                        }
+                    }
                 } else {
-                    Log.e(TAG, "Registration succeeded but userId is still -1L, waiting...")
+                    Log.e(TAG, "Registration succeeded but userId is still -1L")
                 }
             }
             is RegistrationState.Error -> {
@@ -77,7 +102,8 @@ fun RegistrationScreen(
                 if (usernameError != null) {
                     Text(stringResource(usernameError))
                 }
-            }
+            },
+            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -96,7 +122,8 @@ fun RegistrationScreen(
                 if (passwordError != null) {
                     Text(stringResource(passwordError))
                 }
-            }
+            },
+            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -117,7 +144,14 @@ fun RegistrationScreen(
             enabled = registrationState !is RegistrationState.Loading,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(stringResource(R.string.register))
+            if (registrationState is RegistrationState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text(stringResource(R.string.register))
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))

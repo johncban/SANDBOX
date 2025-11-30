@@ -1,3 +1,5 @@
+// @/app/src/main/java/com/jcb/passbook/presentation/viewmodel/vault/ItemViewModel.kt
+
 package com.jcb.passbook.presentation.viewmodel.vault
 
 import android.os.Build
@@ -5,7 +7,7 @@ import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jcb.passbook.data.repository.ItemRepository
-import com.jcb.passbook.data.local.database.AppDatabase // ✅ ADD THIS
+import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.Item
@@ -25,7 +27,7 @@ class ItemViewModel @Inject constructor(
     private val cryptoManager: CryptoManager,
     private val auditLogger: AuditLogger,
     private val userDao: UserDao,
-    private val db: AppDatabase // ✅ ADD THIS INJECTION
+    private val db: AppDatabase
 ) : ViewModel() {
 
     private val _userId = MutableStateFlow(-1L)
@@ -45,9 +47,9 @@ class ItemViewModel @Inject constructor(
     val operationState: StateFlow<ItemOperationState> = _operationState.asStateFlow()
 
     fun setUserId(userId: Long) {
-        Timber.tag("ItemViewModel").i("setUserId called with: $userId (previous: ${_userId.value})")
+        Timber.tag(TAG).i("setUserId called with: $userId (previous: ${_userId.value})")
         _userId.value = userId
-        Timber.tag("ItemViewModel").i("userId successfully updated to: ${_userId.value}")
+        Timber.tag(TAG).i("userId successfully updated to: ${_userId.value}")
     }
 
     fun clearAllItems() {
@@ -58,24 +60,38 @@ class ItemViewModel @Inject constructor(
         _operationState.value = ItemOperationState.Idle
     }
 
+    /**
+     * ✅ FIXED: Validate both userId AND database availability before insert
+     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun insert(itemName: String, plainTextPassword: String) {
         val currentUserId: Long = _userId.value
-        Timber.tag("ItemViewModel")
-            .d("Insert called - itemName: $itemName, currentUserId: $currentUserId")
+        Timber.tag(TAG).d("Insert called - itemName: $itemName, currentUserId: $currentUserId")
 
+        // ✅ VALIDATION 1: Check userId
         if (currentUserId == -1L) {
-            Timber.tag("ItemViewModel").e("Insert BLOCKED - No user ID set!")
-            _operationState.value = ItemOperationState.Error("No user ID set")
+            Timber.tag(TAG).e("Insert BLOCKED - No user ID set!")
+            _operationState.value = ItemOperationState.Error("No user ID set. Please logout and login again.")
             return
         }
 
-        Timber.tag("ItemViewModel").i("Insert proceeding for user: $currentUserId")
+        // ✅ VALIDATION 2: Check database availability
+        if (!db.isOpen) {
+            Timber.tag(TAG).e("Insert BLOCKED - Database not available!")
+            _operationState.value = ItemOperationState.Error("Database not available. Please restart the app.")
+            return
+        }
+
+        Timber.tag(TAG).i("✓ Insert validation passed - proceeding for user: $currentUserId")
         _operationState.value = ItemOperationState.Loading
 
-        _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
+                // ✅ Additional safety: verify database is still open
+                if (!db.isOpen) {
+                    throw IllegalStateException("Database closed during operation")
+                }
+
                 val encryptedData = cryptoManager.encrypt(plainTextPassword)
                 val newItem = Item(
                     title = itemName,
@@ -83,8 +99,11 @@ class ItemViewModel @Inject constructor(
                     userId = currentUserId
                 )
 
+                Timber.tag(TAG).d("Inserting item into repository...")
                 repository.insert(newItem)
+                Timber.tag(TAG).i("✓ Item inserted successfully: $itemName")
 
+                // Log audit event
                 val user = userDao.getUser(currentUserId)
                 auditLogger.logDataAccess(
                     userId = currentUserId,
@@ -97,26 +116,45 @@ class ItemViewModel @Inject constructor(
 
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
+                Timber.tag(TAG).e(e, "Failed to insert item: $itemName")
+
+                // Try to log audit failure
                 viewModelScope.launch {
-                    val user = userDao.getUser(currentUserId)
-                    auditLogger.logDataAccess(
-                        userId = currentUserId,
-                        username = user?.username ?: "Unknown",
-                        action = "Failed to create password item: $itemName",
-                        resourceType = "ITEM",
-                        resourceId = "UNKNOWN",
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = e.localizedMessage
-                    )
+                    try {
+                        if (db.isOpen) {
+                            val user = userDao.getUser(currentUserId)
+                            auditLogger.logDataAccess(
+                                userId = currentUserId,
+                                username = user?.username ?: "Unknown",
+                                action = "Failed to create password item: $itemName",
+                                resourceType = "ITEM",
+                                resourceId = "UNKNOWN",
+                                outcome = AuditOutcome.FAILURE,
+                                errorMessage = e.localizedMessage
+                            )
+                        }
+                    } catch (logError: Exception) {
+                        Timber.tag(TAG).w(logError, "Could not log audit - database unavailable")
+                    }
                 }
-                Timber.tag(TAG).e(e, "Failed to insert item")
+
                 _operationState.value = ItemOperationState.Error("Failed to insert item: ${e.localizedMessage}")
             }
         }
     }
 
+    /**
+     * ✅ FIXED: Add database availability check before update
+     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun update(item: Item, newName: String?, newPlainTextPassword: String?) {
+        // ✅ VALIDATION: Check database availability
+        if (!db.isOpen) {
+            Timber.tag(TAG).e("Update BLOCKED - Database not available!")
+            _operationState.value = ItemOperationState.Error("Database not available. Please restart the app.")
+            return
+        }
+
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
@@ -154,16 +192,22 @@ class ItemViewModel @Inject constructor(
                 _operationState.value = ItemOperationState.Success
             }.onFailure { e ->
                 viewModelScope.launch {
-                    val user = userDao.getUser(item.userId)
-                    auditLogger.logDataAccess(
-                        userId = item.userId,
-                        username = user?.username ?: "Unknown",
-                        action = "Failed to update password item: ${item.title}",
-                        resourceType = "ITEM",
-                        resourceId = item.id.toString(),
-                        outcome = AuditOutcome.FAILURE,
-                        errorMessage = e.localizedMessage
-                    )
+                    try {
+                        if (db.isOpen) {
+                            val user = userDao.getUser(item.userId)
+                            auditLogger.logDataAccess(
+                                userId = item.userId,
+                                username = user?.username ?: "Unknown",
+                                action = "Failed to update password item: ${item.title}",
+                                resourceType = "ITEM",
+                                resourceId = item.id.toString(),
+                                outcome = AuditOutcome.FAILURE,
+                                errorMessage = e.localizedMessage
+                            )
+                        }
+                    } catch (logError: Exception) {
+                        Timber.tag(TAG).w(logError, "Could not log audit - database unavailable")
+                    }
                 }
                 Timber.tag(TAG).e(e, "Failed to update item")
                 _operationState.value = ItemOperationState.Error("Failed to update item: ${e.localizedMessage}")
@@ -172,17 +216,18 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * ✅ FIXED: Delete with database check
+     * ✅ Already has database check - kept as is
      */
     fun delete(item: Item) {
+        if (!db.isOpen) {
+            Timber.tag(TAG).e("Delete BLOCKED - Database not available!")
+            _operationState.value = ItemOperationState.Error("Database not available. Please restart the app.")
+            return
+        }
+
         _operationState.value = ItemOperationState.Loading
         viewModelScope.launch {
             runCatching {
-                // ✅ Check if database is open
-                if (!db.isOpen) {
-                    throw IllegalStateException("Database is not available")
-                }
-
                 repository.delete(item)
 
                 val user = userDao.getUser(item.userId)
@@ -199,7 +244,6 @@ class ItemViewModel @Inject constructor(
             }.onFailure { e ->
                 Timber.tag(TAG).e(e, "Failed to delete item")
 
-                // Try to log error only if database is available
                 viewModelScope.launch {
                     try {
                         if (db.isOpen) {
