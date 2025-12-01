@@ -1,9 +1,11 @@
-// @/app/src/main/java/com/jcb/passbook/MainActivity.kt
-
 package com.jcb.passbook
 
+import android.app.Activity
+import android.content.ComponentCallbacks2
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,6 +33,7 @@ import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.SessionManager
+import com.jcb.passbook.utils.memory.MemoryManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -55,24 +58,40 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var database: AppDatabase
 
+    @Inject
+    lateinit var memoryManager: MemoryManager
+
     private val userViewModel: UserViewModel by viewModels()
     private val itemViewModel: ItemViewModel by viewModels()
 
-    // Track initialization state
+    // Track state
     private var isDatabaseReady = mutableStateOf(false)
     private var savedUserId: Long = -1L
     private var wasAuthenticated: Boolean = false
     private var isAppInForeground = false
 
+    // ✅ NEW: Track if we're being destroyed
+    private var isBeingDestroyed = false
+
     // ══════════════════════════════════════════════════════════════
-    // Activity Lifecycle - onCreate
+    // ✅ FIX: onCreate with Proper Window Flags
     // ══════════════════════════════════════════════════════════════
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Timber.tag(TAG).d("onCreate called")
+
+        // ✅ NEW: Set window flags to prevent input channel issues
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        )
+
         enableEdgeToEdge()
 
-        // ✅ Restore state from process death
+        // Log initial memory state
+        memoryManager.logMemoryStats()
+
+        // Restore state from process death
         savedInstanceState?.let {
             savedUserId = it.getLong(KEY_USER_ID, -1L)
             wasAuthenticated = it.getBoolean(KEY_IS_AUTHENTICATED, false)
@@ -81,13 +100,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // ✅ Initialize database asynchronously
+        // Initialize database asynchronously
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             lifecycleScope.launch(Dispatchers.IO) {
                 initializeDatabaseKey()
                 withContext(Dispatchers.Main) {
                     isDatabaseReady.value = true
-                    // Restore state after database is ready
                     if (savedUserId > 0 && wasAuthenticated) {
                         userViewModel.setUserId(savedUserId)
                         itemViewModel.setUserId(savedUserId)
@@ -99,7 +117,7 @@ class MainActivity : ComponentActivity() {
             isDatabaseReady.value = true
         }
 
-        // ✅ Observe lifecycle for foreground/background state
+        // Observe lifecycle for foreground/background state
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 isAppInForeground = true
@@ -120,7 +138,6 @@ class MainActivity : ComponentActivity() {
                             itemViewModel = itemViewModel
                         )
                     } else {
-                        // Show loading screen during initialization
                         DatabaseLoadingScreen()
                     }
                 }
@@ -128,9 +145,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Database Loading Screen
-    // ══════════════════════════════════════════════════════════════
     @Composable
     private fun DatabaseLoadingScreen() {
         Box(
@@ -150,9 +164,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Navigation Composable
-    // ══════════════════════════════════════════════════════════════
     @Composable
     private fun PassBookNavigation(
         userViewModel: UserViewModel,
@@ -160,7 +171,6 @@ class MainActivity : ComponentActivity() {
     ) {
         val navController = rememberNavController()
 
-        // Determine start destination based on restored state
         val startDestination = if (savedUserId > 0 && wasAuthenticated) {
             "itemList"
         } else {
@@ -168,7 +178,6 @@ class MainActivity : ComponentActivity() {
         }
 
         NavHost(navController = navController, startDestination = startDestination) {
-            // Login Screen
             composable("login") {
                 LoginScreen(
                     userViewModel = userViewModel,
@@ -184,7 +193,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Registration Screen
             composable("register") {
                 RegistrationScreen(
                     userViewModel = userViewModel,
@@ -200,17 +208,9 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Item List Screen (Vault)
             composable("itemList") {
                 val currentUserId by userViewModel.userId.collectAsState()
                 val itemUserId by itemViewModel.userId.collectAsState()
-
-                // Sync userId between ViewModels
-                LaunchedEffect(currentUserId, itemUserId) {
-                    Timber.tag("$TAG\$Navigation").d(
-                        "ItemList - UserViewModel userId: $currentUserId, ItemViewModel userId: $itemUserId"
-                    )
-                }
 
                 LaunchedEffect(currentUserId) {
                     if (currentUserId != -1L && itemUserId != currentUserId) {
@@ -239,9 +239,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Database Initialization
-    // ══════════════════════════════════════════════════════════════
     @RequiresApi(Build.VERSION_CODES.M)
     private suspend fun initializeDatabaseKey() {
         try {
@@ -251,56 +248,42 @@ class MainActivity : ComponentActivity() {
             if (databaseKey == null) {
                 Timber.tag(TAG).e("CRITICAL: Failed to initialize database key")
                 withContext(Dispatchers.Main) {
-                    showErrorDialog("Database initialization failed. Please restart the app.")
+                    showErrorToast("Database initialization failed")
                 }
                 return
             }
 
             Timber.tag(TAG).i("✓ Database key verified (${databaseKey.size} bytes)")
 
-            // Clear any stale rotation flags
             KeystorePassphraseManager.clearRotationFlag(this@MainActivity)
             Timber.tag(TAG).d("✓ Cleared any stale rotation flags")
 
-            // Test database accessibility
             try {
                 withContext(Dispatchers.IO) {
                     database.openHelper.writableDatabase
                 }
                 Timber.tag(TAG).i("✓ Database accessible")
             } catch (dbError: Exception) {
-                Timber.tag(TAG).e(dbError, "Database access test failed - may be normal on first launch")
+                Timber.tag(TAG).e(dbError, "Database access test failed")
             }
 
             Timber.tag(TAG).d("=== Database initialization complete ===")
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error during database initialization")
             withContext(Dispatchers.Main) {
-                showErrorDialog("Initialization error: ${e.message}")
+                showErrorToast("Initialization error: ${e.message}")
             }
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Error Dialog
-    // ══════════════════════════════════════════════════════════════
-    private fun showErrorDialog(message: String) {
+    private fun showErrorToast(message: String) {
         runOnUiThread {
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("Error")
-                .setMessage(message)
-                .setPositiveButton("OK", null)
-                .setCancelable(false)
-                .show()
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // ✅ FIXED: Process Death Handling - Save State
-    // ══════════════════════════════════════════════════════════════
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        // Save current user ID if authenticated
         val currentUserId = userViewModel.userId.value
         val isAuthenticated = currentUserId > 0
 
@@ -311,24 +294,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Process Death Handling - Restore State
-    // ══════════════════════════════════════════════════════════════
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        // Restore user ID after process death
-        val restoredUserId = savedInstanceState.getLong(KEY_USER_ID, -1L)
-        val wasAuth = savedInstanceState.getBoolean(KEY_IS_AUTHENTICATED, false)
-
-        if (restoredUserId > 0 && wasAuth) {
-            // State will be restored in onCreate after database initialization
-            Timber.tag(TAG).d("Preparing to restore: userId=$restoredUserId")
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // Lifecycle Callbacks
-    // ══════════════════════════════════════════════════════════════
     override fun onStart() {
         super.onStart()
         isAppInForeground = true
@@ -343,6 +308,18 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Timber.tag(TAG).d("onPause - App losing focus")
+
+        // ✅ FIX: Only trigger GC if not being destroyed
+        if (!isBeingDestroyed && !isFinishing) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    memoryManager.requestGarbageCollection()
+                    Timber.tag(TAG).d("GC requested on pause")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Error during pause cleanup")
+                }
+            }
+        }
     }
 
     override fun onStop() {
@@ -350,33 +327,105 @@ class MainActivity : ComponentActivity() {
         isAppInForeground = false
         Timber.tag(TAG).d("onStop - App moved to background")
 
-        // ✅ FIX: Release resources when app goes to background
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                // Trigger garbage collection suggestion
-                System.gc()
-                Timber.tag(TAG).d("Requested garbage collection")
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Error during cleanup")
+        // ✅ FIX: Only release resources if not finishing
+        if (!isFinishing && !isBeingDestroyed) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    memoryManager.requestGarbageCollection()
+                    memoryManager.logMemoryStats()
+                    Timber.tag(TAG).d("Memory released on stop")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Error during stop cleanup")
+                }
             }
         }
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // ✅ CRITICAL FIX: Proper Destroy Handling
+    // ══════════════════════════════════════════════════════════════
     override fun onDestroy() {
-        super.onDestroy()
-        Timber.tag(TAG).d("onDestroy - Activity being destroyed")
+        Timber.tag(TAG).d("onDestroy - Activity being destroyed, isFinishing=$isFinishing")
 
-        // ✅ FIX: Close database connections properly
+        // ✅ NEW: Mark as being destroyed to prevent race conditions
+        isBeingDestroyed = true
+
+        // ✅ FIX: Close database ONLY if truly finishing
         if (isFinishing) {
+            // Cancel all pending coroutines first
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
+                    Timber.tag(TAG).d("Finishing - closing all connections")
                     sessionManager.endSession("Activity destroyed")
+
+                    // ✅ NEW: Give time for pending operations
+                    delay(100)
+
                     database.close()
                     Timber.tag(TAG).d("Database closed successfully")
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error closing database")
                 }
             }
+        } else {
+            Timber.tag(TAG).d("Not finishing - keeping database open for config change")
         }
+
+        super.onDestroy()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        Timber.tag(TAG).w("onTrimMemory called with level: $level")
+
+        // ✅ FIX: Only handle if not being destroyed
+        if (!isBeingDestroyed) {
+            when (level) {
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        try {
+                            memoryManager.requestGarbageCollection()
+                            Timber.tag(TAG).i("Memory trimmed at level $level")
+                        } catch (e: Exception) {
+                            Timber.tag(TAG).e(e, "Error during memory trim")
+                        }
+                    }
+                }
+                ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        try {
+                            memoryManager.requestGarbageCollection()
+                            Timber.tag(TAG).i("UI hidden, memory trimmed")
+                        } catch (e: Exception) {
+                            Timber.tag(TAG).e(e, "Error during UI hidden cleanup")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Timber.tag(TAG).w("onLowMemory called - system critically low on memory")
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                memoryManager.requestGarbageCollection()
+                memoryManager.logMemoryStats()
+                Timber.tag(TAG).i("Emergency memory cleanup performed")
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error during low memory cleanup")
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // ✅ NEW: Handle Window Focus Changes
+    // ══════════════════════════════════════════════════════════════
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        Timber.tag(TAG).d("Window focus changed: $hasFocus")
     }
 }

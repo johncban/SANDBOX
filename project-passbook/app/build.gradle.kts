@@ -32,6 +32,16 @@ android {
             useSupportLibrary = true
         }
 
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += mapOf(
+                    "room.schemaLocation" to "$projectDir/schemas",
+                    "room.incremental" to "true",
+                    "room.expandProjection" to "true"
+                )
+            }
+        }
+
         buildConfigField("boolean", "DEBUG_MODE", "false")
         buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
         buildConfigField("int", "VERSION_CODE", "${versionCode}")
@@ -78,6 +88,8 @@ android {
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"debug\"")
+            buildConfigField("boolean", "ENABLE_STRICT_MODE", "true")
+            buildConfigField("boolean", "ENABLE_LEAK_CANARY", "true")
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
@@ -85,14 +97,14 @@ android {
         }
 
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
             isDebuggable = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            isMinifyEnabled = true
+            isShrinkResources = true
 
             buildConfigField("boolean", "DEBUG", "false")
             buildConfigField("boolean", "DEBUG_MODE", "false")
@@ -156,7 +168,9 @@ android {
                 "/META-INF/LICENSE*",
                 "/META-INF/NOTICE*",
                 "META-INF/licenses/**",
-                "kotlin/**"
+                "kotlin/**",
+                "**.properties",
+                "**.bin"
             )
 
             pickFirsts += listOf(
