@@ -5,10 +5,8 @@ package com.jcb.passbook.presentation.viewmodel.shared
 import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jcb.passbook.R
 import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.UserDao
@@ -17,7 +15,6 @@ import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
-import com.jcb.passbook.security.crypto.SecureMemoryUtils
 import com.jcb.passbook.security.crypto.SessionManager
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
@@ -44,14 +41,14 @@ sealed interface AuthState {
     object Idle : AuthState
     object Loading : AuthState
     data class Success(val userId: Long) : AuthState
-    data class Error(@StringRes val messageId: Int, val details: String? = null) : AuthState
+    data class Error(val message: String, val details: String? = null) : AuthState
 }
 
 sealed interface RegistrationState {
     object Idle : RegistrationState
     object Loading : RegistrationState
     object Success : RegistrationState
-    data class Error(@StringRes val messageId: Int, val details: String? = null) : RegistrationState
+    data class Error(val message: String, val details: String? = null) : RegistrationState
 }
 
 sealed interface KeyRotationState {
@@ -68,13 +65,12 @@ sealed interface KeyRotationState {
 @HiltViewModel
 class UserViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val db: AppDatabase,
+    @Suppress("unused") private val db: AppDatabase,
     private val userRepository: UserRepository,
     private val userDao: UserDao,
     private val argon2Kt: Argon2Kt,
     private val auditLogger: AuditLogger,
-    private val sessionManager: SessionManager,
-    private val secureMemoryUtils: SecureMemoryUtils
+    private val sessionManager: SessionManager
 ) : ViewModel() {
 
     // ══════════════════════════════════════════════════════════════
@@ -94,7 +90,6 @@ class UserViewModel @Inject constructor(
     val keyRotationState = _keyRotationState.asStateFlow()
 
     init {
-        // Key rotation handled manually or by MainActivity lifecycle
         Timber.tag(TAG).d("UserViewModel initialized")
     }
 
@@ -152,7 +147,7 @@ class UserViewModel @Inject constructor(
     }
 
     // ══════════════════════════════════════════════════════════════
-    // ✅ ENHANCED: Login Function with Comprehensive Error Handling
+    // Login Function with Comprehensive Error Handling
     // ══════════════════════════════════════════════════════════════
 
     /**
@@ -162,46 +157,38 @@ class UserViewModel @Inject constructor(
      * @param password The password to verify
      *
      * Updates authState with Success(userId) on successful login,
-     * or Error(messageId) on failure with appropriate error message.
+     * or Error(message) on failure with appropriate error message.
      */
     fun login(username: String, password: String) {
         Timber.tag(TAG).d("Login attempt for username: '$username'")
 
-        // ✅ Pre-validation: Check for empty credentials
+        // Pre-validation: Check for empty credentials
         if (username.isBlank() || password.isBlank()) {
             Timber.tag(TAG).w("Login failed: Empty credentials provided")
-
             auditLogger.logAuthentication(
                 username = username.takeIf { it.isNotBlank() } ?: "UNKNOWN",
                 eventType = AuditEventType.AUTHENTICATION_FAILURE,
                 outcome = AuditOutcome.FAILURE,
                 errorMessage = "Empty credentials provided"
             )
-
-            _authState.value = AuthState.Error(R.string.error_empty_credentials)
+            _authState.value = AuthState.Error("Username and password cannot be empty")
             return
         }
 
-        // Set loading state
         _authState.value = AuthState.Loading
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 Timber.tag(TAG).d("Querying database for user: '$username'")
-
-                // ✅ Attempt to retrieve user from database
                 val user = userRepository.getUserByUsername(username)
 
                 if (user != null) {
                     Timber.tag(TAG).d("User found in database, verifying password...")
-
-                    // ✅ Verify password hash
                     val passwordValid = verifyPassword(password, user.passwordHash, user.salt)
 
                     if (passwordValid) {
-                        // ✅ SUCCESS: Password is correct
+                        // SUCCESS
                         Timber.tag(TAG).i("✓ Login successful for user: ${user.username} (ID: ${user.id})")
-
                         _userId.value = user.id
 
                         auditLogger.logAuthentication(
@@ -212,7 +199,7 @@ class UserViewModel @Inject constructor(
 
                         _authState.value = AuthState.Success(user.id)
                     } else {
-                        // ✗ FAILURE: Password is incorrect
+                        // FAILURE: Password incorrect
                         Timber.tag(TAG).w("Login failed: Invalid password for username: '$username'")
 
                         auditLogger.logAuthentication(
@@ -222,10 +209,10 @@ class UserViewModel @Inject constructor(
                             errorMessage = "Invalid password"
                         )
 
-                        _authState.value = AuthState.Error(R.string.error_invalid_credentials)
+                        _authState.value = AuthState.Error("Invalid username or password")
                     }
                 } else {
-                    // ✗ FAILURE: User not found
+                    // FAILURE: User not found
                     Timber.tag(TAG).w("Login failed: Username not found: '$username'")
 
                     auditLogger.logAuthentication(
@@ -235,11 +222,10 @@ class UserViewModel @Inject constructor(
                         errorMessage = "Username not found"
                     )
 
-                    _authState.value = AuthState.Error(R.string.error_invalid_credentials)
+                    _authState.value = AuthState.Error("Invalid username or password")
                 }
-
             } catch (e: Exception) {
-                // ✗ EXCEPTION: Unexpected error during login
+                // EXCEPTION
                 Timber.tag(TAG).e(e, "Login exception for username: '$username'")
 
                 auditLogger.logAuthentication(
@@ -249,17 +235,16 @@ class UserViewModel @Inject constructor(
                     errorMessage = "Login exception: ${e.message}"
                 )
 
-                // Use generic error message for security
                 _authState.value = AuthState.Error(
-                    messageId = R.string.error_unknown,
-                    details = e.localizedMessage
+                    message = "Login failed: ${e.localizedMessage ?: "Unknown error"}",
+                    details = e.message
                 )
             }
         }
     }
 
     // ══════════════════════════════════════════════════════════════
-    // ✅ FIXED: Registration Function with Correct Enum Value
+    // Registration Function with Direct String Messages
     // ══════════════════════════════════════════════════════════════
 
     /**
@@ -269,26 +254,36 @@ class UserViewModel @Inject constructor(
      * @param password The password (must be at least 8 characters)
      *
      * Updates registrationState with Success on successful registration,
-     * or Error(messageId) on failure with appropriate error message.
+     * or Error(message) on failure with appropriate error message.
      */
     fun register(username: String, password: String) {
         Timber.tag(TAG).d("Registration attempt for username: '$username'")
 
-        // ✅ Pre-validation: Check all input requirements
+        // Pre-validation: Check all input requirements
         when {
             username.isBlank() -> {
                 Timber.tag(TAG).w("Registration failed: Empty username")
-                _registrationState.value = RegistrationState.Error(R.string.error_empty_username)
+                _registrationState.value = RegistrationState.Error("Username cannot be empty")
+                return
+            }
+            username.length < 3 -> {
+                Timber.tag(TAG).w("Registration failed: Username too short")
+                _registrationState.value = RegistrationState.Error("Username must be at least 3 characters")
+                return
+            }
+            !username.matches(Regex("^[a-zA-Z0-9_]+$")) -> {
+                Timber.tag(TAG).w("Registration failed: Invalid username characters")
+                _registrationState.value = RegistrationState.Error("Username can only contain letters, numbers, and underscores")
                 return
             }
             password.isBlank() -> {
                 Timber.tag(TAG).w("Registration failed: Empty password")
-                _registrationState.value = RegistrationState.Error(R.string.error_empty_password)
+                _registrationState.value = RegistrationState.Error("Password cannot be empty")
                 return
             }
             password.length < 8 -> {
                 Timber.tag(TAG).w("Registration failed: Password too short")
-                _registrationState.value = RegistrationState.Error(R.string.error_password_length)
+                _registrationState.value = RegistrationState.Error("Password must be at least 8 characters")
                 return
             }
         }
@@ -297,26 +292,26 @@ class UserViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // ✅ Check if username already exists
+                // Check if username already exists
                 if (userRepository.getUserByUsername(username) != null) {
                     Timber.tag(TAG).w("Registration failed: Username '$username' already exists")
 
                     auditLogger.logAuthentication(
                         username = username,
-                        eventType = AuditEventType.REGISTER, // ✅ FIXED: Changed from REGISTRATION to REGISTER
+                        eventType = AuditEventType.REGISTER,
                         outcome = AuditOutcome.FAILURE,
                         errorMessage = "Username already exists"
                     )
 
-                    _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
+                    _registrationState.value = RegistrationState.Error("Username already exists")
                     return@launch
                 }
 
-                // ✅ Generate salt and hash password
+                // Generate salt and hash password
                 val salt = generateSalt()
                 val passwordHash = hashPassword(password, salt)
 
-                // ✅ Create user object
+                // Create user object
                 val user = User(
                     username = username,
                     passwordHash = passwordHash,
@@ -324,14 +319,14 @@ class UserViewModel @Inject constructor(
                     createdAt = System.currentTimeMillis()
                 )
 
-                // ✅ Insert user into database
+                // Insert user into database
                 val userId = userDao.insert(user)
 
                 Timber.tag(TAG).i("✓ Registration successful for username: '$username' (ID: $userId)")
 
                 auditLogger.logAuthentication(
                     username = username,
-                    eventType = AuditEventType.REGISTER, // ✅ FIXED: Changed from REGISTRATION to REGISTER
+                    eventType = AuditEventType.REGISTER,
                     outcome = AuditOutcome.SUCCESS
                 )
 
@@ -339,19 +334,19 @@ class UserViewModel @Inject constructor(
                 _registrationState.value = RegistrationState.Success
 
             } catch (e: Exception) {
-                // ✗ EXCEPTION: Unexpected error during registration
+                // EXCEPTION: Unexpected error during registration
                 Timber.tag(TAG).e(e, "Registration exception for username: '$username'")
 
                 auditLogger.logAuthentication(
                     username = username,
-                    eventType = AuditEventType.REGISTER, // ✅ FIXED: Changed from REGISTRATION to REGISTER
+                    eventType = AuditEventType.REGISTER,
                     outcome = AuditOutcome.FAILURE,
                     errorMessage = "Registration exception: ${e.message}"
                 )
 
                 _registrationState.value = RegistrationState.Error(
-                    messageId = R.string.error_unknown,
-                    details = e.localizedMessage
+                    message = "Registration failed: ${e.localizedMessage ?: "Unknown error"}",
+                    details = e.message
                 )
             }
         }
@@ -368,10 +363,8 @@ class UserViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val currentUserId = _userId.value
-
                 if (currentUserId != -1L) {
                     val user: User? = userDao.getUser(currentUserId)
-
                     if (user != null) {
                         auditLogger.logAuthentication(
                             username = user.username,
@@ -379,11 +372,9 @@ class UserViewModel @Inject constructor(
                             outcome = AuditOutcome.SUCCESS
                         )
                     }
-
                     // End session (wipes keys from memory)
                     sessionManager.endSession("User logout")
                 }
-
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error during logout")
             } finally {
@@ -417,7 +408,6 @@ class UserViewModel @Inject constructor(
                 if (currentPassphrase != null) {
                     // Store new passphrase
                     val success = KeystorePassphraseManager.commitNewPassphrase(context, newPassphrase)
-
                     if (success) {
                         Timber.tag(TAG).i("✅ New passphrase generated - will take effect on next app launch")
                         _keyRotationState.value = KeyRotationState.Success
@@ -429,7 +419,6 @@ class UserViewModel @Inject constructor(
                     KeystorePassphraseManager.getOrCreatePassphrase(context)
                     _keyRotationState.value = KeyRotationState.Success
                 }
-
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Key rotation failed")
                 _keyRotationState.value = KeyRotationState.Error(

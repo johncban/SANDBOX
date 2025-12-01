@@ -62,23 +62,20 @@ class MainActivity : ComponentActivity() {
     private var isDatabaseReady = mutableStateOf(false)
     private var savedUserId: Long = -1L
     private var wasAuthenticated: Boolean = false
+    private var isAppInForeground = false
 
     // ══════════════════════════════════════════════════════════════
     // Activity Lifecycle - onCreate
     // ══════════════════════════════════════════════════════════════
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         Timber.tag(TAG).d("onCreate called")
-
         enableEdgeToEdge()
 
         // ✅ Restore state from process death
         savedInstanceState?.let {
             savedUserId = it.getLong(KEY_USER_ID, -1L)
             wasAuthenticated = it.getBoolean(KEY_IS_AUTHENTICATED, false)
-
             if (savedUserId > 0 && wasAuthenticated) {
                 Timber.tag(TAG).i("Restoring state: userId=$savedUserId, authenticated=$wasAuthenticated")
             }
@@ -90,7 +87,6 @@ class MainActivity : ComponentActivity() {
                 initializeDatabaseKey()
                 withContext(Dispatchers.Main) {
                     isDatabaseReady.value = true
-
                     // Restore state after database is ready
                     if (savedUserId > 0 && wasAuthenticated) {
                         userViewModel.setUserId(savedUserId)
@@ -106,6 +102,7 @@ class MainActivity : ComponentActivity() {
         // ✅ Observe lifecycle for foreground/background state
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                isAppInForeground = true
                 Timber.tag(TAG).d("App in STARTED state (foreground)")
             }
         }
@@ -117,7 +114,6 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val dbReady by isDatabaseReady
-
                     if (dbReady) {
                         PassBookNavigation(
                             userViewModel = userViewModel,
@@ -135,7 +131,6 @@ class MainActivity : ComponentActivity() {
     // ══════════════════════════════════════════════════════════════
     // Database Loading Screen
     // ══════════════════════════════════════════════════════════════
-
     @Composable
     private fun DatabaseLoadingScreen() {
         Box(
@@ -158,7 +153,6 @@ class MainActivity : ComponentActivity() {
     // ══════════════════════════════════════════════════════════════
     // Navigation Composable
     // ══════════════════════════════════════════════════════════════
-
     @Composable
     private fun PassBookNavigation(
         userViewModel: UserViewModel,
@@ -225,7 +219,6 @@ class MainActivity : ComponentActivity() {
                         )
                         itemViewModel.setUserId(currentUserId)
                         delay(50)
-
                         val verifiedUserId = itemViewModel.userId.value
                         if (verifiedUserId == currentUserId) {
                             Timber.tag("$TAG\$Navigation").i("✓ UserId sync verified: $verifiedUserId")
@@ -249,14 +242,12 @@ class MainActivity : ComponentActivity() {
     // ══════════════════════════════════════════════════════════════
     // Database Initialization
     // ══════════════════════════════════════════════════════════════
-
     @RequiresApi(Build.VERSION_CODES.M)
     private suspend fun initializeDatabaseKey() {
         try {
             Timber.tag(TAG).d("=== Initializing database key ===")
 
             val databaseKey = databaseKeyManager.getOrCreateDatabasePassphrase()
-
             if (databaseKey == null) {
                 Timber.tag(TAG).e("CRITICAL: Failed to initialize database key")
                 withContext(Dispatchers.Main) {
@@ -282,7 +273,6 @@ class MainActivity : ComponentActivity() {
             }
 
             Timber.tag(TAG).d("=== Database initialization complete ===")
-
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error during database initialization")
             withContext(Dispatchers.Main) {
@@ -294,7 +284,6 @@ class MainActivity : ComponentActivity() {
     // ══════════════════════════════════════════════════════════════
     // Error Dialog
     // ══════════════════════════════════════════════════════════════
-
     private fun showErrorDialog(message: String) {
         runOnUiThread {
             androidx.appcompat.app.AlertDialog.Builder(this)
@@ -307,12 +296,10 @@ class MainActivity : ComponentActivity() {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // ✅ NEW: Process Death Handling - Save State
+    // ✅ FIXED: Process Death Handling - Save State
     // ══════════════════════════════════════════════════════════════
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-
         // Save current user ID if authenticated
         val currentUserId = userViewModel.userId.value
         val isAuthenticated = currentUserId > 0
@@ -325,12 +312,10 @@ class MainActivity : ComponentActivity() {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // ✅ NEW: Process Death Handling - Restore State
+    // Process Death Handling - Restore State
     // ══════════════════════════════════════════════════════════════
-
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
-
         // Restore user ID after process death
         val restoredUserId = savedInstanceState.getLong(KEY_USER_ID, -1L)
         val wasAuth = savedInstanceState.getBoolean(KEY_IS_AUTHENTICATED, false)
@@ -344,9 +329,9 @@ class MainActivity : ComponentActivity() {
     // ══════════════════════════════════════════════════════════════
     // Lifecycle Callbacks
     // ══════════════════════════════════════════════════════════════
-
     override fun onStart() {
         super.onStart()
+        isAppInForeground = true
         Timber.tag(TAG).d("onStart - App visible to user")
     }
 
@@ -362,17 +347,35 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        isAppInForeground = false
         Timber.tag(TAG).d("onStop - App moved to background")
+
+        // ✅ FIX: Release resources when app goes to background
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Trigger garbage collection suggestion
+                System.gc()
+                Timber.tag(TAG).d("Requested garbage collection")
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error during cleanup")
+            }
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Timber.tag(TAG).d("onDestroy - Activity being destroyed")
 
-        // End session if app is closing (not just rotating)
+        // ✅ FIX: Close database connections properly
         if (isFinishing) {
-            lifecycleScope.launch {
-                sessionManager.endSession("Activity destroyed")
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    sessionManager.endSession("Activity destroyed")
+                    database.close()
+                    Timber.tag(TAG).d("Database closed successfully")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Error closing database")
+                }
             }
         }
     }

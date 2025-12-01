@@ -1,43 +1,38 @@
 # ============================================
 # PassBook Password Manager - ProGuard Rules
-# ✅ FIXED VERSION: Preserves error logging for crash analysis
+# ✅ FIXED VERSION: Prevents Compose lock verification issues
 # ============================================
 
-# ========== LOGGING RULES - CRITICAL FIX ==========
-# Remove debug/verbose/info logging in release builds
-# ✅ KEEP error and warning logs for crash reporting and diagnostics
+# ========== LOGGING RULES ==========
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);
     public static int v(...);
     public static int d(...);
     public static int i(...);
-    # ✅ PRESERVED: Log.w() and Log.e() are kept for production diagnostics
 }
 
-# Keep Timber for structured logging with release-safe trees
+# Keep Timber for logging
 -keep class timber.log.Timber { *; }
 -keep class timber.log.Timber$Tree { *; }
 -keepclassmembers class timber.log.Timber {
     public static void e(...);
     public static void w(...);
-    public static *** tag(...);
 }
 
-# Keep custom error reporting methods
--keepclassmembers class com.jcb.passbook.** {
-    public void logError(...);
-    public void reportError(...);
-    public void handleException(...);
-}
+# ========== COMPOSE FIX - CRITICAL ==========
+# ✅ Prevent lock verification issues with Compose
+-keep class androidx.compose.runtime.snapshots.** { *; }
+-dontwarn androidx.compose.runtime.snapshots.**
+-keep class androidx.compose.runtime.** { *; }
+-keep class kotlin.Metadata { *; }
+-keep class **ComposerKt { *; }
 
 # ========== SECURITY-CRITICAL CLASSES ==========
-# These must never be obfuscated or removed
-
 -keep class com.jcb.passbook.security.** { *; }
 -keep class com.jcb.passbook.data.local.database.entities.** { *; }
 -keep class com.jcb.passbook.core.security.** { *; }
 
-# Audit logging - forensic analysis requires intact class/method names
+# Audit logging
 -keep class com.jcb.passbook.security.audit.** { *; }
 -keepclassmembers class com.jcb.passbook.security.audit.** {
     public <methods>;
@@ -97,6 +92,14 @@
 -keep class **_MembersInjector { *; }
 -keep class **$HiltWrapper { *; }
 
+# Keep ViewModels
+-keep class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}
+-keepclassmembers class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}
+
 # ========== ROOM DATABASE ==========
 -keep class androidx.room.** { *; }
 -keep class androidx.sqlite.** { *; }
@@ -104,6 +107,7 @@
 -keep @androidx.room.Dao class * { *; }
 -keep @androidx.room.Database class * { *; }
 -keep class **_Impl { *; }
+-dontwarn androidx.room.paging.**
 
 # ========== KOTLINX SERIALIZATION ==========
 -keepattributes *Annotation*, InnerClasses
@@ -124,11 +128,6 @@
     *** Companion;
     *** $serializer;
 }
-
-# ========== COMPOSE ==========
--keep class androidx.compose.** { *; }
--keep class kotlin.Metadata { *; }
--keep class **ComposerKt { *; }
 
 # ========== GENERAL ANDROID ==========
 -keepattributes Signature

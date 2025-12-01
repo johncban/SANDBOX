@@ -29,37 +29,37 @@ fun RegistrationScreen(
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-
     val registrationState by userViewModel.registrationState.collectAsState()
     val context = LocalContext.current
 
-    // ✅ CORRECT FIX: Get error message safely without try-catch in composable
+    // ✅ FIXED: Changed from messageId to message property
     val errorMessage = remember(registrationState) {
         when (val state = registrationState) {
             is RegistrationState.Error -> {
-                try {
-                    context.getString(state.messageId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to load error string resource: ${state.messageId}", e)
-                    "Registration failed. Please try again."
-                }
+                // Use the message string directly instead of trying to resolve resource ID
+                state.message ?: "Registration failed. Please try again."
             }
             else -> null
         }
     }
 
-    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessage else null
-    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessage else null
+    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) {
+        errorMessage
+    } else null
+
+    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) {
+        errorMessage
+    } else null
 
     LaunchedEffect(registrationState) {
         when (registrationState) {
             is RegistrationState.Success -> {
                 val userId = userViewModel.userId.value
                 Log.i(TAG, "Registration successful, userId from UserViewModel: $userId")
+
                 if (userId != -1L) {
                     Log.i(TAG, "Setting ItemViewModel userId to: $userId")
                     itemViewModel.setUserId(userId)
-
                     delay(150)
 
                     val verifiedUserId = itemViewModel.userId.value
@@ -69,6 +69,7 @@ fun RegistrationScreen(
                         userViewModel.clearRegistrationState()
                     } else {
                         Log.e(TAG, "UserId verification failed! Expected: $userId, Got: $verifiedUserId")
+                        // Retry once
                         itemViewModel.setUserId(userId)
                         delay(100)
                         val retryUserId = itemViewModel.userId.value
@@ -78,6 +79,7 @@ fun RegistrationScreen(
                             userViewModel.clearRegistrationState()
                         } else {
                             Log.e(TAG, "CRITICAL: UserId still not set after retry!")
+                            // Proceed anyway to avoid blocking user
                             onRegisterSuccess()
                             userViewModel.clearRegistrationState()
                         }
@@ -87,7 +89,8 @@ fun RegistrationScreen(
                 }
             }
             is RegistrationState.Error -> {
-                Log.e(TAG, "Registration failed: ${(registrationState as RegistrationState.Error).messageId}")
+                val error = registrationState as RegistrationState.Error
+                Log.e(TAG, "Registration failed: ${error.message}")
             }
             else -> {
                 Log.d(TAG, "Registration state: $registrationState")
@@ -102,11 +105,19 @@ fun RegistrationScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Text(
+            text = "Create Account",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 32.dp)
+        )
+
         OutlinedTextField(
             value = username,
             onValueChange = {
                 username = it
-                if (registrationState is RegistrationState.Error) userViewModel.clearRegistrationState()
+                if (registrationState is RegistrationState.Error) {
+                    userViewModel.clearRegistrationState()
+                }
             },
             label = { Text(stringResource(R.string.username)) },
             modifier = Modifier.fillMaxWidth(),
@@ -121,7 +132,9 @@ fun RegistrationScreen(
             value = password,
             onValueChange = {
                 password = it
-                if (registrationState is RegistrationState.Error) userViewModel.clearRegistrationState()
+                if (registrationState is RegistrationState.Error) {
+                    userViewModel.clearRegistrationState()
+                }
             },
             label = { Text(stringResource(R.string.password)) },
             modifier = Modifier.fillMaxWidth(),
@@ -133,7 +146,11 @@ fun RegistrationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (registrationState is RegistrationState.Error && errorMessage != null && username.isNotBlank() && password.isNotBlank()) {
+        // Show error message if there is one and fields are filled
+        if (registrationState is RegistrationState.Error &&
+            errorMessage != null &&
+            username.isNotBlank() &&
+            password.isNotBlank()) {
             Text(
                 text = errorMessage,
                 color = MaterialTheme.colorScheme.error,
@@ -143,8 +160,10 @@ fun RegistrationScreen(
 
         Button(
             onClick = {
-                Log.d(TAG, "Register button clicked for username: $username")
-                userViewModel.register(username, password)
+                if (username.isNotBlank() && password.isNotBlank()) {
+                    Log.d(TAG, "Register button clicked for username: $username")
+                    userViewModel.register(username, password)
+                }
             },
             enabled = registrationState !is RegistrationState.Loading,
             modifier = Modifier.fillMaxWidth()
