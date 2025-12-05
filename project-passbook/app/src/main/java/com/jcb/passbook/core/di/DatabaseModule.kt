@@ -22,7 +22,6 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
 
-    // Re-adding the CoroutineScope provider here since we removed the duplicate from SecurityModule
     @Provides
     @Singleton
     fun provideApplicationScope(): CoroutineScope {
@@ -37,39 +36,28 @@ object DatabaseModule {
             AppDatabase::class.java,
             "passbook_db"
         )
-            // CRITICAL FIX: This wipes the database if the schema changes (e.g. Dev changes)
-            // This solves the "Migration didn't properly handle: users" crash.
+            // ✅ CRITICAL FIX: Wipes database if schema mismatches (fixes "Migration" crash)
             .fallbackToDestructiveMigration()
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideUserDao(appDatabase: AppDatabase): UserDao {
-        return appDatabase.userDao()
-    }
+    fun provideUserDao(appDatabase: AppDatabase): UserDao = appDatabase.userDao()
 
     @Provides
     @Singleton
-    fun provideItemDao(appDatabase: AppDatabase): ItemDao {
-        return appDatabase.itemDao()
-    }
+    fun provideItemDao(appDatabase: AppDatabase): ItemDao = appDatabase.itemDao()
 
     @Provides
     @Singleton
-    fun provideCategoryDao(appDatabase: AppDatabase): CategoryDao {
-        return appDatabase.categoryDao()
-    }
+    fun provideCategoryDao(appDatabase: AppDatabase): CategoryDao = appDatabase.categoryDao()
 
     @Provides
     @Singleton
-    fun provideAuditDao(appDatabase: AppDatabase): AuditDao {
-        return appDatabase.auditDao()
-    }
+    fun provideAuditDao(appDatabase: AppDatabase): AuditDao = appDatabase.auditDao()
 
     @Provides
     @Singleton
-    fun provideAuditMetadataDao(appDatabase: AppDatabase): AuditMetadataDao {
-        return appDatabase.auditMetadataDao()
-    }
+    fun provideAuditMetadataDao(appDatabase: AppDatabase): AuditMetadataDao = appDatabase.auditMetadataDao()
 }

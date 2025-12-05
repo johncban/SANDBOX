@@ -5,14 +5,9 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/**
- * ✅ CRITICAL FIX: Added UNIQUE index on username
- * - Prevents duplicate usernames at database level
- * - Database will throw SQLiteConstraintException on duplicate insert
- */
 @Entity(
     tableName = "users",
-    indices = [Index(value = ["username"], unique = true)]  // ✅ Enforces uniqueness
+    indices = [Index(value = ["username"], unique = true)]
 )
 data class User(
     @PrimaryKey(autoGenerate = true)
@@ -21,14 +16,16 @@ data class User(
     @ColumnInfo(name = "username")
     val username: String,
 
+    // Fix: Defined as String (TEXT) to match your Code's expectation in the logs
     @ColumnInfo(name = "password_hash")
     val passwordHash: String,
 
+    // Fix: Defined as String (TEXT) to match your Code's expectation in the logs
     @ColumnInfo(name = "salt")
     val salt: String,
 
     @ColumnInfo(name = "is_active")
-    val isActive: Boolean = false,
+    val isActive: Boolean = true,
 
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis(),
