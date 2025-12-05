@@ -4,7 +4,6 @@ import android.content.Context
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
-import com.jcb.passbook.security.detection.RootDetector
 import com.jcb.passbook.security.detection.SecurityManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -19,10 +18,11 @@ import javax.inject.Singleton
  * SecurityAuditManager - Monitors security events and detects anomalies
  *
  * ✅ FIXED: Uses lazy AuditLogger injection to break circular dependency
+ * ✅ REFACTORED: Uses public SecurityManager.checkRootStatus() instead of private isDeviceCompromised()
  */
 @Singleton
 class SecurityAuditManager @Inject constructor(
-    private val auditLoggerProvider: () -> AuditLogger,  // ✅ CHANGED: Provider function
+    private val auditLoggerProvider: () -> AuditLogger,  // ✅ Lazy provider
     private val auditDao: AuditDao,
     @ApplicationContext private val context: Context
 ) {
@@ -88,25 +88,46 @@ class SecurityAuditManager @Inject constructor(
         )
     }
 
+    /**
+     * ✅ FIXED: Uses SecurityManager.checkRootStatus() which is public
+     * and SecurityManager.isCompromised state
+     */
     private suspend fun performSecurityChecks() {
-        // Root detection
-        if (RootDetector.isDeviceRooted(context)) {
-            auditLogger.logSecurityEvent(
-                "Root access detected on device",
-                "CRITICAL",
-                AuditOutcome.WARNING
-            )
-            addSecurityAlert("CRITICAL", "Device is rooted", "App terminated for security")
+        // ✅ FIXED: Use checkRootStatus callback to detect compromise
+        var isCompromised = false
+
+        withContext(Dispatchers.Default) {
+            SecurityManager.checkRootStatus(context) {
+                // This callback is invoked if device is compromised
+                isCompromised = true
+            }
         }
 
-        // Security compromise check
-        if (SecurityManager.isCompromised.value) {
+        if (isCompromised) {
             auditLogger.logSecurityEvent(
-                "Device security compromise detected",
+                "Device security compromise detected (root/emulator/debugger)",
                 "CRITICAL",
                 AuditOutcome.WARNING
             )
-            addSecurityAlert("CRITICAL", "Security compromise", "App access blocked")
+            addSecurityAlert(
+                "CRITICAL",
+                "Device security compromised",
+                "App access blocked for security"
+            )
+        }
+
+        // Check for compromised state flag
+        if (SecurityManager.isCompromised.value) {
+            auditLogger.logSecurityEvent(
+                "Active security compromise state detected",
+                "CRITICAL",
+                AuditOutcome.WARNING
+            )
+            addSecurityAlert(
+                "CRITICAL",
+                "Security compromise active",
+                "Session terminated"
+            )
         }
 
         // Anomaly detection logic

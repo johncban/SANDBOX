@@ -11,10 +11,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AuditLogger @Inject constructor(
-    private val auditQueueProvider: () -> AuditQueue?,
-    private val auditChainManagerProvider: () -> AuditChainManager?,
-    @ApplicationContext private val context: Context
+class AuditLogger(
+    private val context: Context, // Ensure this exists!
+    private val auditQueueProvider: () -> AuditQueue,
+    private val auditChainManagerProvider: () -> AuditChainManager,
+    private val applicationScope: CoroutineScope
 ) {
     // ✅ FIX: Lazy initialization from providers
     private val auditQueue: AuditQueue? by lazy { auditQueueProvider() }

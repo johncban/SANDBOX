@@ -4,6 +4,7 @@ package com.jcb.passbook.presentation.viewmodel.shared
 
 import android.content.Context
 import android.os.Build
+import android.util.Base64
 import androidx.annotation.RequiresApi
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -118,6 +119,24 @@ class UserViewModel @Inject constructor(
     }
 
     // ══════════════════════════════════════════════════════════════
+    // ✅ NEW: Base64 Encoding/Decoding Helper Functions
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Converts ByteArray to Base64 String for database storage
+     */
+    private fun ByteArray.toBase64(): String {
+        return Base64.encodeToString(this, Base64.NO_WRAP)
+    }
+
+    /**
+     * Converts Base64 String from database back to ByteArray
+     */
+    private fun String.fromBase64(): ByteArray {
+        return Base64.decode(this, Base64.NO_WRAP)
+    }
+
+    // ══════════════════════════════════════════════════════════════
     // Password Hashing Functions (Argon2id)
     // ══════════════════════════════════════════════════════════════
 
@@ -184,7 +203,11 @@ class UserViewModel @Inject constructor(
 
                 if (user != null) {
                     Timber.tag(TAG).d("User found in database, verifying password...")
-                    val passwordValid = verifyPassword(password, user.passwordHash, user.salt)
+
+                    // ✅ FIX: Convert String to ByteArray before verification
+                    val storedHashBytes = user.passwordHash.fromBase64()
+                    val storedSaltBytes = user.salt.fromBase64()
+                    val passwordValid = verifyPassword(password, storedHashBytes, storedSaltBytes)
 
                     if (passwordValid) {
                         // SUCCESS
@@ -308,14 +331,18 @@ class UserViewModel @Inject constructor(
                 }
 
                 // Generate salt and hash password
-                val salt = generateSalt()
-                val passwordHash = hashPassword(password, salt)
+                val saltBytes = generateSalt()
+                val passwordHashBytes = hashPassword(password, saltBytes)
+
+                // ✅ FIX: Convert ByteArray to String for database storage
+                val saltString = saltBytes.toBase64()
+                val passwordHashString = passwordHashBytes.toBase64()
 
                 // Create user object
                 val user = User(
                     username = username,
-                    passwordHash = passwordHash,
-                    salt = salt,
+                    passwordHash = passwordHashString,  // ✅ Now String
+                    salt = saltString,                   // ✅ Now String
                     createdAt = System.currentTimeMillis()
                 )
 
