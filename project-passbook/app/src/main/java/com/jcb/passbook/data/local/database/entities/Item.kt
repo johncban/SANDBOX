@@ -18,15 +18,16 @@ import androidx.room.PrimaryKey
         ForeignKey(
             entity = Category::class,
             parentColumns = ["id"],
-            childColumns = ["category_id"],  // ✅ FIXED: Changed from categoryId
+            childColumns = ["category_id"],
             onDelete = ForeignKey.SET_NULL
         )
     ],
     indices = [
         Index(value = ["userId"]),
-        Index(value = ["category_id"]),  // ✅ FIXED: Changed from categoryId
+        Index(value = ["category_id"]),
         Index(value = ["isFavorite"]),
-        Index(value = ["createdAt"])
+        Index(value = ["createdAt"]),
+        Index(value = ["type"])  // ✅ Added index for type filtering
     ]
 )
 data class Item(
@@ -52,6 +53,9 @@ data class Item(
     @ColumnInfo(name = "category_name")
     val categoryName: String? = null,
 
+    // ✅ CRITICAL FIX: Added missing 'type' field
+    val type: String = "password",  // Default: "password", "note", "credit_card", etc.
+
     val isFavorite: Boolean = false,
 
     val createdAt: Long = System.currentTimeMillis(),
@@ -75,6 +79,7 @@ data class Item(
         if (notes != other.notes) return false
         if (categoryId != other.categoryId) return false
         if (categoryName != other.categoryName) return false
+        if (type != other.type) return false  // ✅ Added
         if (isFavorite != other.isFavorite) return false
         if (createdAt != other.createdAt) return false
         if (updatedAt != other.updatedAt) return false
@@ -93,6 +98,7 @@ data class Item(
         result = 31 * result + (notes?.hashCode() ?: 0)
         result = 31 * result + (categoryId?.hashCode() ?: 0)
         result = 31 * result + (categoryName?.hashCode() ?: 0)
+        result = 31 * result + type.hashCode()  // ✅ Added
         result = 31 * result + isFavorite.hashCode()
         result = 31 * result + createdAt.hashCode()
         result = 31 * result + updatedAt.hashCode()

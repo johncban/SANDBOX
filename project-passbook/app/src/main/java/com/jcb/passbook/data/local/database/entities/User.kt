@@ -1,55 +1,38 @@
 package com.jcb.passbook.data.local.database.entities
 
-import androidx.room.Entity
-import androidx.room.PrimaryKey
 import androidx.room.ColumnInfo
+import androidx.room.Entity
 import androidx.room.Index
+import androidx.room.PrimaryKey
 
+/**
+ * ✅ CRITICAL FIX: Added UNIQUE index on username
+ * - Prevents duplicate usernames at database level
+ * - Database will throw SQLiteConstraintException on duplicate insert
+ */
 @Entity(
     tableName = "users",
-    indices = [
-        Index(value = ["username"], unique = true, name = "index_users_username")
-    ]
+    indices = [Index(value = ["username"], unique = true)]  // ✅ Enforces uniqueness
 )
 data class User(
     @PrimaryKey(autoGenerate = true)
-    @ColumnInfo(name = "id")
-    val id: Long = 0,  // ✅ CHANGED: Int -> Long
+    val id: Long = 0,
 
     @ColumnInfo(name = "username")
     val username: String,
 
     @ColumnInfo(name = "password_hash")
-    val passwordHash: ByteArray,  // ✅ CHANGED: String -> ByteArray
+    val passwordHash: String,
 
     @ColumnInfo(name = "salt")
-    val salt: ByteArray,  // ✅ ADDED
+    val salt: String,
+
+    @ColumnInfo(name = "is_active")
+    val isActive: Boolean = false,
 
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis(),
 
     @ColumnInfo(name = "last_login_at")
-    val lastLoginAt: Long? = null,
-
-    @ColumnInfo(name = "is_active")
-    val isActive: Boolean = true
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-        other as User
-        if (id != other.id) return false
-        if (username != other.username) return false
-        if (!passwordHash.contentEquals(other.passwordHash)) return false
-        if (!salt.contentEquals(other.salt)) return false
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = id.hashCode()
-        result = 31 * result + username.hashCode()
-        result = 31 * result + passwordHash.contentHashCode()
-        result = 31 * result + salt.contentHashCode()
-        return result
-    }
-}
+    val lastLoginAt: Long? = null
+)

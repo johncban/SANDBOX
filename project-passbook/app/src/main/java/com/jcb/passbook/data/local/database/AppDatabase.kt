@@ -19,31 +19,35 @@ import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import net.sqlcipher.database.SupportFactory
+import timber.log.Timber
 
 /**
  * AppDatabase - Main Room database for PassBook app
  *
- * COMPLETE FIXED VERSION - All Critical Bugs Resolved
+ * ✅ COMPLETE REFACTORED VERSION - All Critical Fixes Applied
  *
- * Database Version: 6
+ * Database Version: 7
  *
  * ✅ FIXES APPLIED:
  * 1. Removed .fallbackToDestructiveMigration() for production safety
  * 2. Added @Suppress("DEPRECATION") for SupportFactory compatibility
+ * 3. Added Migration 6→7 for 'type' field in items table
+ * 4. Proper TAG logging for all migrations
  *
  * Entities:
  * - User: User accounts and authentication
- * - Item: Password/credential entries
+ * - Item: Password/credential entries (with type field)
  * - Category: Organizational categories for items
  * - AuditEntry: Security audit trail entries (tableName = "audit_log")
  * - AuditMetadata: Audit system metadata
  *
  * Security Features:
- * - SQLCipher encryption
- * - Foreign key constraints
+ * - SQLCipher encryption with 256,000 PBKDF2 iterations
+ * - Foreign key constraints enforced
  * - Tamper-evident audit chaining
- * - Secure delete
- * - Memory security
+ * - Secure delete (overwrites deleted data)
+ * - Memory security enabled
+ * - WAL mode for concurrency
  *
  * Migration History:
  * - v1→v2: Added lastAccessedAt to items
@@ -51,6 +55,7 @@ import net.sqlcipher.database.SupportFactory
  * - v3→v4: Added audit chaining and metadata
  * - v4→v5: Added categories table
  * - v5→v6: Added category foreign key to items
+ * - v6→v7: Added type field to items (password/note/card)
  */
 @Database(
     entities = [
@@ -60,7 +65,7 @@ import net.sqlcipher.database.SupportFactory
         AuditEntry::class,
         AuditMetadata::class
     ],
-    version = 6,
+    version = 7,  // ✅ Updated from 6 to 7
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -77,6 +82,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun auditMetadataDao(): AuditMetadataDao
 
     companion object {
+        private const val TAG = "AppDatabase"
 
         // ============================================
         // DATABASE MIGRATIONS
@@ -87,7 +93,9 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 1 → 2: Adding lastAccessedAt")
                 db.execSQL("ALTER TABLE items ADD COLUMN lastAccessedAt INTEGER")
+                Timber.tag(TAG).i("✓ Migration 1 → 2 completed")
             }
         }
 
@@ -96,6 +104,8 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 2 → 3: Creating audit_log table")
+
                 // Create audit_entries table
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS audit_log (
@@ -118,6 +128,8 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_audit_log_timestamp ON audit_log(timestamp)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_audit_log_event_type ON audit_log(event_type)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_audit_log_user_id ON audit_log(user_id)")
+
+                Timber.tag(TAG).i("✓ Migration 2 → 3 completed")
             }
         }
 
@@ -126,6 +138,8 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 3 → 4: Adding audit metadata")
+
                 // Create audit_metadata table
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS audit_metadata (
@@ -151,6 +165,8 @@ abstract class AppDatabase : RoomDatabase() {
                         'Genesis chain head hash'
                     )
                 """.trimIndent())
+
+                Timber.tag(TAG).i("✓ Migration 3 → 4 completed")
             }
         }
 
@@ -159,6 +175,8 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 4 → 5: Creating categories table")
+
                 // Create categories table
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS categories (
@@ -190,16 +208,18 @@ abstract class AppDatabase : RoomDatabase() {
                 val timestamp = System.currentTimeMillis()
                 db.execSQL("""
                     INSERT INTO categories (name, description, icon, color, is_system, sort_order, created_at, updated_at)
-                    VALUES 
-                        ('Uncategorized', 'Items without a specific category', '📋', '#9E9E9E', 1, 0, $timestamp, $timestamp),
-                        ('Banking', 'Bank accounts and financial services', '🏦', '#4CAF50', 1, 1, $timestamp, $timestamp),
-                        ('Email', 'Email accounts and services', '✉️', '#2196F3', 1, 2, $timestamp, $timestamp),
-                        ('Social Media', 'Social networking accounts', '👥', '#E91E63', 1, 3, $timestamp, $timestamp),
-                        ('Shopping', 'Online shopping and e-commerce', '🛒', '#FF9800', 1, 4, $timestamp, $timestamp),
-                        ('Work', 'Work-related accounts and credentials', '💼', '#607D8B', 1, 5, $timestamp, $timestamp),
-                        ('Entertainment', 'Streaming, gaming, and media services', '🎮', '#9C27B0', 1, 6, $timestamp, $timestamp),
-                        ('Travel', 'Travel and booking services', '✈️', '#00BCD4', 1, 7, $timestamp, $timestamp)
+                    VALUES
+                    ('Uncategorized', 'Items without a specific category', '📋', '#9E9E9E', 1, 0, $timestamp, $timestamp),
+                    ('Banking', 'Bank accounts and financial services', '🏦', '#4CAF50', 1, 1, $timestamp, $timestamp),
+                    ('Email', 'Email accounts and services', '✉️', '#2196F3', 1, 2, $timestamp, $timestamp),
+                    ('Social Media', 'Social networking accounts', '👥', '#E91E63', 1, 3, $timestamp, $timestamp),
+                    ('Shopping', 'Online shopping and e-commerce', '🛒', '#FF9800', 1, 4, $timestamp, $timestamp),
+                    ('Work', 'Work-related accounts and credentials', '💼', '#607D8B', 1, 5, $timestamp, $timestamp),
+                    ('Entertainment', 'Streaming, gaming, and media services', '🎮', '#9C27B0', 1, 6, $timestamp, $timestamp),
+                    ('Travel', 'Travel and booking services', '✈️', '#00BCD4', 1, 7, $timestamp, $timestamp)
                 """.trimIndent())
+
+                Timber.tag(TAG).i("✓ Migration 4 → 5 completed")
             }
         }
 
@@ -214,6 +234,8 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 5 → 6: Adding category_id to items")
+
                 // Step 1: Create new items table with category_id
                 db.execSQL("""
                     CREATE TABLE IF NOT EXISTS items_new (
@@ -264,14 +286,48 @@ abstract class AppDatabase : RoomDatabase() {
 
                 // Step 6: Update category item counts
                 db.execSQL("""
-                    UPDATE categories 
+                    UPDATE categories
                     SET item_count = (
-                        SELECT COUNT(*) 
-                        FROM items 
+                        SELECT COUNT(*)
+                        FROM items
                         WHERE items.category_id = categories.id
                     ),
                     updated_at = ${System.currentTimeMillis()}
                 """.trimIndent())
+
+                Timber.tag(TAG).i("✓ Migration 5 → 6 completed")
+            }
+        }
+
+        /**
+         * ✅ NEW Migration 6 → 7: Add type field to items table
+         *
+         * Changes:
+         * - Adds 'type' column for item classification (password, note, credit_card, etc.)
+         * - Default value: 'password'
+         * - Creates index on type for performance
+         *
+         * This migration enables:
+         * - Item type filtering (show only passwords, notes, etc.)
+         * - Better organization and categorization
+         * - Future feature expansion (credit cards, secure notes, etc.)
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                Timber.tag(TAG).i("Running migration 6 → 7: Adding 'type' field to items")
+
+                try {
+                    // Add 'type' column with default value 'password'
+                    db.execSQL("ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT 'password'")
+
+                    // Create index on type column for efficient filtering
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_items_type ON items(type)")
+
+                    Timber.tag(TAG).i("✓ Migration 6 → 7 completed successfully")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Migration 6 → 7 failed")
+                    throw e
+                }
             }
         }
 
@@ -283,6 +339,7 @@ abstract class AppDatabase : RoomDatabase() {
          * Create database with encryption
          *
          * ✅ FIXED: Added @Suppress("DEPRECATION") for SupportFactory
+         * ✅ FIXED: Removed .fallbackToDestructiveMigration()
          *
          * @param context Application context
          * @param passphrase Encryption passphrase (securely managed)
@@ -303,11 +360,13 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_2_3,
                     MIGRATION_3_4,
                     MIGRATION_4_5,
-                    MIGRATION_5_6
+                    MIGRATION_5_6,
+                    MIGRATION_6_7  // ✅ Added new migration
                 )
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
+                        Timber.tag(TAG).i("Database onCreate callback")
 
                         // Enable WAL mode for better performance
                         db.execSQL("PRAGMA journal_mode=WAL")
@@ -333,8 +392,8 @@ abstract class AppDatabase : RoomDatabase() {
                         db.execSQL("PRAGMA cipher_memory_security=ON")
                     }
                 })
-                // ✅ FIXED: Removed .fallbackToDestructiveMigration() (Line 348 deleted)
-                // This was dangerous for production as it deletes all user data on migration failure
+                // ✅ REMOVED: .fallbackToDestructiveMigration()
+                // This is dangerous for production as it deletes all user data
                 .build()
         }
 
