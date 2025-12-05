@@ -164,9 +164,11 @@ fun ItemListScreen(
     }
 
     if (showDetailsDialog && selectedItemForDetails != null) {
-        val decryptedPassword by remember(selectedItemForDetails) {
-            derivedStateOf {
-                itemViewModel.getDecryptedPassword(selectedItemForDetails!!)
+        var decryptedPassword by remember { mutableStateOf<String?>(null) }
+
+        LaunchedEffect(selectedItemForDetails) {
+            decryptedPassword = selectedItemForDetails?.let { item ->
+                itemViewModel.getDecryptedPassword(item)  // ✅ OK: Called from coroutine
             }
         }
 
