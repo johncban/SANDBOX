@@ -36,7 +36,9 @@ object DatabaseModule {
             AppDatabase::class.java,
             "passbook_db"
         )
-            // ✅ CRITICAL FIX: Wipes database if schema mismatches (fixes "Migration" crash)
+            // ✅ CRITICAL FIX: This line enables automatic wiping of the database
+            // when the schema (User entity) doesn't match the file on disk.
+            // This solves your crash: "Migration didn't properly handle: users"
             .fallbackToDestructiveMigration()
             .build()
     }
