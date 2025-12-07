@@ -25,7 +25,9 @@
         <!-- Navigation bar -->
         <item name="android:navigationBarColor">@android:color/transparent</item>
 
-        <!-- Window features -->
+        <!-- API 29+ specific attributes -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
     </style>
 </resources>

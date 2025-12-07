@@ -12,6 +12,13 @@ plugins {
 configurations.all {
     resolutionStrategy {
         force("androidx.biometric:biometric:1.1.0")
+        force("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+        force("androidx.lifecycle:lifecycle-runtime-android:2.8.7")
+        force("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+        force("androidx.lifecycle:lifecycle-livedata-ktx:2.8.7")
+        force("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+        force("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+        force("androidx.lifecycle:lifecycle-process:2.8.7")
     }
 }
 
@@ -28,10 +35,12 @@ android {
 
         testInstrumentationRunner = "com.jcb.passbook.HiltTestRunner"
 
+        // Prevent crashes from mismatched runtime checks
         vectorDrawables {
             useSupportLibrary = true
         }
 
+        // Room annotation processor options
         javaCompileOptions {
             annotationProcessorOptions {
                 arguments += mapOf(
@@ -77,6 +86,7 @@ android {
         }
     }
 
+    // Add lifecycle handling configuration
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -84,33 +94,37 @@ android {
             isDebuggable = true
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+
             buildConfigField("boolean", "DEBUG", "true")
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"debug\"")
             buildConfigField("boolean", "ENABLE_STRICT_MODE", "true")
             buildConfigField("boolean", "ENABLE_LEAK_CANARY", "true")
+
+            // Prevent ProGuard issues in debug
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
-                "proguard-rules.pro"
+                "proguard-rules-debug.pro"
             )
         }
 
         release {
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
             isMinifyEnabled = true
             isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
 
             buildConfigField("boolean", "DEBUG", "false")
             buildConfigField("boolean", "DEBUG_MODE", "false")
             buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
             buildConfigField("String", "BUILD_TYPE", "\"release\"")
             buildConfigField("String", "BUILD_TIMESTAMP", "\"${System.currentTimeMillis()}\"")
+
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
 
             ndk {
                 debugSymbolLevel = "SYMBOL_TABLE"
@@ -124,8 +138,10 @@ android {
             isShrinkResources = false
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
+
             buildConfigField("boolean", "DEBUG_MODE", "true")
             buildConfigField("String", "BUILD_TYPE", "\"staging\"")
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android.txt"),
                 "proguard-rules.pro"
@@ -140,7 +156,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-
         freeCompilerArgs += listOf(
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
@@ -172,7 +187,6 @@ android {
                 "**.properties",
                 "**.bin"
             )
-
             pickFirsts += listOf(
                 "**/libc++_shared.so"
             )
@@ -197,20 +211,29 @@ android {
 dependencies {
     // BOM management
     implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.appcompat)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
-    // Core Android
+    // Core Android - Ensure lifecycle dependencies are included
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.appcompat)
+
+    // Lifecycle - CRITICAL for stability
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
     implementation(libs.androidx.lifecycle.process)
-    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.livedata.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    // Core UI
     implementation(libs.androidx.core.splashscreen)
 
     // Compose UI
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation("com.google.android.material:material:1.11.0")
     implementation(libs.androidx.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation)
@@ -221,12 +244,6 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.navigation.runtime.ktx)
-
-    // Lifecycle & ViewModel
-    implementation(libs.androidx.lifecycle.viewmodel.ktx)
-    implementation(libs.androidx.lifecycle.livedata.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
 
     // Database - Room
     implementation(libs.room.runtime)
@@ -270,12 +287,9 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.hilt.android.testing)
     kspTest(libs.hilt.compiler)
-
     testImplementation("io.mockk:mockk:1.13.8")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("junit:junit:4.13.2")
-
-
 
     // Instrumentation Testing
     androidTestImplementation(libs.androidx.junit)
