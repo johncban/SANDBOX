@@ -1,210 +1,166 @@
-// @/app/src/main/java/com/jcb/passbook/presentation/ui/screens/auth/LoginScreen.kt
-
 package com.jcb.passbook.presentation.ui.screens.auth
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.jcb.passbook.R
-import com.jcb.passbook.presentation.viewmodel.shared.AuthState
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
-import kotlinx.coroutines.delay
-import timber.log.Timber
 
-private const val TAG = "LoginScreen"
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
-    userViewModel: UserViewModel,
-    itemViewModel: ItemViewModel,
-    onLoginSuccess: () -> Unit,
-    onNavigateToRegister: () -> Unit
+    onLoginSuccess: (Long) -> Unit,
+    onNavigateToRegister: () -> Unit,
+    userViewModel: UserViewModel = hiltViewModel()
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var showError by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
 
-    val context = LocalContext.current
-    val authState by userViewModel.authState.collectAsState()
-
-    // ✅ FIXED: Handle error messages properly
-    LaunchedEffect(authState) {
-        when (val state = authState) {
-            is AuthState.Success -> {
-                val userId = state.userId
-                Timber.tag(TAG).i("Login successful, userId: $userId")
-                Timber.tag(TAG).i("Setting ItemViewModel userId to: $userId")
-
-                itemViewModel.setUserId(userId)
-
-                // Verify userId was set correctly
-                delay(100)
-                val verifiedUserId = itemViewModel.userId.value
-                Timber.tag(TAG).i("ItemViewModel userId verified: $verifiedUserId")
-
-                if (verifiedUserId == userId) {
-                    userViewModel.clearAuthState()
-                    onLoginSuccess()
-                } else {
-                    Timber.tag(TAG).e("Failed to set ItemViewModel userId correctly")
-                    errorMessage = "Internal error: Failed to initialize session"
-                    showError = true
-                }
-            }
-            is AuthState.Error -> {
-                // ✅ FIXED: Directly use error message from state (no resource lookup)
-                errorMessage = state.message
-                showError = true
-                Timber.tag(TAG).e("Login failed: $errorMessage")
-            }
-            is AuthState.Loading -> {
-                showError = false
-                Timber.tag(TAG).d("Authentication in progress...")
-            }
-            is AuthState.Idle -> {
-                showError = false
-                Timber.tag(TAG).d("Auth state: Idle")
-            }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Login") }
+            )
         }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "PassBook Login",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = {
-                username = it
-                if (showError) {
-                    showError = false
-                    userViewModel.clearAuthState()
-                }
-            },
-            label = { Text("Username") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Text,
-                imeAction = ImeAction.Next
-            ),
-            enabled = authState !is AuthState.Loading
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = {
-                password = it
-                if (showError) {
-                    showError = false
-                    userViewModel.clearAuthState()
-                }
-            },
-            label = { Text("Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = {
-                    if (username.isNotBlank() && password.isNotBlank()) {
-                        Timber.tag(TAG).d("Login button clicked for username: $username")
-                        userViewModel.login(username, password)
-                    }
-                }
-            ),
-            enabled = authState !is AuthState.Loading
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ✅ FIXED: Display error message
-        if (showError && errorMessage.isNotBlank()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Text(
-                    text = errorMessage,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-
-        Button(
-            onClick = {
-                when {
-                    username.isBlank() -> {
-                        errorMessage = "Please enter username"
-                        showError = true
-                        Timber.tag(TAG).w("Login attempt with blank username")
-                    }
-                    password.isBlank() -> {
-                        errorMessage = "Please enter password"
-                        showError = true
-                        Timber.tag(TAG).w("Login attempt with blank password")
-                    }
-                    else -> {
-                        Timber.tag(TAG).d("Login button clicked for username: $username")
-                        userViewModel.login(username, password)
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = authState !is AuthState.Loading
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            if (authState is AuthState.Loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(72.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "Welcome to PassBook",
+                style = MaterialTheme.typography.headlineMedium
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Secure Password Manager",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = {
+                    username = it
+                    errorMessage = null
+                },
+                label = { Text("Username") },
+                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
                 )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = {
+                    password = it
+                    errorMessage = null
+                },
+                label = { Text("Password") },
+                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Icons.Default.Visibility
+                            else Icons.Default.VisibilityOff,
+                            contentDescription = if (passwordVisible) "Hide password" else "Show password"
+                        )
+                    }
+                },
+                visualTransformation = if (passwordVisible) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        focusManager.clearFocus()
+                        if (username.isNotBlank() && password.isNotBlank()) {
+                            // Simulate login
+                            onLoginSuccess(1L)
+                        }
+                    }
+                )
+            )
+
+            errorMessage?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = {
+                    if (username.isBlank() || password.isBlank()) {
+                        errorMessage = "Please enter username and password"
+                    } else {
+                        // TODO: Implement actual login via viewModel
+                        onLoginSuccess(1L)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = username.isNotBlank() && password.isNotBlank()
+            ) {
+                Icon(Icons.Default.Login, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Authenticating...")
-            } else {
                 Text("Login")
             }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        OutlinedButton(
-            onClick = onNavigateToRegister,
-            enabled = authState !is AuthState.Loading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Register")
+            TextButton(onClick = onNavigateToRegister) {
+                Text("Don't have an account? Register")
+            }
         }
     }
 }

@@ -1,6 +1,5 @@
 package com.jcb.passbook
 
-import android.content.ComponentCallbacks2
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -9,14 +8,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavHostController
@@ -45,20 +46,6 @@ private const val KEY_USER_ID = "USER_ID"
 private const val KEY_IS_AUTHENTICATED = "IS_AUTHENTICATED"
 private const val KEY_CURRENT_ROUTE = "CURRENT_ROUTE"
 
-/**
- * 🔧 COMPLETELY REFACTORED MainActivity
- *
- * Key Improvements:
- * ✅ Fixed IME callback issues (from logcat error: "Ime callback not found")
- * ✅ Proper window lifecycle management (prevents rapid destroy/recreate cycles)
- * ✅ Enhanced navigation state persistence
- * ✅ Memory leak prevention with proper coroutine cleanup
- * ✅ Back press handling to prevent unintended exits
- * ✅ Removed aggressive lifecycle delay (100ms) that caused timing issues
- * ✅ Thread-safe state management
- * ✅ Proper focus management to prevent IME crashes
- * ✅ Fixed val reassignment error with mutableStateOf
- */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -74,74 +61,44 @@ class MainActivity : ComponentActivity() {
     private val userViewModel: UserViewModel by viewModels()
     private val itemViewModel: ItemViewModel by viewModels()
 
-    // State management
     private var savedUserId: Long = -1L
     private var wasAuthenticated: Boolean = false
     private var savedRoute: String? = null
     private var isAppInForeground = false
 
-    // Job tracking for proper cleanup
     private var lifecycleJob: Job? = null
     private var cleanupJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Timber.tag(TAG).d("onCreate: savedInstanceState=${savedInstanceState != null}")
+        Timber.tag(TAG).d("onCreate (savedInstanceState=${savedInstanceState != null})")
 
         try {
-            // Configure window BEFORE edge-to-edge
             configureWindowSafely()
             enableEdgeToEdge()
-
-            // Restore state first
             restoreInstanceState(savedInstanceState)
-
-            // Initialize lifecycle observation
             initializeLifecycleObserver()
 
-            // Set content immediately (no delay - causes timing issues)
-            setContent {
-                PassbookTheme {
-                    MainContainer(
-                        initialUserId = savedUserId,
-                        initialAuthenticated = wasAuthenticated,
-                        initialRoute = savedRoute,
-                        onRouteChanged = { route ->
-                            // ✅ FIX: Update class-level variable from composable callback
-                            savedRoute = route
-                        }
-                    )
-                }
+            lifecycleScope.launch {
+                delay(150)
+                initializeUI()
             }
-
-            Timber.tag(TAG).i("MainActivity created successfully")
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error in onCreate")
-            // Graceful degradation - show error UI or close
             finish()
         }
     }
 
-    /**
-     * Safe window configuration with proper error handling
-     */
     private fun configureWindowSafely() {
         try {
-            // Configure window decorations
             WindowCompat.setDecorFitsSystemWindows(window, false)
 
             window.apply {
-                // Enable hardware acceleration
                 setFlags(
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
                 )
-
-                // Proper keyboard handling (fixes IME callback issues)
-                setSoftInputMode(
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
-                            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
-                )
+                addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
 
             Timber.tag(TAG).d("Window configured successfully")
@@ -150,9 +107,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Restore saved instance state with validation
-     */
+    private fun initializeUI() {
+        setContent {
+            PassbookTheme {
+                MainContainer(
+                    initialUserId = savedUserId,
+                    initialAuthenticated = wasAuthenticated,
+                    initialRoute = savedRoute,
+                    onRouteChanged = { route ->
+                        savedRoute = route
+                    }
+                )
+            }
+        }
+        Timber.tag(TAG).i("MainActivity created successfully")
+    }
+
     private fun restoreInstanceState(savedInstanceState: Bundle?) {
         savedInstanceState?.let { bundle ->
             try {
@@ -161,7 +131,6 @@ class MainActivity : ComponentActivity() {
                 savedRoute = bundle.getString(KEY_CURRENT_ROUTE)
 
                 if (savedUserId > 0 && wasAuthenticated) {
-                    // Restore ViewModels state
                     userViewModel.setUserId(savedUserId)
                     itemViewModel.setUserId(savedUserId)
                     Timber.tag(TAG).i("State restored: userId=$savedUserId, route=$savedRoute")
@@ -172,11 +141,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Initialize lifecycle observer with proper job management
-     */
     private fun initializeLifecycleObserver() {
-        lifecycleJob?.cancel() // Cancel any existing job
+        lifecycleJob?.cancel()
         lifecycleJob = lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 isAppInForeground = true
@@ -185,10 +151,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Main container composable with enhanced state management
-     * ✅ FIX: Changed parameters to avoid val reassignment
-     */
     @Composable
     private fun MainContainer(
         initialUserId: Long,
@@ -197,28 +159,26 @@ class MainActivity : ComponentActivity() {
         onRouteChanged: (String) -> Unit
     ) {
         val navController = rememberNavController()
-
-        // ✅ FIX: Use mutableStateOf for route tracking in composable
         var currentRoute by remember { mutableStateOf(initialRoute) }
 
-        // Track lifecycle for proper cleanup
         val lifecycleOwner = LocalLifecycleOwner.current
 
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_PAUSE -> {
-                        // Clear focus to prevent IME callback issues
                         currentFocus?.clearFocus()
                     }
                     Lifecycle.Event.ON_STOP -> {
-                        // ✅ FIX: Save current navigation state using callback
                         navController.currentBackStackEntry?.destination?.route?.let { route ->
                             currentRoute = route
                             onRouteChanged(route)
                         }
                     }
-                    else -> { /* No action needed */ }
+                    Lifecycle.Event.ON_DESTROY -> {
+                        Timber.tag(TAG).d("App is being destroyed")
+                    }
+                    else -> {}
                 }
             }
 
@@ -233,18 +193,20 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            PassbookNavigation(
-                navController = navController,
-                userViewModel = userViewModel,
-                itemViewModel = itemViewModel,
-                startRoute = determineStartRoute(initialUserId, initialAuthenticated, currentRoute)
-            )
+            Scaffold(
+                modifier = Modifier.fillMaxSize()
+            ) { innerPadding ->
+                PassbookNavigation(
+                    navController = navController,
+                    userViewModel = userViewModel,
+                    itemViewModel = itemViewModel,
+                    startRoute = determineStartRoute(initialUserId, initialAuthenticated, currentRoute),
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
         }
     }
 
-    /**
-     * Determine start route based on saved state
-     */
     private fun determineStartRoute(
         savedUserId: Long,
         wasAuthenticated: Boolean,
@@ -257,25 +219,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Navigation graph with enhanced back handling
-     */
     @Composable
     private fun PassbookNavigation(
         navController: NavHostController,
         userViewModel: UserViewModel,
         itemViewModel: ItemViewModel,
-        startRoute: String
+        startRoute: String,
+        modifier: Modifier = Modifier
     ) {
-        // Handle back press for specific routes
         BackHandler(enabled = navController.currentBackStackEntry?.destination?.route == "itemList") {
-            // Double-tap to exit or show confirmation
             finish()
         }
 
         NavHost(
             navController = navController,
-            startDestination = startRoute
+            startDestination = startRoute,
+            modifier = modifier
         ) {
             composable("login") {
                 LoginScreen(
@@ -315,11 +274,10 @@ class MainActivity : ComponentActivity() {
                 val currentUserId by userViewModel.userId.collectAsState()
                 val itemUserId by itemViewModel.userId.collectAsState()
 
-                // Sync userIds when needed
                 LaunchedEffect(currentUserId) {
                     if (currentUserId != -1L && itemUserId != currentUserId) {
                         itemViewModel.setUserId(currentUserId)
-                        delay(50) // Small delay for state propagation
+                        delay(50)
                         Timber.tag(TAG).i("UserId synced: $currentUserId")
                     }
                 }
@@ -333,12 +291,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Save instance state with current navigation route
-     */
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-
         try {
             val currentUserId = userViewModel.userId.value
             val isAuthenticated = currentUserId > 0
@@ -346,7 +300,9 @@ class MainActivity : ComponentActivity() {
             if (isAuthenticated) {
                 outState.putLong(KEY_USER_ID, currentUserId)
                 outState.putBoolean(KEY_IS_AUTHENTICATED, true)
-                savedRoute?.let { outState.putString(KEY_CURRENT_ROUTE, it) }
+                savedRoute?.let {
+                    outState.putString(KEY_CURRENT_ROUTE, it)
+                }
                 Timber.tag(TAG).d("Saved state: userId=$currentUserId, route=$savedRoute")
             }
         } catch (e: Exception) {
@@ -365,12 +321,8 @@ class MainActivity : ComponentActivity() {
         Timber.tag(TAG).d("onResume")
     }
 
-    /**
-     * Properly handle pause - clear focus to prevent IME issues
-     */
     override fun onPause() {
         try {
-            // Critical fix for IME callback errors
             currentFocus?.clearFocus()
             window.decorView.clearFocus()
         } catch (e: Exception) {
@@ -379,18 +331,14 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
-    /**
-     * Handle stop with conditional GC
-     */
     override fun onStop() {
         super.onStop()
         isAppInForeground = false
 
-        // Only GC when truly backgrounded (not on config changes)
         if (!isChangingConfigurations && !isFinishing) {
             cleanupJob?.cancel()
             cleanupJob = lifecycleScope.launch(Dispatchers.IO) {
-                delay(500) // Delay to avoid aggressive GC
+                delay(500)
                 memoryManager.requestGarbageCollection()
             }
         }
@@ -398,26 +346,21 @@ class MainActivity : ComponentActivity() {
         Timber.tag(TAG).d("onStop")
     }
 
-    /**
-     * Proper cleanup on destroy
-     */
     override fun onDestroy() {
+        super.onDestroy()
+
         Timber.tag(TAG).d("onDestroy - isFinishing=$isFinishing, isChangingConfigurations=$isChangingConfigurations")
 
         try {
-            // Clear focus before destruction
             currentFocus?.clearFocus()
-
-            // Cancel all jobs
             lifecycleJob?.cancel()
             cleanupJob?.cancel()
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-            // Only perform cleanup if truly finishing
             if (isFinishing) {
                 lifecycleScope.launch(Dispatchers.IO) {
                     try {
                         sessionManager.endSession("Activity destroyed")
-                        // Database cleanup handled by Hilt
                     } catch (e: Exception) {
                         Timber.tag(TAG).e(e, "Error during cleanup")
                     }
@@ -426,36 +369,5 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error in onDestroy")
         }
-
-        super.onDestroy()
-    }
-
-    /**
-     * Handle memory pressure
-     */
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-
-        when (level) {
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
-            ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    memoryManager.requestGarbageCollection()
-                }
-                Timber.tag(TAG).w("Memory trim requested: level=$level")
-            }
-        }
-    }
-
-    /**
-     * Handle low memory situations
-     */
-    override fun onLowMemory() {
-        super.onLowMemory()
-        lifecycleScope.launch(Dispatchers.IO) {
-            memoryManager.requestGarbageCollection()
-        }
-        Timber.tag(TAG).w("Low memory warning")
     }
 }
