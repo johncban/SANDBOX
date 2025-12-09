@@ -39,6 +39,7 @@ class SessionManager @Inject constructor(
         private const val TAG = "SessionManager"
     }
 
+    // Instance variables (NOT companion object variables)
     private var amk: ByteArray? = null
     private var esk: ByteArray? = null
     private var sessionId: String? = null
