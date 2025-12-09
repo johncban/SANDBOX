@@ -1,11 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material color palette -->
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <!-- Material 3 Color Palette (Light Mode Default) -->
+    <color name="material_primary">#32708D</color>
+    <color name="material_on_primary">#FFFFFF</color>
+    <color name="material_primary_container">#B4E7FF</color>
+    <color name="material_on_primary_container">#001F2E</color>
+
+    <color name="material_secondary">#5E5260</color>
+    <color name="material_on_secondary">#FFFFFF</color>
+    <color name="material_secondary_container">#E7DAE8</color>
+    <color name="material_on_secondary_container">#19101B</color>
+
+    <color name="material_tertiary">#7D5260</color>
+    <color name="material_on_tertiary">#FFFFFF</color>
+    <color name="material_tertiary_container">#FFD8E4</color>
+    <color name="material_on_tertiary_container">#31101D</color>
+
+    <color name="material_error">#B3261E</color>
+    <color name="material_on_error">#FFFFFF</color>
+    <color name="material_error_container">#F9DEDC</color>
+    <color name="material_on_error_container">#410E0B</color>
+
+    <color name="material_background">#FFFBFE</color>
+    <color name="material_on_background">#1C1B1F</color>
+
+    <color name="material_surface">#FFFBFE</color>
+    <color name="material_on_surface">#1C1B1F</color>
+    <color name="material_surface_variant">#E7E0EC</color>
+    <color name="material_on_surface_variant">#49454E</color>
+
+    <!-- Passbook Custom Colors -->
+    <color name="passbook_teal_500">#218084</color>
+    <color name="passbook_teal_600">#1C7478</color>
 </resources>

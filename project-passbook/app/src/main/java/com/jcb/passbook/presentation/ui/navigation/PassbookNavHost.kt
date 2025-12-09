@@ -17,6 +17,15 @@ import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.screens.settings.SettingsScreen
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 
+object Routes {
+    const val LOGIN = "login"
+    const val REGISTER = "register"
+    const val HOME = "home"
+    const val ITEM_LIST = "item_list"
+    const val ITEM_DETAIL = "item_detail"
+    const val SETTINGS = "settings"
+}
+
 @Composable
 fun PassbookNavHost(
     modifier: Modifier = Modifier,
@@ -25,17 +34,13 @@ fun PassbookNavHost(
 ) {
     val authState by userViewModel.authState.collectAsStateWithLifecycle()
 
-    val startDestination = when {
-        authState.isAuthenticated -> Routes.HOME
-        else -> Routes.LOGIN
-    }
+    val startDestination = if (authState.isAuthenticated) Routes.HOME else Routes.LOGIN
 
     NavHost(
         navController = navController,
         startDestination = startDestination,
         modifier = modifier
     ) {
-        // Authentication Routes
         composable(Routes.LOGIN) {
             LoginScreen(
                 onLoginSuccess = { _ ->
@@ -62,7 +67,6 @@ fun PassbookNavHost(
             )
         }
 
-        // Main App Routes
         composable(Routes.HOME) {
             HomeScreen(
                 onNavigateToItemList = {
@@ -97,6 +101,7 @@ fun PassbookNavHost(
         composable("${Routes.ITEM_DETAIL}/{itemId}") { backStackEntry ->
             val itemIdString = backStackEntry.arguments?.getString("itemId")
             val itemId = itemIdString?.toLongOrNull()
+
             ItemDetailScreen(
                 itemId = if (itemId == 0L) null else itemId,
                 onSaveSuccess = {
@@ -122,13 +127,4 @@ fun PassbookNavHost(
             )
         }
     }
-}
-
-object Routes {
-    const val LOGIN = "login"
-    const val REGISTER = "register"
-    const val HOME = "home"
-    const val ITEM_LIST = "item_list"
-    const val ITEM_DETAIL = "item_detail"
-    const val SETTINGS = "settings"
 }
