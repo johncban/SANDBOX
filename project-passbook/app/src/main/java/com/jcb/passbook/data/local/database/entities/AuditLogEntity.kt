@@ -52,33 +52,3 @@ data class AuditLogEntity(
     @ColumnInfo(name = "device_info")
     val deviceInfo: String? = null
 )
-
-/**
- * Enum representing different types of audit events.
- */
-enum class AuditEventType {
-    SYSTEM_START,
-    USER_LOGIN,
-    USER_LOGOUT,
-    USER_REGISTER,
-    ITEM_CREATE,
-    ITEM_UPDATE,
-    ITEM_DELETE,
-    ITEM_VIEW,
-    PASSWORD_CHANGE,
-    SECURITY_CHECK,
-    DATABASE_ACCESS,
-    ENCRYPTION_OPERATION,
-    FAILED_LOGIN,
-    SESSION_EXPIRED
-}
-
-/**
- * Enum representing the outcome of audit events.
- */
-enum class AuditOutcome {
-    SUCCESS,
-    FAILURE,
-    WARNING,
-    INFO
-}

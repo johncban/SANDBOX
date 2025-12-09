@@ -1,115 +1,63 @@
 package com.jcb.passbook.core.di
 
-import android.content.Context
-import com.jcb.passbook.data.local.database.AppDatabase
-import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
-import com.jcb.passbook.data.local.database.dao.CategoryDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
-import com.jcb.passbook.data.repository.AuditRepository
 import com.jcb.passbook.data.repository.ItemRepository
 import com.jcb.passbook.data.repository.UserRepository
 import com.lambdapioneer.argon2kt.Argon2Kt
-import com.jcb.passbook.security.crypto.CryptoManager
-import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import javax.inject.Singleton
+
+private const val TAG = "AppModule"
 
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    // ========== COROUTINE SCOPE ==========
-    @Provides
-    @Singleton
-    fun provideApplicationScope(): CoroutineScope {
-        return CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    }
-
-    // ========== CRYPTOGRAPHY PROVIDERS ==========
+    // ══════════════════════════════════════════════════════════════
+    // ✅ CRITICAL FIX: Argon2Kt Provider
+    // Resolves: [Dagger/MissingBinding]
+    // com.lambdapioneer.argon2kt.Argon2Kt cannot be provided
+    // ══════════════════════════════════════════════════════════════
+    /**
+     * Provides singleton instance of Argon2Kt for password hashing
+     * Required by: UserViewModel for secure Argon2id password hashing
+     *
+     * ✅ This function MUST exist - it's required by UserViewModel
+     */
     @Provides
     @Singleton
     fun provideArgon2Kt(): Argon2Kt {
+        Timber.tag(TAG).d("Providing Argon2Kt instance")
         return Argon2Kt()
     }
 
-    @Provides
-    @Singleton
-    fun provideCryptoManager(): CryptoManager {
-        return CryptoManager()
-    }
-
-    // ========== DATABASE ==========
-    // ✅ CRITICAL FIX: Inject DatabaseKeyManager from SecurityModule
-    @Provides
-    @Singleton
-    fun provideAppDatabase(
-        @ApplicationContext context: Context,
-        databaseKeyManager: DatabaseKeyManager  // ✅ Injected from SecurityModule
-    ): AppDatabase {
-        return runBlocking {
-            try {
-                val database = AppDatabase.createWithKeyManager(context, databaseKeyManager)
-                database ?: throw IllegalStateException("Failed to initialize encrypted database")
-            } catch (e: Exception) {
-                Timber.e(e, "Critical: Database initialization failed")
-                throw e
-            }
-        }
-    }
-
-    // ========== DAOs ==========
-    @Provides
-    fun provideUserDao(database: AppDatabase): UserDao {
-        return database.userDao()
-    }
-
-    @Provides
-    fun provideItemDao(database: AppDatabase): ItemDao {
-        return database.itemDao()
-    }
-
-    @Provides
-    fun provideCategoryDao(database: AppDatabase): CategoryDao {
-        return database.categoryDao()
-    }
-
-    @Provides
-    fun provideAuditDao(database: AppDatabase): AuditDao {
-        return database.auditDao()
-    }
-
-    @Provides
-    fun provideAuditMetadataDao(database: AppDatabase): AuditMetadataDao {
-        return database.auditMetadataDao()
-    }
-
-    // ========== REPOSITORIES ==========
-    @Provides
-    @Singleton
-    fun provideUserRepository(userDao: UserDao): UserRepository {
-        return UserRepository(userDao)
-    }
-
+    // ══════════════════════════════════════════════════════════════
+    // Repository Providers
+    // ══════════════════════════════════════════════════════════════
+    /**
+     * Provides singleton ItemRepository for item data operations
+     * Handles all CRUD operations for vault items (passwords, notes, etc.)
+     */
     @Provides
     @Singleton
     fun provideItemRepository(itemDao: ItemDao): ItemRepository {
+        Timber.tag(TAG).d("Providing ItemRepository")
         return ItemRepository(itemDao)
     }
 
+    /**
+     * Provides singleton UserRepository for user data operations
+     * Handles all CRUD operations for user accounts and credentials
+     */
     @Provides
     @Singleton
-    fun provideAuditRepository(auditDao: AuditDao): AuditRepository {
-        return AuditRepository(auditDao)
+    fun provideUserRepository(userDao: UserDao): UserRepository {
+        Timber.tag(TAG).d("Providing UserRepository")
+        return UserRepository(userDao)
     }
 }

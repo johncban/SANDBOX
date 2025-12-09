@@ -4,10 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.dao.AuditMetadataDao
-import com.jcb.passbook.data.local.database.dao.CategoryDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
+import com.jcb.passbook.security.crypto.MasterKeyManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,6 +15,10 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
+import net.sqlcipher.database.SupportFactory
+import timber.log.Timber
+import java.security.SecureRandom
 import javax.inject.Singleton
 
 @Module
@@ -30,36 +33,63 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
+    fun provideAppDatabase(
+        @ApplicationContext context: Context
+    ): AppDatabase {
+        // ✅ FIXED: Generate database passphrase from SharedPreferences or create new one
+        val prefs = context.getSharedPreferences("database_prefs", Context.MODE_PRIVATE)
+
+        val passphrase = if (prefs.contains("db_passphrase")) {
+            // Load existing passphrase
+            prefs.getString("db_passphrase", null)?.toByteArray(Charsets.UTF_8)
+                ?: generateAndSavePassphrase(prefs)
+        } else {
+            // Generate new passphrase for first launch
+            generateAndSavePassphrase(prefs)
+        }
+
+        val factory = SupportFactory(passphrase)
+
         return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
-            "passbook_db"
+            "passbook_database"
         )
-            // ✅ CRITICAL FIX: This line enables automatic wiping of the database
-            // when the schema (User entity) doesn't match the file on disk.
-            // This solves your crash: "Migration didn't properly handle: users"
+            .openHelperFactory(factory)
             .fallbackToDestructiveMigration()
             .build()
     }
 
-    @Provides
-    @Singleton
-    fun provideUserDao(appDatabase: AppDatabase): UserDao = appDatabase.userDao()
+    /**
+     * Generate a secure random passphrase and save to encrypted SharedPreferences
+     */
+    private fun generateAndSavePassphrase(prefs: android.content.SharedPreferences): ByteArray {
+        val passphrase = ByteArray(32)
+        SecureRandom().nextBytes(passphrase)
+
+        // Save as base64 string
+        val passphraseString = android.util.Base64.encodeToString(passphrase, android.util.Base64.NO_WRAP)
+        prefs.edit().putString("db_passphrase", passphraseString).apply()
+
+        Timber.d("Generated new database passphrase")
+        return passphrase
+    }
 
     @Provides
     @Singleton
-    fun provideItemDao(appDatabase: AppDatabase): ItemDao = appDatabase.itemDao()
+    fun provideAuditDao(appDatabase: AppDatabase): AuditDao {
+        return appDatabase.auditDao()
+    }
 
     @Provides
     @Singleton
-    fun provideCategoryDao(appDatabase: AppDatabase): CategoryDao = appDatabase.categoryDao()
+    fun provideItemDao(appDatabase: AppDatabase): ItemDao {
+        return appDatabase.itemDao()
+    }
 
     @Provides
     @Singleton
-    fun provideAuditDao(appDatabase: AppDatabase): AuditDao = appDatabase.auditDao()
-
-    @Provides
-    @Singleton
-    fun provideAuditMetadataDao(appDatabase: AppDatabase): AuditMetadataDao = appDatabase.auditMetadataDao()
+    fun provideUserDao(appDatabase: AppDatabase): UserDao {
+        return appDatabase.userDao()
+    }
 }

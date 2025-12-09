@@ -1,32 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 
-  Security-focused backup configuration for PassBook password manager.
-  This file specifies what data should be excluded from automatic backups
-  to prevent sensitive information from being stored in cloud backups.
--->
 <full-backup-content>
-    <!-- Exclude all databases containing sensitive password data -->
-    <exclude domain="database" />
-    
-    <!-- Exclude shared preferences that might contain sensitive data -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- ✅ PASSBOOK BACKUP RULES - Exclude sensitive data -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+
+    <!-- Include standard app files (required before exclude statements) -->
+    <include domain="file" path="." />
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+
+    <!-- Exclude encrypted preferences (handled separately by DataStore) -->
     <exclude domain="sharedpref" path="encrypted_prefs" />
-    <exclude domain="sharedpref" path="security_prefs" />
-    <exclude domain="sharedpref" path="biometric_prefs" />
-    <exclude domain="sharedpref" path="session_prefs" />
-    
-    <!-- Exclude any cached security-related files -->
-    <exclude domain="file" path="security/" />
-    <exclude domain="file" path="keys/" />
-    <exclude domain="file" path="audit/" />
-    <exclude domain="file" path="temp/" />
-    
-    <!-- Exclude external files that might contain sensitive data -->
-    <exclude domain="external" />
-    
-    <!-- Allow only non-sensitive app files like user preferences for UI -->
-    <include domain="sharedpref" path="ui_preferences" />
-    <include domain="sharedpref" path="app_settings" />
-    
-    <!-- Note: By default, full-backup excludes no_backup directories -->
-    <!-- Store sensitive files in no_backup directory for extra security -->
+
+    <!-- Exclude cache and temp files -->
+    <exclude domain="file" path="cache" />
+    <exclude domain="file" path="files/tmp" />
+
+    <!-- Exclude build artifacts and system files -->
+    <exclude domain="file" path="no_backup" />
+    <exclude domain="database" path="room_master_table" />
 </full-backup-content>

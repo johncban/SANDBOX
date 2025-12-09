@@ -12,7 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 class AuditLogger(
-    private val context: Context, // Ensure this exists!
+    private val context: Context,
     private val auditQueueProvider: () -> AuditQueue,
     private val auditChainManagerProvider: () -> AuditChainManager,
     private val applicationScope: CoroutineScope
@@ -20,7 +20,6 @@ class AuditLogger(
     // ✅ FIX: Lazy initialization from providers
     private val auditQueue: AuditQueue? by lazy { auditQueueProvider() }
     private val auditChainManager: AuditChainManager? by lazy { auditChainManagerProvider() }
-
     private val auditScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Log user action */
@@ -143,7 +142,7 @@ class AuditLogger(
     /** Log application lifecycle events */
     fun logAppLifecycle(
         action: String,
-        metadata: Map<String, String>
+        metadata: Map<String, Any>
     ) {
         auditScope.launch {
             try {
@@ -339,8 +338,9 @@ class AuditLogger(
     fun logItemViewed(userId: Long, username: String, itemId: Long) =
         logUserAction(userId, username, AuditEventType.VIEW_ITEM, "Item viewed", "ITEM", itemId.toString(), AuditOutcome.SUCCESS)
 
+    // ✅ FIXED: Changed AuditOutcome.ERROR to AuditOutcome.FAILURE (line 343)
     fun logSecurityBreach(message: String, severity: String = "CRITICAL") =
-        logSecurityEvent(message, severity, AuditOutcome.ERROR, errorMessage = "Security breach detected")
+        logSecurityEvent(message, severity, AuditOutcome.FAILURE, errorMessage = "Security breach detected")
 
     fun logAccessDenied(userId: Long?, username: String, resource: String, reason: String) =
         logUserAction(userId, username, AuditEventType.ACCESS_DENIED, "Access denied to $resource", "SECURITY", resource, AuditOutcome.FAILURE, reason, "HIGH")
