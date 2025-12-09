@@ -13,7 +13,7 @@ import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.security.audit.AuditChainManager
 import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.audit.AuditQueue
-import com.jcb.passbook.security.audit.JournalManager
+import com.jcb.passbook.security.audit.AuditJournalManager
 import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import com.jcb.passbook.security.crypto.MasterKeyManager
@@ -37,7 +37,6 @@ import javax.inject.Singleton
 object AppModule {
 
     // ========== COROUTINE SCOPE ==========
-
     @Provides
     @Singleton
     fun provideApplicationScope(): CoroutineScope {
@@ -45,7 +44,6 @@ object AppModule {
     }
 
     // ========== CRYPTOGRAPHY PROVIDERS ==========
-
     @Provides
     @Singleton
     fun provideArgon2Kt(): Argon2Kt {
@@ -76,14 +74,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideCryptoManager(
-        @ApplicationContext context: Context
-    ): CryptoManager {
-        return CryptoManager(context)
+    fun provideCryptoManager(): CryptoManager {
+        return CryptoManager()
     }
 
     // ========== DATABASE ==========
-
     @Provides
     @Singleton
     fun provideAppDatabase(
@@ -102,7 +97,6 @@ object AppModule {
     }
 
     // ========== DAOs ==========
-
     @Provides
     fun provideUserDao(database: AppDatabase): UserDao {
         return database.userDao()
@@ -129,67 +123,68 @@ object AppModule {
     }
 
     // ========== AUDIT SYSTEM ==========
-
     @Provides
     @Singleton
-    fun provideJournalManager(
+    fun provideAuditJournalManager(
         @ApplicationContext context: Context
-    ): JournalManager {
-        return JournalManager(context)
+    ): AuditJournalManager {
+        return AuditJournalManager(context)
     }
 
+    // ✅ FIX: AuditQueue - needs auditDao
     @Provides
     @Singleton
     fun provideAuditQueue(
         auditDao: AuditDao,
-        journalManager: JournalManager
+        auditJournalManager: AuditJournalManager
     ): AuditQueue {
-        return AuditQueue(auditDao, journalManager)
+        return AuditQueue(auditDao, auditJournalManager)
     }
 
+    // ✅ FIX: AuditChainManager - only takes auditDao
     @Provides
     @Singleton
     fun provideAuditChainManager(
-        auditMetadataDao: AuditMetadataDao,
-        applicationScope: CoroutineScope
+        auditDao: AuditDao
     ): AuditChainManager {
-        return AuditChainManager(auditMetadataDao, applicationScope)
+        return AuditChainManager(auditDao)
     }
 
+    // ✅ CRITICAL FIX: AuditLogger constructor - add secureMemoryUtils parameter
     @Provides
     @Singleton
     fun provideAuditLogger(
         @ApplicationContext context: Context,
-        auditQueue: AuditQueue,
-        auditChainManager: AuditChainManager,
-        applicationScope: CoroutineScope
+        auditQueueProvider: () -> AuditQueue,  // ✅ Provider function
+        auditChainManagerProvider: () -> AuditChainManager,  // ✅ Provider function
+        applicationScope: CoroutineScope,  // ✅ Direct parameter
+        secureMemoryUtils: SecureMemoryUtils  // ✅ CRITICAL: Direct parameter
     ): AuditLogger {
         return AuditLogger(
             context = context,
-            auditQueueProvider = { auditQueue },
-            auditChainManagerProvider = { auditChainManager },
-            applicationScope = applicationScope
+            auditQueueProvider = auditQueueProvider,  // ✅ Pass provider directly
+            auditChainManagerProvider = auditChainManagerProvider,  // ✅ Pass provider directly
+            applicationScope = applicationScope,  // ✅ Direct parameter
+            secureMemoryUtils = secureMemoryUtils  // ✅ CRITICAL: Pass direct
         )
     }
 
-    // ========== SESSION MANAGEMENT ==========
-
+    // ✅ CRITICAL FIX: SessionManager constructor - add secureMemoryUtils parameter
     @Provides
     @Singleton
     fun provideSessionManager(
         masterKeyManager: MasterKeyManager,
-        auditLogger: AuditLogger,
-        secureMemoryUtils: SecureMemoryUtils
+        auditLoggerProvider: () -> AuditLogger,  // ✅ Provider function
+        secureMemoryUtils: SecureMemoryUtils  // ✅ CRITICAL: Direct parameter
     ): SessionManager {
         return SessionManager(
             masterKeyManager = masterKeyManager,
-            auditLoggerProvider = { auditLogger },
-            secureMemoryUtils = secureMemoryUtils
+            auditLoggerProvider = auditLoggerProvider,  // ✅ Pass provider directly
+            secureMemoryUtils = secureMemoryUtils  // ✅ CRITICAL: Pass direct
         )
     }
 
     // ========== REPOSITORIES ==========
-
     @Provides
     @Singleton
     fun provideUserRepository(userDao: UserDao): UserRepository {
