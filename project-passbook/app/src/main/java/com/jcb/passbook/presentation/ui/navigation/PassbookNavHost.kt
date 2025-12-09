@@ -15,6 +15,7 @@ import com.jcb.passbook.presentation.ui.screens.home.HomeScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemDetailScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.screens.settings.SettingsScreen
+import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 
 object Routes {
@@ -34,7 +35,9 @@ fun PassbookNavHost(
 ) {
     val authState by userViewModel.authState.collectAsStateWithLifecycle()
 
-    val startDestination = if (authState.isAuthenticated) Routes.HOME else Routes.LOGIN
+    // Check if user is authenticated by examining AuthState
+    val startDestination = if (authState is AuthState.Success) Routes.HOME else Routes.LOGIN
+
 
     NavHost(
         navController = navController,

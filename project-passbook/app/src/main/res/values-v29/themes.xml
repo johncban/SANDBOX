@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Passbook" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Inherit all colors from base theme -->
+
         <!-- Primary colors -->
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorOnPrimary">@color/white</item>
@@ -18,14 +20,14 @@
         <item name="colorSurface">@color/white</item>
         <item name="colorOnSurface">@color/black</item>
 
-        <!-- Status bar -->
+        <!-- Status bar - transparent with edge-to-edge -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
 
-        <!-- Navigation bar -->
+        <!-- Navigation bar - transparent with edge-to-edge -->
         <item name="android:navigationBarColor">@android:color/transparent</item>
 
-        <!-- API 29+ specific attributes -->
+        <!-- API 29+ specific: Edge-to-edge system bars -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
         <item name="android:enforceNavigationBarContrast">false</item>
         <item name="android:enforceStatusBarContrast">false</item>

@@ -8,7 +8,9 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
 }
 
+// ══════════════════════════════════════════════════════════════
 // ✅ CRITICAL FIX: Force consistent lifecycle versions
+// ══════════════════════════════════════════════════════════════
 configurations.all {
     resolutionStrategy {
         // Force lifecycle version 2.8.7 across ALL dependencies
@@ -70,6 +72,7 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
+
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -111,18 +114,24 @@ android {
 }
 
 dependencies {
-    // ========== LIFECYCLE - FORCED VERSION 2.8.7 ==========
+    // ══════════════════════════════════════════════════════════════
+    // LIFECYCLE - FORCED VERSION 2.8.7
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.7")
 
-    // ========== CORE ANDROID ==========
+    // ══════════════════════════════════════════════════════════════
+    // CORE ANDROID
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.activity:activity-compose:1.9.0")
 
-    // ========== COMPOSE BOM ==========
+    // ══════════════════════════════════════════════════════════════
+    // COMPOSE BOM
+    // ══════════════════════════════════════════════════════════════
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -132,21 +141,34 @@ dependencies {
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.compose.runtime:runtime-livedata")
 
-    // ========== NAVIGATION ==========
+    // ══════════════════════════════════════════════════════════════
+    // ✅ MATERIAL COMPONENTS - REQUIRED FOR XML THEMES
+    // ══════════════════════════════════════════════════════════════
+    implementation("com.google.android.material:material:1.11.0")
+
+    // ══════════════════════════════════════════════════════════════
+    // NAVIGATION
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // ========== HILT DEPENDENCY INJECTION ==========
+    // ══════════════════════════════════════════════════════════════
+    // HILT DEPENDENCY INJECTION
+    // ══════════════════════════════════════════════════════════════
     implementation("com.google.dagger:hilt-android:2.50")
     ksp("com.google.dagger:hilt-android-compiler:2.50")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
-    // ========== ROOM DATABASE ==========
+    // ══════════════════════════════════════════════════════════════
+    // ROOM DATABASE
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
-    // ========== SECURITY ==========
+    // ══════════════════════════════════════════════════════════════
+    // SECURITY & CRYPTOGRAPHY
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.biometric:biometric:1.1.0")
 
@@ -154,23 +176,38 @@ dependencies {
     implementation("net.zetetic:android-database-sqlcipher:4.5.4")
     implementation("androidx.sqlite:sqlite-ktx:2.4.0")
 
-    // ========== KOTLIN COROUTINES ==========
+    // ✅ CRITICAL: Argon2 Password Hashing Library
+    implementation("com.lambdapioneer.argon2kt:argon2kt:1.3.0")
+
+    // ══════════════════════════════════════════════════════════════
+    // KOTLIN COROUTINES
+    // ══════════════════════════════════════════════════════════════
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 
-    // ========== SERIALIZATION ==========
+    // ══════════════════════════════════════════════════════════════
+    // SERIALIZATION
+    // ══════════════════════════════════════════════════════════════
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 
-    // ========== DATA STORE ==========
+    // ══════════════════════════════════════════════════════════════
+    // DATA STORE
+    // ══════════════════════════════════════════════════════════════
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
-    // ========== LOGGING ==========
+    // ══════════════════════════════════════════════════════════════
+    // LOGGING
+    // ══════════════════════════════════════════════════════════════
     implementation("com.jakewharton.timber:timber:5.0.1")
 
-    // ========== LEAK CANARY (DEBUG ONLY) ==========
+    // ══════════════════════════════════════════════════════════════
+    // LEAK CANARY (DEBUG ONLY)
+    // ══════════════════════════════════════════════════════════════
     debugImplementation("com.squareup.leakcanary:leakcanary-android:2.12")
 
-    // ========== TESTING ==========
+    // ══════════════════════════════════════════════════════════════
+    // TESTING
+    // ══════════════════════════════════════════════════════════════
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
@@ -181,7 +218,9 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
-    // ========== DEBUG DEPENDENCIES ==========
+    // ══════════════════════════════════════════════════════════════
+    // DEBUG DEPENDENCIES
+    // ══════════════════════════════════════════════════════════════
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
