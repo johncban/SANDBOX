@@ -34,10 +34,8 @@ fun PassbookNavHost(
     userViewModel: UserViewModel = hiltViewModel()
 ) {
     val authState by userViewModel.authState.collectAsStateWithLifecycle()
-
     // Check if user is authenticated by examining AuthState
     val startDestination = if (authState is AuthState.Success) Routes.HOME else Routes.LOGIN
-
 
     NavHost(
         navController = navController,
@@ -87,16 +85,20 @@ fun PassbookNavHost(
             )
         }
 
+        // ✅ FIXED: Updated parameter names to match ItemListScreen
         composable(Routes.ITEM_LIST) {
             ItemListScreen(
-                onItemClick = { itemId ->
-                    navController.navigate("${Routes.ITEM_DETAIL}/$itemId")
+                onItemClick = { item ->  // ✅ FIXED: Receives Item object
+                    navController.navigate("${Routes.ITEM_DETAIL}/${item.id}")
                 },
-                onAddNewItem = {
+                onAddItem = {  // ✅ FIXED: was "onAddNewItem"
                     navController.navigate("${Routes.ITEM_DETAIL}/0")
                 },
-                onBackClick = {
-                    navController.popBackStack()
+                onLogout = {  // ✅ FIXED: was "onBackClick"
+                    userViewModel.logout()
+                    navController.navigate(Routes.LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                    }
                 }
             )
         }
@@ -104,7 +106,6 @@ fun PassbookNavHost(
         composable("${Routes.ITEM_DETAIL}/{itemId}") { backStackEntry ->
             val itemIdString = backStackEntry.arguments?.getString("itemId")
             val itemId = itemIdString?.toLongOrNull()
-
             ItemDetailScreen(
                 itemId = if (itemId == 0L) null else itemId,
                 onSaveSuccess = {

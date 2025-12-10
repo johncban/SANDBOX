@@ -21,17 +21,25 @@ import com.lambdapioneer.argon2kt.Argon2Version
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
-import javax.inject.Inject
 import java.util.Arrays
+import javax.inject.Inject
 
 private const val TAG = "UserViewModel"
 
+/**
+ * Sealed Interfaces for State Management
+ */
 sealed interface AuthState {
     object Idle : AuthState
     object Loading : AuthState
@@ -53,6 +61,9 @@ sealed interface KeyRotationState {
     data class Error(val message: String) : KeyRotationState
 }
 
+/**
+ * UserViewModel - Production-Ready Implementation with Compatibility Methods
+ */
 @HiltViewModel
 class UserViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -64,6 +75,9 @@ class UserViewModel @Inject constructor(
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
+    /**
+     * State Flows
+     */
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState = _authState.asStateFlow()
 
@@ -73,19 +87,103 @@ class UserViewModel @Inject constructor(
     private val _userId = MutableStateFlow(-1L)
     val userId = _userId.asStateFlow()
 
-    // ✅ FIX: Expose currentUserId (alias to userId for compatibility)
-    val currentUserId = _userId.asStateFlow()
-
     private val _keyRotationState = MutableStateFlow<KeyRotationState>(KeyRotationState.Idle)
     val keyRotationState = _keyRotationState.asStateFlow()
 
+    /**
+     * Compatibility property: Exposes userId as Int StateFlow for screens expecting Int
+     */
+    val currentUserId: StateFlow<Int> = userId.map { it.toInt() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, -1)
+
     init {
         Timber.tag(TAG).d("UserViewModel initialized")
+        // Load the current user ID immediately
+        loadCurrentUserId()
     }
+
+    /**
+     * NEW: Load the current user ID from UserRepository/DataStore
+     */
+    private fun loadCurrentUserId() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Try to get stored user ID from repository
+                userRepository.getCurrentUserId().collect { storedUserId ->
+                    if (storedUserId > 0) {
+                        _userId.value = storedUserId.toLong()
+                        Timber.tag(TAG).d("Loaded userId from DataStore: $storedUserId")
+                    } else {
+                        // No user stored, check if any user exists in database
+                        val existingUser = userDao.getAllUsers().firstOrNull()
+                        if (existingUser != null) {
+                            // Found a user in database, set it as current
+                            _userId.value = existingUser.id
+                            userRepository.setCurrentUserId(existingUser.id.toInt())
+                            Timber.tag(TAG).i("Found existing user in database, set as current: ${existingUser.id}")
+                        } else {
+                            _userId.value = -1L
+                            Timber.tag(TAG).d("No user found in DataStore or database")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error loading current user ID")
+                _userId.value = -1L
+            }
+        }
+    }
+
+    /**
+     * COMPATIBILITY METHODS for ItemListScreen and AddItemScreen
+     */
+
+    /**
+     * Get current user ID as Flow<Int> for compatibility with screens expecting Int
+     */
+    fun getCurrentUserId(): Flow<Int> {
+        return userId.map { it.toInt() }
+    }
+
+    /**
+     * Set current user ID from Int parameter (compatibility method)
+     */
+    fun setCurrentUserId(userId: Int) {
+        setUserId(userId.toLong())
+        // Also persist to DataStore
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                userRepository.setCurrentUserId(userId)
+                Timber.tag(TAG).d("Persisted userId to DataStore: $userId")
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error persisting userId to DataStore")
+            }
+        }
+    }
+
+    /**
+     * Clear current user ID (compatibility method - calls logout)
+     */
+    fun clearCurrentUserId() {
+        logout()
+    }
+
+    /**
+     * Check if a valid user is logged in
+     */
+    fun isUserLoggedIn(): Boolean {
+        val loggedIn = _userId.value > 0
+        Timber.tag(TAG).d("isUserLoggedIn: $loggedIn (userId: ${_userId.value})")
+        return loggedIn
+    }
+
+    /**
+     * EXISTING PUBLIC STATE MANAGEMENT FUNCTIONS
+     */
 
     fun setUserId(userId: Long) {
         _userId.value = userId
-        Timber.tag(TAG).d("✅ UserId set to: $userId")
+        Timber.tag(TAG).d("UserId set to: $userId")
     }
 
     fun clearAuthState() {
@@ -103,6 +201,9 @@ class UserViewModel @Inject constructor(
         Timber.tag(TAG).d("Key rotation state cleared")
     }
 
+    /**
+     * Base64 Encoding/Decoding Helper Functions
+     */
     private fun ByteArray.toBase64(): String {
         return Base64.encodeToString(this, Base64.NO_WRAP)
     }
@@ -111,6 +212,9 @@ class UserViewModel @Inject constructor(
         return Base64.decode(this, Base64.NO_WRAP)
     }
 
+    /**
+     * Password Hashing Functions (Argon2id)
+     */
     private fun hashPassword(password: String, salt: ByteArray): ByteArray {
         val hashResult = argon2Kt.hash(
             mode = Argon2Mode.ARGON2_ID,
@@ -136,36 +240,47 @@ class UserViewModel @Inject constructor(
         return Arrays.equals(storedHash, hashToCompare)
     }
 
+    /**
+     * Login Function with Comprehensive Error Handling
+     */
     fun login(username: String, password: String) {
-        Timber.tag(TAG).d("Login attempt for username: '$username'")
+        Timber.tag(TAG).d("Login attempt for username: $username")
 
+        // Pre-validation
         if (username.isBlank() || password.isBlank()) {
-            Timber.tag(TAG).w("Login failed: Empty credentials")
+            Timber.tag(TAG).w("Login failed: Empty credentials provided")
             auditLogger.logAuthentication(
                 username = username.takeIf { it.isNotBlank() } ?: "UNKNOWN",
                 eventType = AuditEventType.AUTHENTICATION_FAILURE,
                 outcome = AuditOutcome.FAILURE,
-                errorMessage = "Empty credentials"
+                errorMessage = "Empty credentials provided"
             )
             _authState.value = AuthState.Error("Username and password cannot be empty")
             return
         }
 
         _authState.value = AuthState.Loading
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                Timber.tag(TAG).d("Querying database for user: '$username'")
+                Timber.tag(TAG).d("Querying database for user: $username")
                 val user = userRepository.getUserByUsername(username)
 
                 if (user != null) {
-                    Timber.tag(TAG).d("User found, verifying password...")
+                    Timber.tag(TAG).d("User found in database, verifying password...")
+
                     val storedHashBytes = user.passwordHash.fromBase64()
                     val storedSaltBytes = user.salt.fromBase64()
                     val passwordValid = verifyPassword(password, storedHashBytes, storedSaltBytes)
 
                     if (passwordValid) {
-                        Timber.tag(TAG).i("✓ Login successful for user: ${user.username} (ID: ${user.id})")
+                        // SUCCESS
+                        Timber.tag(TAG).i("Login successful for user: ${user.username} (ID: ${user.id})")
                         _userId.value = user.id
+
+                        // Persist to DataStore
+                        userRepository.setCurrentUserId(user.id.toInt())
+
                         auditLogger.logAuthentication(
                             username = user.username,
                             eventType = AuditEventType.LOGIN,
@@ -173,7 +288,8 @@ class UserViewModel @Inject constructor(
                         )
                         _authState.value = AuthState.Success(user.id)
                     } else {
-                        Timber.tag(TAG).w("Login failed: Invalid password")
+                        // FAILURE: Password incorrect
+                        Timber.tag(TAG).w("Login failed: Invalid password for username: $username")
                         auditLogger.logAuthentication(
                             username = username,
                             eventType = AuditEventType.AUTHENTICATION_FAILURE,
@@ -183,7 +299,8 @@ class UserViewModel @Inject constructor(
                         _authState.value = AuthState.Error("Invalid username or password")
                     }
                 } else {
-                    Timber.tag(TAG).w("Login failed: Username not found")
+                    // FAILURE: User not found
+                    Timber.tag(TAG).w("Login failed: Username not found: $username")
                     auditLogger.logAuthentication(
                         username = username,
                         eventType = AuditEventType.AUTHENTICATION_FAILURE,
@@ -193,7 +310,8 @@ class UserViewModel @Inject constructor(
                     _authState.value = AuthState.Error("Invalid username or password")
                 }
             } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Login exception")
+                // EXCEPTION
+                Timber.tag(TAG).e(e, "Login exception for username: $username")
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.AUTHENTICATION_FAILURE,
@@ -208,35 +326,46 @@ class UserViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Registration Function with Direct String Messages
+     */
     fun register(username: String, password: String) {
-        Timber.tag(TAG).d("Registration attempt for username: '$username'")
+        Timber.tag(TAG).d("Registration attempt for username: $username")
 
+        // Pre-validation
         when {
             username.isBlank() -> {
+                Timber.tag(TAG).w("Registration failed: Empty username")
                 _registrationState.value = RegistrationState.Error("Username cannot be empty")
                 return
             }
             username.length < 3 -> {
+                Timber.tag(TAG).w("Registration failed: Username too short")
                 _registrationState.value = RegistrationState.Error("Username must be at least 3 characters")
                 return
             }
-            !username.matches(Regex("^[a-zA-Z0-9_]+$")) -> {
+            !username.matches(Regex("[a-zA-Z0-9_]+")) -> {
+                Timber.tag(TAG).w("Registration failed: Invalid username characters")
                 _registrationState.value = RegistrationState.Error("Username can only contain letters, numbers, and underscores")
                 return
             }
             password.isBlank() -> {
+                Timber.tag(TAG).w("Registration failed: Empty password")
                 _registrationState.value = RegistrationState.Error("Password cannot be empty")
                 return
             }
             password.length < 8 -> {
+                Timber.tag(TAG).w("Registration failed: Password too short")
                 _registrationState.value = RegistrationState.Error("Password must be at least 8 characters")
                 return
             }
         }
 
         _registrationState.value = RegistrationState.Loading
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Check if username already exists
                 if (userRepository.getUserByUsername(username) != null) {
                     Timber.tag(TAG).w("Registration failed: Username '$username' already exists")
                     auditLogger.logAuthentication(
@@ -249,11 +378,14 @@ class UserViewModel @Inject constructor(
                     return@launch
                 }
 
+                // Generate salt and hash password
                 val saltBytes = generateSalt()
                 val passwordHashBytes = hashPassword(password, saltBytes)
+
                 val saltString = saltBytes.toBase64()
                 val passwordHashString = passwordHashBytes.toBase64()
 
+                // Create user object
                 val user = User(
                     username = username,
                     passwordHash = passwordHashString,
@@ -261,8 +393,10 @@ class UserViewModel @Inject constructor(
                     createdAt = System.currentTimeMillis()
                 )
 
+                // Insert user into database
                 val userId = userDao.insert(user)
-                Timber.tag(TAG).i("✓ Registration successful for username: '$username' (ID: $userId)")
+                Timber.tag(TAG).i("Registration successful for username: $username (ID: $userId)")
+
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
@@ -270,9 +404,14 @@ class UserViewModel @Inject constructor(
                 )
 
                 _userId.value = userId
+
+                // Persist to DataStore
+                userRepository.setCurrentUserId(userId.toInt())
+
                 _registrationState.value = RegistrationState.Success
             } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Registration exception")
+                // EXCEPTION: Unexpected error during registration
+                Timber.tag(TAG).e(e, "Registration exception for username: $username")
                 auditLogger.logAuthentication(
                     username = username,
                     eventType = AuditEventType.REGISTER,
@@ -287,6 +426,9 @@ class UserViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Logout Function
+     */
     fun logout() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -299,9 +441,15 @@ class UserViewModel @Inject constructor(
                             eventType = AuditEventType.LOGOUT,
                             outcome = AuditOutcome.SUCCESS
                         )
-                        sessionManager.endSession("User logout")
                     }
                 }
+
+                // End session (wipes keys from memory)
+                sessionManager.endSession("User logout")
+
+                // Clear from DataStore
+                userRepository.clearCurrentUserId()
+
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error during logout")
             } finally {
@@ -312,23 +460,32 @@ class UserViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Database Key Rotation (Manual Only)
+     */
     @RequiresApi(Build.VERSION_CODES.M)
     fun rotateDatabaseKey() {
         _keyRotationState.value = KeyRotationState.Loading
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Generate new passphrase
                 val newPassphrase = KeystorePassphraseManager.generateNewPassphrase()
+
+                // Backup current passphrase
                 val currentPassphrase = KeystorePassphraseManager.getCurrentPassphrase(context)
 
                 if (currentPassphrase != null) {
+                    // Store new passphrase
                     val success = KeystorePassphraseManager.commitNewPassphrase(context, newPassphrase)
                     if (success) {
-                        Timber.tag(TAG).i("✅ New passphrase generated")
+                        Timber.tag(TAG).i("New passphrase generated - will take effect on next app launch")
                         _keyRotationState.value = KeyRotationState.Success
                     } else {
                         throw Exception("Failed to store new passphrase")
                     }
                 } else {
+                    // First time initialization
                     KeystorePassphraseManager.getOrCreatePassphrase(context)
                     _keyRotationState.value = KeyRotationState.Success
                 }

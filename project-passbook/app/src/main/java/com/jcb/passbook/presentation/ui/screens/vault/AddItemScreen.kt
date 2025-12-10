@@ -35,8 +35,9 @@ fun AddItemScreen(
     viewModel: ItemViewModel = hiltViewModel(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
-    // ✅ FIX: Access currentUserId from UserViewModel
+    // ✅ FIX: Get currentUserId from UserViewModel
     val currentUserId by userViewModel.currentUserId.collectAsStateWithLifecycle()
+    val itemViewModelUserId by viewModel.userId.collectAsStateWithLifecycle()
     val operationState by viewModel.operationState.collectAsStateWithLifecycle()
 
     var itemName by remember { mutableStateOf("") }
@@ -48,14 +49,21 @@ fun AddItemScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // ✅ FIX: Set userId immediately when screen loads
+    // ✅ FIX: Set userId IMMEDIATELY when screen loads
     LaunchedEffect(currentUserId) {
         if (currentUserId != -1L) {
             Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
             viewModel.setUserId(currentUserId)
         } else {
-            Timber.tag(TAG).w("⚠️ currentUserId is -1 in AddItemScreen!")
+            Timber.tag(TAG).e("❌ currentUserId is -1 in AddItemScreen!")
+            showErrorDialog = true
+            errorMessage = "No user ID set. Please logout and login again."
         }
+    }
+
+    // ✅ FIX: Monitor when ItemViewModel's userId is actually set
+    LaunchedEffect(itemViewModelUserId) {
+        Timber.tag(TAG).d("ItemViewModel userId changed to: $itemViewModelUserId")
     }
 
     LaunchedEffect(operationState) {
@@ -98,6 +106,21 @@ fun AddItemScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // ✅ DEBUG: Show current user ID status
+            if (itemViewModelUserId == -1L) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = "⚠️ User ID not set (currentUserId: $currentUserId, viewModelUserId: $itemViewModelUserId)",
+                        modifier = Modifier.padding(8.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
             OutlinedTextField(
                 value = itemName,
                 onValueChange = { itemName = it },
@@ -169,10 +192,12 @@ fun AddItemScreen(
 
             Button(
                 onClick = {
+                    Timber.tag(TAG).d("Save button clicked - currentUserId: $currentUserId, itemViewModelUserId: $itemViewModelUserId")
                     when {
-                        currentUserId == -1L -> {
+                        itemViewModelUserId == -1L -> {
                             showErrorDialog = true
                             errorMessage = "No user ID set. Please logout and login again."
+                            Timber.tag(TAG).e("❌ Save blocked - ItemViewModel userId is -1")
                         }
                         itemName.isBlank() -> {
                             showErrorDialog = true
@@ -184,7 +209,7 @@ fun AddItemScreen(
                         }
                         else -> {
                             Timber.tag(TAG).d(
-                                "Calling viewModel.insert: itemName=$itemName, username=$username, currentUserId=$currentUserId"
+                                "✅ Calling viewModel.insert: itemName=$itemName, username=$username, userId=$itemViewModelUserId"
                             )
                             viewModel.insert(
                                 itemName = itemName,
@@ -199,7 +224,7 @@ fun AddItemScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                enabled = operationState !is ItemOperationState.Loading
+                enabled = operationState !is ItemOperationState.Loading && itemViewModelUserId != -1L
             ) {
                 when (operationState) {
                     is ItemOperationState.Loading -> {

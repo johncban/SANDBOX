@@ -1,12 +1,14 @@
 package com.jcb.passbook.presentation.ui.screens.vault
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,50 +16,48 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import timber.log.Timber
 
 private const val TAG = "ItemListScreen"
 
+@RequiresApi(Build.VERSION_CODES.M)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemListScreen(
-    onItemClick: (Long) -> Unit,
-    onAddNewItem: () -> Unit,
-    onBackClick: () -> Unit,
-    viewModel: ItemViewModel = hiltViewModel(),
+    onLogout: () -> Unit,
+    onAddItem: () -> Unit,
+    onItemClick: (Item) -> Unit,
+    itemViewModel: ItemViewModel = hiltViewModel(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
+    // ✅ FIX: Get currentUserId from UserViewModel
     val currentUserId by userViewModel.currentUserId.collectAsStateWithLifecycle()
-    val items by viewModel.items.collectAsStateWithLifecycle()
+    val items by itemViewModel.items.collectAsStateWithLifecycle()
 
-    var showDeleteDialog by remember { mutableStateOf<Long?>(null) }
-
-    // ✅ Set userId when available
+    // ✅ FIX: Set userId IMMEDIATELY when screen loads
     LaunchedEffect(currentUserId) {
         if (currentUserId != -1L) {
             Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
-            viewModel.setUserId(currentUserId)
+            itemViewModel.setUserId(currentUserId)
         } else {
-            Timber.tag(TAG).w("⚠️ currentUserId is still -1, waiting for login...")
+            Timber.tag(TAG).w("⚠️ currentUserId is -1 in ItemListScreen!")
         }
     }
-
-    Timber.tag(TAG).d("Rendering ItemListScreen with ${items.size} items, userId=$currentUserId")
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("All Items") },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+                title = { Text("My Passwords") },
                 actions = {
-                    IconButton(onClick = { /* TODO: Search */ }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    IconButton(onClick = {
+                        userViewModel.logout()
+                        itemViewModel.clearAllItems()
+                        onLogout()
+                    }) {
+                        Icon(Icons.Default.Logout, contentDescription = "Logout")
                     }
                 }
             )
@@ -65,12 +65,16 @@ fun ItemListScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    Timber.tag(TAG).d("FAB clicked - navigating to AddItemScreen (userId=$currentUserId)")
-                    onAddNewItem()
-                },
-                containerColor = MaterialTheme.colorScheme.primary
+                    // ✅ FIX: Only allow navigation if user ID is set
+                    if (currentUserId != -1L) {
+                        Timber.tag(TAG).d("✅ Navigating to AddItemScreen with userId: $currentUserId")
+                        onAddItem()
+                    } else {
+                        Timber.tag(TAG).e("❌ Cannot add item - user ID not set!")
+                    }
+                }
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add Item")
+                Icon(Icons.Default.Add, contentDescription = "Add Password")
             }
         }
     ) { padding ->
@@ -81,25 +85,15 @@ fun ItemListScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        modifier = Modifier.size(72.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "No items yet",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "No passwords yet",
+                        style = MaterialTheme.typography.headlineSmall
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Tap the + button to add your first password",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "Tap + to add your first password",
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
@@ -109,95 +103,52 @@ fun ItemListScreen(
                     .fillMaxSize()
                     .padding(padding),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(items) { item ->
+                items(items, key = { it.id }) { item ->
                     ItemCard(
-                        title = item.title,
-                        username = item.username ?: "",
-                        onClick = { onItemClick(item.id) },
-                        onDelete = { showDeleteDialog = item.id }
+                        item = item,
+                        onClick = { onItemClick(item) }
                     )
                 }
             }
         }
     }
-
-    showDeleteDialog?.let { itemId ->
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = null },
-            title = { Text("Delete Item") },
-            text = { Text("Are you sure you want to delete this item? This action cannot be undone.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        Timber.tag(TAG).d("Delete confirmed for item: $itemId")
-                        // TODO: Implement delete via viewModel
-                        showDeleteDialog = null
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 }
 
 @Composable
-private fun ItemCard(
-    title: String,
-    username: String,
-    onClick: () -> Unit,
-    onDelete: () -> Unit
+fun ItemCard(
+    item: Item,
+    onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .clickable(onClick = onClick)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Key,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            item.username?.let { username ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = username,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    if (username.isNotBlank()) {
-                        Text(
-                            text = username,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
-
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.error
+            item.url?.let { url ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = url,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
