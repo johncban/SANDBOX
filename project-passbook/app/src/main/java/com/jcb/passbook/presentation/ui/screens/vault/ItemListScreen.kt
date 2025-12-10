@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,7 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+import timber.log.Timber
+
+private const val TAG = "ItemListScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -21,11 +26,25 @@ fun ItemListScreen(
     onItemClick: (Long) -> Unit,
     onAddNewItem: () -> Unit,
     onBackClick: () -> Unit,
-    viewModel: ItemViewModel = hiltViewModel()
+    viewModel: ItemViewModel = hiltViewModel(),
+    userViewModel: UserViewModel = hiltViewModel()
 ) {
+    val currentUserId by userViewModel.currentUserId.collectAsStateWithLifecycle()
     val items by viewModel.items.collectAsStateWithLifecycle()
+
     var showDeleteDialog by remember { mutableStateOf<Long?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
+
+    // ✅ Set userId when available
+    LaunchedEffect(currentUserId) {
+        if (currentUserId != -1L) {
+            Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
+            viewModel.setUserId(currentUserId)
+        } else {
+            Timber.tag(TAG).w("⚠️ currentUserId is still -1, waiting for login...")
+        }
+    }
+
+    Timber.tag(TAG).d("Rendering ItemListScreen with ${items.size} items, userId=$currentUserId")
 
     Scaffold(
         topBar = {
@@ -33,7 +52,7 @@ fun ItemListScreen(
                 title = { Text("All Items") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -45,7 +64,10 @@ fun ItemListScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onAddNewItem,
+                onClick = {
+                    Timber.tag(TAG).d("FAB clicked - navigating to AddItemScreen (userId=$currentUserId)")
+                    onAddNewItem()
+                },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add Item")
@@ -53,7 +75,6 @@ fun ItemListScreen(
         }
     ) { padding ->
         if (items.isEmpty()) {
-            // Empty State
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -83,7 +104,6 @@ fun ItemListScreen(
                 }
             }
         } else {
-            // Items List
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -103,7 +123,6 @@ fun ItemListScreen(
         }
     }
 
-    // Delete Confirmation Dialog
     showDeleteDialog?.let { itemId ->
         AlertDialog(
             onDismissRequest = { showDeleteDialog = null },
@@ -112,8 +131,8 @@ fun ItemListScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        // TODO: Delete item via viewModel
-                        // viewModel.deleteItem(itemId)
+                        Timber.tag(TAG).d("Delete confirmed for item: $itemId")
+                        // TODO: Implement delete via viewModel
                         showDeleteDialog = null
                     }
                 ) {

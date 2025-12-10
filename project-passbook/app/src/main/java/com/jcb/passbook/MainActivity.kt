@@ -6,7 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -19,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
 import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
+import com.jcb.passbook.presentation.ui.screens.vault.AddItemScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.theme.PassbookTheme
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
@@ -75,16 +75,19 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
 
                 Surface {
-                    Scaffold { paddingValues ->  // ← Add this parameter
+                    Scaffold { paddingValues ->
                         NavHost(
                             navController = navController,
                             startDestination = "login",
-                            modifier = Modifier.padding(paddingValues)  // ← Use it here
+                            modifier = Modifier.padding(paddingValues)
                         ) {
+                            // ✅ LOGIN SCREEN
                             composable("login") {
                                 LoginScreen(
                                     userViewModel = userViewModel,
                                     onLoginSuccess = {
+                                        Timber.tag(TAG).i("✓ Login successful")
+                                        // ✅ Navigate to itemList after successful login
                                         navController.navigate("itemList") {
                                             popUpTo("login") { inclusive = true }
                                         }
@@ -95,10 +98,13 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
+                            // ✅ REGISTRATION SCREEN
                             composable("register") {
                                 RegistrationScreen(
                                     userViewModel = userViewModel,
                                     onRegistrationSuccess = {
+                                        Timber.tag(TAG).i("✓ Registration successful")
+                                        // ✅ Navigate to itemList after successful registration
                                         navController.navigate("itemList") {
                                             popUpTo("register") { inclusive = true }
                                         }
@@ -109,10 +115,17 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
+                            // ✅ ITEM LIST SCREEN
                             composable("itemList") {
                                 ItemListScreen(
-                                    onItemClick = {},
-                                    onAddNewItem = {},
+                                    onItemClick = { itemId ->
+                                        Timber.tag(TAG).d("Item clicked: $itemId")
+                                        // TODO: Navigate to ItemDetailScreen
+                                    },
+                                    onAddNewItem = {
+                                        Timber.tag(TAG).d("FAB clicked - navigating to AddItemScreen")
+                                        navController.navigate("addItem")
+                                    },
                                     onBackClick = {
                                         lifecycleScope.launch {
                                             sessionManager.endSession("logout")
@@ -123,6 +136,19 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
+
+                            // ✅ ADD ITEM SCREEN (NEW!)
+                            composable("addItem") {
+                                AddItemScreen(
+                                    onBackClick = {
+                                        navController.popBackStack()
+                                    },
+                                    onSuccess = {
+                                        Timber.tag(TAG).i("✓ Item added successfully!")
+                                        navController.popBackStack()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -130,7 +156,6 @@ class MainActivity : ComponentActivity() {
         }
         Timber.tag(TAG).i("UI initialized")
     }
-
 
     override fun onStop() {
         super.onStop()
