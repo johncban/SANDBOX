@@ -16,11 +16,9 @@ data class User(
     @ColumnInfo(name = "username")
     val username: String,
 
-    // Fix: Defined as String (TEXT) to match your Code's expectation in the logs
     @ColumnInfo(name = "password_hash")
     val passwordHash: String,
 
-    // Fix: Defined as String (TEXT) to match your Code's expectation in the logs
     @ColumnInfo(name = "salt")
     val salt: String,
 
@@ -31,5 +29,9 @@ data class User(
     val createdAt: Long = System.currentTimeMillis(),
 
     @ColumnInfo(name = "last_login_at")
-    val lastLoginAt: Long? = null
+    val lastLoginAt: Long? = null,
+
+    // Add email field if needed (based on your UserDao queries)
+    @ColumnInfo(name = "email")
+    val email: String? = null
 )

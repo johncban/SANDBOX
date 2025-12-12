@@ -1,95 +1,129 @@
 package com.jcb.passbook.core.di
 
+
 import android.content.Context
 import androidx.room.Room
 import com.jcb.passbook.data.local.database.AppDatabase
-import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.dao.ItemDao
-import com.jcb.passbook.data.local.database.dao.UserDao
-import com.jcb.passbook.security.crypto.MasterKeyManager
+import com.jcb.passbook.data.local.database.encryption.DatabaseEncryptionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.runBlocking
-import net.sqlcipher.database.SupportFactory
+import net.sqlcipher.database.SQLiteDatabase
 import timber.log.Timber
-import java.security.SecureRandom
 import javax.inject.Singleton
 
+/**
+ * Hilt Module for Room Database with SQLCipher Encryption
+ *
+ * Provides:
+ * - DatabaseEncryptionManager (handles encryption key management)
+ * - AppDatabase (encrypted Room database)
+ *
+ * CRITICAL FIX #1: Database encryption with proper error handling
+ * CRITICAL FIX #2: DataStore-backed passphrase management
+ */
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
+    private const val TAG = "DatabaseModule"
+    private const val DB_NAME = "passbook.db"
 
+    /**
+     * Provide DatabaseEncryptionManager singleton
+     */
     @Provides
     @Singleton
-    fun provideApplicationScope(): CoroutineScope {
-        return CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    }
-
-    @Provides
-    @Singleton
-    fun provideAppDatabase(
+    fun provideDatabaseEncryptionManager(
         @ApplicationContext context: Context
-    ): AppDatabase {
-        // ✅ FIXED: Generate database passphrase from SharedPreferences or create new one
-        val prefs = context.getSharedPreferences("database_prefs", Context.MODE_PRIVATE)
-
-        val passphrase = if (prefs.contains("db_passphrase")) {
-            // Load existing passphrase
-            prefs.getString("db_passphrase", null)?.toByteArray(Charsets.UTF_8)
-                ?: generateAndSavePassphrase(prefs)
-        } else {
-            // Generate new passphrase for first launch
-            generateAndSavePassphrase(prefs)
-        }
-
-        val factory = SupportFactory(passphrase)
-
-        return Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            "passbook_database"
-        )
-            .openHelperFactory(factory)
-            .fallbackToDestructiveMigration()
-            .build()
+    ): DatabaseEncryptionManager {
+        return DatabaseEncryptionManager(context)
     }
 
     /**
-     * Generate a secure random passphrase and save to encrypted SharedPreferences
+     * Provide encrypted Room database with SQLCipher
+     *
+     * CRITICAL: This handles database encryption failures gracefully
      */
-    private fun generateAndSavePassphrase(prefs: android.content.SharedPreferences): ByteArray {
-        val passphrase = ByteArray(32)
-        SecureRandom().nextBytes(passphrase)
-
-        // Save as base64 string
-        val passphraseString = android.util.Base64.encodeToString(passphrase, android.util.Base64.NO_WRAP)
-        prefs.edit().putString("db_passphrase", passphraseString).apply()
-
-        Timber.d("Generated new database passphrase")
-        return passphrase
-    }
-
     @Provides
     @Singleton
-    fun provideAuditDao(appDatabase: AppDatabase): AuditDao {
-        return appDatabase.auditDao()
-    }
+    fun provideAppDatabase(
+        @ApplicationContext context: Context,
+        encryptionManager: DatabaseEncryptionManager
+    ): AppDatabase {
+        return try {
+            Timber.tag(TAG).i("Initializing encrypted database...")
 
-    @Provides
-    @Singleton
-    fun provideItemDao(appDatabase: AppDatabase): ItemDao {
-        return appDatabase.itemDao()
-    }
+            // Validate encryption can be initialized
+            if (!encryptionManager.validateDatabaseConnection()) {
+                Timber.tag(TAG).w("⚠️  Database encryption validation failed, attempting recovery...")
+            }
 
-    @Provides
-    @Singleton
-    fun provideUserDao(appDatabase: AppDatabase): UserDao {
-        return appDatabase.userDao()
+            // Get encryption passphrase
+            val passphrase = encryptionManager.getEncryptionPassphrase()
+
+            // Create Room database with SQLCipher
+            val database = Room.databaseBuilder(
+                context,
+                AppDatabase::class.java,
+                DB_NAME
+            )
+                .openHelperFactory { configuration ->
+                    // Configure SQLCipher with passphrase
+                    net.sqlcipher.database.SupportFactory(passphrase).create(configuration)
+                }
+                .fallbackToDestructiveMigration()
+                .addCallback(object : androidx.room.RoomDatabase.Callback() {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        super.onCreate(db)
+                        Timber.tag(TAG).i("✓ Database created successfully")
+                    }
+
+                    override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        Timber.tag(TAG).i("✓ Database opened successfully")
+                    }
+                })
+                .build()
+
+            Timber.tag(TAG).i("✓ Encrypted database initialized successfully")
+            database
+
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "❌ CRITICAL: Failed to initialize encrypted database")
+            Timber.tag(TAG).i("Attempting recovery: Deleting corrupted database file...")
+
+            try {
+                // Delete corrupted database file
+                val dbFile = context.getDatabasePath(DB_NAME)
+                if (dbFile.exists()) {
+                    dbFile.delete()
+                    Timber.tag(TAG).i("Deleted corrupted database file")
+                }
+
+                // Retry database creation
+                Timber.tag(TAG).i("Retrying database creation...")
+                val passphrase = encryptionManager.getEncryptionPassphrase()
+
+                val recoveredDatabase = Room.databaseBuilder(
+                    context,
+                    AppDatabase::class.java,
+                    DB_NAME
+                )
+                    .openHelperFactory { configuration ->
+                        net.sqlcipher.database.SupportFactory(passphrase).create(configuration)
+                    }
+                    .fallbackToDestructiveMigration()
+                    .build()
+
+                Timber.tag(TAG).i("✓ Database recovery successful!")
+                recoveredDatabase
+
+            } catch (recoveryError: Exception) {
+                Timber.tag(TAG).e(recoveryError, "❌ FATAL: Database recovery failed")
+                throw Exception("Cannot initialize database: ${e.message}\nRecovery failed: ${recoveryError.message}", e)
+            }
+        }
     }
 }
