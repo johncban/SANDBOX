@@ -1,5 +1,10 @@
 package com.jcb.passbook.core.di
 
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
+import com.jcb.passbook.data.datastore.UserPreferences
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.data.repository.ItemRepository
@@ -8,6 +13,7 @@ import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import timber.log.Timber
 import javax.inject.Singleton
@@ -19,16 +25,28 @@ private const val TAG = "AppModule"
 object AppModule {
 
     // ══════════════════════════════════════════════════════════════
-    // ✅ CRITICAL FIX: Argon2Kt Provider
-    // Resolves: [Dagger/MissingBinding]
-    // com.lambdapioneer.argon2kt.Argon2Kt cannot be provided
+    // ✅ FIX: UserPreferences Provider (CRITICAL)
+    // Pass Context, NOT DataStore, because UserPreferences creates
+    // its own DataStore internally
     // ══════════════════════════════════════════════════════════════
     /**
-     * Provides singleton instance of Argon2Kt for password hashing
-     * Required by: UserViewModel for secure Argon2id password hashing
+     * Provides singleton instance of UserPreferences for session management
+     * REQUIRED by: UserRepository for current user ID persistence
      *
-     * ✅ This function MUST exist - it's required by UserViewModel
+     * ✅ FIXED: Pass @ApplicationContext directly to UserPreferences
      */
+    @Provides
+    @Singleton
+    fun provideUserPreferences(
+        @ApplicationContext context: Context
+    ): UserPreferences {
+        Timber.tag(TAG).d("Providing UserPreferences with Context")
+        return UserPreferences(context)
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // ✅ Argon2Kt Provider
+    // ══════════════════════════════════════════════════════════════
     @Provides
     @Singleton
     fun provideArgon2Kt(): Argon2Kt {
@@ -39,6 +57,7 @@ object AppModule {
     // ══════════════════════════════════════════════════════════════
     // Repository Providers
     // ══════════════════════════════════════════════════════════════
+
     /**
      * Provides singleton ItemRepository for item data operations
      * Handles all CRUD operations for vault items (passwords, notes, etc.)
@@ -53,11 +72,15 @@ object AppModule {
     /**
      * Provides singleton UserRepository for user data operations
      * Handles all CRUD operations for user accounts and credentials
+     * ✅ NOW HAS REQUIRED UserPreferences PARAMETER
      */
     @Provides
     @Singleton
-    fun provideUserRepository(userDao: UserDao): UserRepository {
+    fun provideUserRepository(
+        userDao: UserDao,
+        userPreferences: UserPreferences
+    ): UserRepository {
         Timber.tag(TAG).d("Providing UserRepository")
-        return UserRepository(userDao)
+        return UserRepository(userDao, userPreferences)
     }
 }

@@ -35,10 +35,14 @@ fun AddItemScreen(
     viewModel: ItemViewModel = hiltViewModel(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
-    // ✅ FIX: Get currentUserId from UserViewModel
-    val currentUserId by userViewModel.currentUserId.collectAsStateWithLifecycle()
-    val itemViewModelUserId by viewModel.userId.collectAsStateWithLifecycle()
-    val operationState by viewModel.operationState.collectAsStateWithLifecycle()
+    // ✅ FIX: Explicit Long type declaration - avoids star projection error
+    val currentUserIdState by userViewModel.currentUserId.collectAsStateWithLifecycle(initialValue = -1L)
+    val currentUserId: Long = (currentUserIdState as? Number)?.toLong() ?: -1L
+
+    val itemViewModelUserIdState by viewModel.userId.collectAsStateWithLifecycle(initialValue = -1L)
+    val itemViewModelUserId: Long = (itemViewModelUserIdState as? Number)?.toLong() ?: -1L
+
+    val operationState by viewModel.operationState.collectAsStateWithLifecycle(initialValue = ItemOperationState.Idle)
 
     var itemName by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -49,23 +53,24 @@ fun AddItemScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // ✅ FIX: Set userId IMMEDIATELY when screen loads
+    // ✅ Set userId when currentUserId changes
     LaunchedEffect(currentUserId) {
-        if (currentUserId != -1L) {
+        if (currentUserId > 0L) {
             Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
             viewModel.setUserId(currentUserId)
         } else {
-            Timber.tag(TAG).e("❌ currentUserId is -1 in AddItemScreen!")
+            Timber.tag(TAG).e("❌ currentUserId is invalid: $currentUserId")
             showErrorDialog = true
             errorMessage = "No user ID set. Please logout and login again."
         }
     }
 
-    // ✅ FIX: Monitor when ItemViewModel's userId is actually set
+    // ✅ Monitor ItemViewModel userId changes
     LaunchedEffect(itemViewModelUserId) {
         Timber.tag(TAG).d("ItemViewModel userId changed to: $itemViewModelUserId")
     }
 
+    // ✅ Monitor operation state for success/error
     LaunchedEffect(operationState) {
         Timber.tag(TAG).d("operationState changed: $operationState")
         when (operationState) {
@@ -106,21 +111,22 @@ fun AddItemScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ✅ DEBUG: Show current user ID status
-            if (itemViewModelUserId == -1L) {
+            // ✅ DEBUG: Show user ID status with proper type
+            if (itemViewModelUserId <= 0L) {
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
                     )
                 ) {
                     Text(
-                        text = "⚠️ User ID not set (currentUserId: $currentUserId, viewModelUserId: $itemViewModelUserId)",
+                        text = "⚠️ User ID not set\nCurrent: $currentUserId | ViewModel: $itemViewModelUserId",
                         modifier = Modifier.padding(8.dp),
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
 
+            // Service Name Field
             OutlinedTextField(
                 value = itemName,
                 onValueChange = { itemName = it },
@@ -132,6 +138,7 @@ fun AddItemScreen(
                 isError = itemName.isBlank() && itemName.isNotEmpty()
             )
 
+            // Username Field
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
@@ -142,6 +149,7 @@ fun AddItemScreen(
                 enabled = operationState !is ItemOperationState.Loading
             )
 
+            // Password Field
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
@@ -165,6 +173,7 @@ fun AddItemScreen(
                 }
             )
 
+            // URL Field
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -176,6 +185,7 @@ fun AddItemScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
             )
 
+            // Notes Field
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
@@ -190,14 +200,17 @@ fun AddItemScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Save Button
             Button(
                 onClick = {
-                    Timber.tag(TAG).d("Save button clicked - currentUserId: $currentUserId, itemViewModelUserId: $itemViewModelUserId")
+                    Timber.tag(TAG).d(
+                        "Save button clicked - currentUserId: $currentUserId, itemViewModelUserId: $itemViewModelUserId"
+                    )
                     when {
-                        itemViewModelUserId == -1L -> {
+                        itemViewModelUserId <= 0L -> {
                             showErrorDialog = true
                             errorMessage = "No user ID set. Please logout and login again."
-                            Timber.tag(TAG).e("❌ Save blocked - ItemViewModel userId is -1")
+                            Timber.tag(TAG).e("❌ Save blocked - userId is invalid: $itemViewModelUserId")
                         }
                         itemName.isBlank() -> {
                             showErrorDialog = true
@@ -209,7 +222,7 @@ fun AddItemScreen(
                         }
                         else -> {
                             Timber.tag(TAG).d(
-                                "✅ Calling viewModel.insert: itemName=$itemName, username=$username, userId=$itemViewModelUserId"
+                                "✅ Calling viewModel.insert: itemName=$itemName, userId=$itemViewModelUserId"
                             )
                             viewModel.insert(
                                 itemName = itemName,
@@ -224,7 +237,7 @@ fun AddItemScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                enabled = operationState !is ItemOperationState.Loading && itemViewModelUserId != -1L
+                enabled = operationState !is ItemOperationState.Loading && itemViewModelUserId > 0L
             ) {
                 when (operationState) {
                     is ItemOperationState.Loading -> {
@@ -237,6 +250,7 @@ fun AddItemScreen(
                 }
             }
 
+            // Cancel Button
             OutlinedButton(
                 onClick = onBackClick,
                 modifier = Modifier
@@ -249,6 +263,7 @@ fun AddItemScreen(
         }
     }
 
+    // Error Dialog
     if (showErrorDialog) {
         AlertDialog(
             onDismissRequest = { showErrorDialog = false },
