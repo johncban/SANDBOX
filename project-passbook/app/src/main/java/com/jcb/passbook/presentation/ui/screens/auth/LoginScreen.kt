@@ -15,7 +15,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.jcb.passbook.presentation.viewmodels.UserViewModel
+import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
+import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 
 @Composable
 fun LoginScreen(
@@ -26,22 +27,13 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
 
-    val user by viewModel.user.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val authState by viewModel.authState.collectAsState()
 
     // Navigate when login successful
-    LaunchedEffect(user) {
-        if (user != null) {
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Success) {
             Log.d("LoginScreen", "Login successful, navigating...")
             onLoginSuccess()
-        }
-    }
-
-    // Show error message
-    LaunchedEffect(error) {
-        error?.let { errorMessage ->
-            Log.e("LoginScreen", "Login error: $errorMessage")
         }
     }
 
@@ -69,16 +61,22 @@ fun LoginScreen(
 
                 OutlinedTextField(
                     value = username,
-                    onValueChange = { username = it },
+                    onValueChange = {
+                        username = it
+                        viewModel.clearAuthState()
+                    },
                     label = { Text("Username") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    enabled = !isLoading
+                    enabled = authState !is AuthState.Loading
                 )
 
                 OutlinedTextField(
                     value = password,
-                    onValueChange = { password = it },
+                    onValueChange = {
+                        password = it
+                        viewModel.clearAuthState()
+                    },
                     label = { Text("Password") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
@@ -101,15 +99,18 @@ fun LoginScreen(
                             )
                         }
                     },
-                    enabled = !isLoading
+                    enabled = authState !is AuthState.Loading
                 )
 
-                error?.let { errorMessage ->
-                    Text(
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                when (val state = authState) {
+                    is AuthState.Error -> {
+                        Text(
+                            text = state.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    else -> {}
                 }
 
                 Button(
@@ -119,9 +120,9 @@ fun LoginScreen(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading && username.isNotBlank() && password.isNotBlank()
+                    enabled = authState !is AuthState.Loading && username.isNotBlank() && password.isNotBlank()
                 ) {
-                    if (isLoading) {
+                    if (authState is AuthState.Loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary
