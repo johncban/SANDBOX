@@ -20,7 +20,8 @@ import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit,
+    onLoginSuccess: (Long) -> Unit,  // ← CHANGED: Now accepts userId
+    onNavigateToRegister: () -> Unit,  // ← ADDED: Navigation to register
     viewModel: UserViewModel = hiltViewModel()
 ) {
     var username by remember { mutableStateOf("") }
@@ -31,9 +32,12 @@ fun LoginScreen(
 
     // Navigate when login successful
     LaunchedEffect(authState) {
-        if (authState is AuthState.Success) {
-            Log.d("LoginScreen", "Login successful, navigating...")
-            onLoginSuccess()
+        when (val state = authState) {
+            is AuthState.Success -> {
+                Log.d("LoginScreen", "Login successful, navigating...")
+                onLoginSuccess(state.userId)  // ← CHANGED: Pass userId
+            }
+            else -> {}
         }
     }
 
@@ -130,6 +134,14 @@ fun LoginScreen(
                     } else {
                         Text("Login")
                     }
+                }
+
+                // ← ADDED: Register button
+                TextButton(
+                    onClick = onNavigateToRegister,
+                    enabled = authState !is AuthState.Loading
+                ) {
+                    Text("Don't have an account? Register")
                 }
             }
         }
