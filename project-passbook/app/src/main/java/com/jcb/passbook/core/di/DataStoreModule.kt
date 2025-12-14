@@ -25,13 +25,4 @@ object DataStoreModule {
     fun provideUserPreferences(@ApplicationContext context: Context): UserPreferences {
         return UserPreferences(context)
     }
-
-    @Provides
-    @Singleton
-    fun provideUserRepository(
-        userDao: UserDao,
-        userPreferences: UserPreferences
-    ): UserRepository {
-        return UserRepository(userDao, userPreferences)
-    }
 }
