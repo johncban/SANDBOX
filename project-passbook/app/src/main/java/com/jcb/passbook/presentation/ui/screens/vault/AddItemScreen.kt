@@ -35,11 +35,13 @@ fun AddItemScreen(
     viewModel: ItemViewModel = hiltViewModel(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
-    // ✅ FIXED: Explicit Int type for currentUserId
-    val userIdLong by userViewModel.userId.collectAsStateWithLifecycle()
-    val currentUserId: Int = userIdLong.toInt()
+    // ✅ FIXED: Get user ID from userViewModel.user.id instead of non-existent userId
+    val currentUser by userViewModel.user.collectAsStateWithLifecycle()
+    val currentUserId: Long = currentUser?.id ?: -1L  // Get ID from User object
+
     val itemViewModelUserIdState by viewModel.userId.collectAsStateWithLifecycle(initialValue = -1L)
     val itemViewModelUserId: Long = itemViewModelUserIdState
+
     val operationState by viewModel.operationState.collectAsStateWithLifecycle(initialValue = ItemOperationState.Idle)
 
     var itemName by remember { mutableStateOf("") }
@@ -51,17 +53,17 @@ fun AddItemScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // ✅ Set userId when currentUserId changes (convert Int to Long)
+    // ✅ Set userId when currentUserId changes
     LaunchedEffect(currentUserId) {
-        if (currentUserId > 0) {
+        if (currentUserId > 0L) {
             Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
-            viewModel.setUserId(currentUserId.toLong())
+            viewModel.setUserId(currentUserId)
         } else {
             Timber.tag(TAG).e("❌ currentUserId is invalid: $currentUserId")
             showErrorDialog = true
             errorMessage = "No user ID set. Please logout and login again."
         }
-    } // ✅ ADDED: Missing closing brace
+    }
 
     // ✅ Monitor ItemViewModel userId changes
     LaunchedEffect(itemViewModelUserId) {
@@ -109,7 +111,7 @@ fun AddItemScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // ✅ DEBUG: Show user ID status with proper type
+            // ✅ DEBUG: Show user ID status
             if (itemViewModelUserId <= 0L) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -223,6 +225,7 @@ fun AddItemScreen(
                             Timber.tag(TAG).d(
                                 "✅ Calling viewModel.insert: itemName=$itemName, userId=$itemViewModelUserId"
                             )
+
                             viewModel.insert(
                                 itemName = itemName,
                                 plainTextPassword = password,
