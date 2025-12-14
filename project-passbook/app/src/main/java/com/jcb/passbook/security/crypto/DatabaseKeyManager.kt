@@ -432,7 +432,7 @@ class DatabaseKeyManager(
     }
 
     fun requireActiveSession(): Boolean {
-        if (!sessionManager.isSessionActive()) {
+        if (!sessionManager.isSessionActive.value) {  // ✅ Use .value to access StateFlow
             Timber.w("No active session - user must log in")
             return false
         }

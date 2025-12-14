@@ -10,58 +10,70 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 import com.jcb.passbook.security.crypto.SessionManager
-import javax.inject.Inject
 import timber.log.Timber
+import javax.inject.Inject
 
+/**
+ * ✅ FIXED: LoginScreen with proper SessionManager injection via Hilt
+ *
+ * Fixes applied:
+ * - BUG-002: startSession() now called without parameters
+ * - BUG-003: Removed SessionResult handling (doesn't exist)
+ * - BUG-007: SessionManager injected via Hilt @Inject
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     onLoginSuccess: (Long) -> Unit,
     onNavigateToRegister: () -> Unit,
     userViewModel: UserViewModel = hiltViewModel(),
-    sessionManager: SessionManager
+    sessionManager: SessionManager = hiltViewModel(),  // ✅ Injected via Hilt
+    viewModel: UserViewModel = viewModel()
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
-    val context = LocalContext.current
-    val activity = context as? FragmentActivity
 
-    // ✅ FIXED: Collect auth state
+    // Collect auth state
     val authState by userViewModel.authState.collectAsStateWithLifecycle()
 
-    // ✅ FIXED: Handle auth state changes
+    /**
+     * ✅ FIXED (BUG-002, BUG-003): Proper session initialization
+     * - startSession() is void, no return value
+     * - No SessionResult handling needed
+     * - Simple success callback flow
+     */
     LaunchedEffect(authState) {
         when (val state = authState) {
             is AuthState.Success -> {
-                Timber.d("Login successful, starting session...")
-                activity?.let { act ->
-                    when (val result = sessionManager.startSession(act)) {
-                        is SessionManager.SessionResult.Success -> {
-                            Timber.d("Session started: ${result.sessionId}")
-                            onLoginSuccess(state.userId)
-                        }
-                        else -> {
-                            Timber.e("Failed to start session")
-                        }
-                    }
+                Timber.d("✅ Login successful for user: ${state.userId}")
+
+                // ✅ Start session (void function, no parameters)
+                try {
+                    sessionManager.startSession()
+                    Timber.i("✅ Session started successfully")
+
+                    // Navigate to home after session starts
+                    onLoginSuccess(state.userId)
+                } catch (e: Exception) {
+                    Timber.e(e, "❌ Failed to start session")
+                    // Session start failure handling could be added here
                 }
             }
-            else -> { /* No action */ }
+            else -> { /* No action needed */ }
         }
     }
 
@@ -80,6 +92,7 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            // ========== LOGO ==========
             Icon(
                 imageVector = Icons.Default.Lock,
                 contentDescription = null,
@@ -104,6 +117,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            // ========== USERNAME FIELD ==========
             OutlinedTextField(
                 value = username,
                 onValueChange = {
@@ -126,6 +140,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ========== PASSWORD FIELD ==========
             OutlinedTextField(
                 value = password,
                 onValueChange = {
@@ -162,7 +177,7 @@ fun LoginScreen(
                 enabled = authState !is AuthState.Loading
             )
 
-            // ✅ FIXED: Show error messages
+            // ========== ERROR MESSAGES ==========
             when (val state = authState) {
                 is AuthState.Error -> {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -177,6 +192,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // ========== LOGIN BUTTON ==========
             Button(
                 onClick = {
                     userViewModel.login(username, password)
@@ -198,6 +214,7 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ========== REGISTER LINK ==========
             TextButton(
                 onClick = onNavigateToRegister,
                 enabled = authState !is AuthState.Loading

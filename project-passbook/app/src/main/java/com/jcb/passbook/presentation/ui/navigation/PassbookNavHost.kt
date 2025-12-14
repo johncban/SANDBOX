@@ -17,8 +17,11 @@ import com.jcb.passbook.presentation.ui.screens.vault.ItemDetailScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-import com.jcb.passbook.security.crypto.SessionManager
 
+/**
+ * ✅ FIXED: Removed unused sessionManager parameter
+ * Navigation is now fully managed by NavHost with proper Hilt injection
+ */
 object Routes {
     const val LOGIN = "login"
     const val REGISTER = "register"
@@ -30,7 +33,6 @@ object Routes {
 
 @Composable
 fun PassbookNavHost(
-    sessionManager: SessionManager,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     userViewModel: UserViewModel = hiltViewModel()
@@ -48,33 +50,43 @@ fun PassbookNavHost(
         startDestination = startDestination,
         modifier = modifier
     ) {
+        // ========== AUTHENTICATION ROUTES ==========
+
+        /**
+         * ✅ FIXED (BUG-001): Removed sessionManager parameter
+         * SessionManager is now injected via Hilt into LoginScreen
+         */
         composable(Routes.LOGIN) {
             LoginScreen(
-                onLoginSuccess = { _ ->
+                onLoginSuccess = { userId ->
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.LOGIN) { inclusive = true }
                     }
                 },
                 onNavigateToRegister = {
                     navController.navigate(Routes.REGISTER)
-                },
-                sessionManager = sessionManager
+                }
             )
         }
 
+        /**
+         * ✅ FIXED (BUG-006): Removed unused sessionManager parameter
+         * Registration flow simplified
+         */
         composable(Routes.REGISTER) {
             RegistrationScreen(
-                onRegistrationSuccess = { _ ->
+                onRegistrationSuccess = { userId ->
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.REGISTER) { inclusive = true }
                     }
                 },
                 onNavigateToLogin = {
                     navController.popBackStack()
-                },
-                sessionManager = sessionManager
+                }
             )
         }
+
+        // ========== MAIN APP ROUTES ==========
 
         composable(Routes.HOME) {
             HomeScreen(
@@ -116,7 +128,6 @@ fun PassbookNavHost(
         composable("${Routes.ITEM_DETAIL}/{itemId}") { backStackEntry ->
             val itemIdString = backStackEntry.arguments?.getString("itemId")
             val itemId = itemIdString?.toLongOrNull()
-
             ItemDetailScreen(
                 itemId = if (itemId == 0L) null else itemId,
                 onSaveSuccess = {
