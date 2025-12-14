@@ -35,13 +35,11 @@ fun AddItemScreen(
     viewModel: ItemViewModel = hiltViewModel(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
-    // ✅ FIX: Explicit Long type declaration - avoids star projection error
-    val currentUserIdState by userViewModel.currentUserId.collectAsStateWithLifecycle(initialValue = -1L)
-    val currentUserId: Long = (currentUserIdState as? Number)?.toLong() ?: -1L
-
+    // ✅ FIXED: Explicit Int type for currentUserId
+    val userIdLong by userViewModel.userId.collectAsStateWithLifecycle()
+    val currentUserId: Int = userIdLong.toInt()
     val itemViewModelUserIdState by viewModel.userId.collectAsStateWithLifecycle(initialValue = -1L)
-    val itemViewModelUserId: Long = (itemViewModelUserIdState as? Number)?.toLong() ?: -1L
-
+    val itemViewModelUserId: Long = itemViewModelUserIdState
     val operationState by viewModel.operationState.collectAsStateWithLifecycle(initialValue = ItemOperationState.Idle)
 
     var itemName by remember { mutableStateOf("") }
@@ -53,17 +51,17 @@ fun AddItemScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // ✅ Set userId when currentUserId changes
+    // ✅ Set userId when currentUserId changes (convert Int to Long)
     LaunchedEffect(currentUserId) {
-        if (currentUserId > 0L) {
+        if (currentUserId > 0) {
             Timber.tag(TAG).d("✅ Setting userId to ItemViewModel: $currentUserId")
-            viewModel.setUserId(currentUserId)
+            viewModel.setUserId(currentUserId.toLong())
         } else {
             Timber.tag(TAG).e("❌ currentUserId is invalid: $currentUserId")
             showErrorDialog = true
             errorMessage = "No user ID set. Please logout and login again."
         }
-    }
+    } // ✅ ADDED: Missing closing brace
 
     // ✅ Monitor ItemViewModel userId changes
     LaunchedEffect(itemViewModelUserId) {
@@ -206,6 +204,7 @@ fun AddItemScreen(
                     Timber.tag(TAG).d(
                         "Save button clicked - currentUserId: $currentUserId, itemViewModelUserId: $itemViewModelUserId"
                     )
+
                     when {
                         itemViewModelUserId <= 0L -> {
                             showErrorDialog = true

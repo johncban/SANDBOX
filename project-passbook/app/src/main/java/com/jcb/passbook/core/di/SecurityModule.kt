@@ -13,7 +13,7 @@ import com.jcb.passbook.security.crypto.DatabaseKeyManager
 import com.jcb.passbook.security.crypto.MasterKeyManager
 import com.jcb.passbook.security.crypto.SecureMemoryUtils
 import com.jcb.passbook.security.crypto.SessionManager
-import com.jcb.passbook.security.detection.SecurityManager
+import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,12 +28,11 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideSecureMemoryUtils(): SecureMemoryUtils {
-        return SecureMemoryUtils()
-    }
+    fun provideArgon2Kt(): Argon2Kt = Argon2Kt()
 
-    // REMOVED DUPLICATE provideApplicationScope()
-    // Dagger will use the one from DatabaseModule.
+    @Provides
+    @Singleton
+    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
 
     @Provides
     @Singleton
@@ -55,17 +54,13 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideAuditQueueProvider(
-        auditQueue: dagger.Lazy<AuditQueue>
-    ): () -> AuditQueue {
+    fun provideAuditQueueProvider(auditQueue: dagger.Lazy<AuditQueue>): () -> AuditQueue {
         return { auditQueue.get() }
     }
 
     @Provides
     @Singleton
-    fun provideAuditChainManager(
-        auditDao: AuditDao
-    ): AuditChainManager {
+    fun provideAuditChainManager(auditDao: AuditDao): AuditChainManager {
         return AuditChainManager(auditDao)
     }
 
@@ -83,10 +78,8 @@ object SecurityModule {
         @ApplicationContext context: Context,
         auditQueueProvider: () -> AuditQueue,
         auditChainManagerProvider: () -> AuditChainManager,
-        applicationScope: CoroutineScope // Dagger injects this from DatabaseModule
+        @ApplicationScope applicationScope: CoroutineScope
     ): AuditLogger {
-        // Using positional arguments to avoid naming conflicts.
-        // Order assumed: Context, QueueProvider, ChainProvider, Scope
         return AuditLogger(
             context,
             auditQueueProvider,
@@ -114,6 +107,7 @@ object SecurityModule {
         return MasterKeyManager(context, auditLoggerProvider, secureMemoryUtils)
     }
 
+    // ✅ FIXED: SessionManager constructor matches actual class signature
     @Provides
     @Singleton
     @RequiresApi(Build.VERSION_CODES.M)
@@ -134,15 +128,6 @@ object SecurityModule {
         secureMemoryUtils: SecureMemoryUtils
     ): DatabaseKeyManager {
         return DatabaseKeyManager(context, sessionManager, secureMemoryUtils)
-    }
-
-    @Provides
-    @Singleton
-    fun provideSecurityManager(
-        sessionManager: SessionManager,
-        auditLogger: AuditLogger
-    ): SecurityManager {
-        return SecurityManager(sessionManager, auditLogger)
     }
 
     @Provides

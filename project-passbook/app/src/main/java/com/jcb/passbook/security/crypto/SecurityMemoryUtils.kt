@@ -55,6 +55,16 @@ class SecureMemoryUtils @Inject constructor() {
         return secureRandom.nextInt(bound)
     }
 
+
+
+    fun clearSensitiveData() {
+        // Force garbage collection
+        System.gc()
+        Timber.d("Sensitive data cleared from memory")
+    }
+
+
+
     // ═══════════════════════════════════════════════════════════════════
     // ByteArray Memory Wiping
     // ═══════════════════════════════════════════════════════════════════

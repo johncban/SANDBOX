@@ -33,7 +33,7 @@ class SecurityManager @Inject constructor(
             // Immediate session invalidation on compromise
             try {
                 if (sessionManager.isSessionActive()) {
-                    sessionManager.endSession("Security compromise detected")
+                    sessionManager.endSession()
                     auditLogger.logSecurityEvent(
                         "Session terminated due to security compromise",
                         "HIGH",

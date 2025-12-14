@@ -12,11 +12,12 @@ import androidx.navigation.compose.rememberNavController
 import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
 import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
 import com.jcb.passbook.presentation.ui.screens.home.HomeScreen
+import com.jcb.passbook.presentation.ui.screens.settings.SettingsScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemDetailScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
-import com.jcb.passbook.presentation.ui.screens.settings.SettingsScreen
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
+import com.jcb.passbook.security.crypto.SessionManager
 
 object Routes {
     const val LOGIN = "login"
@@ -29,13 +30,18 @@ object Routes {
 
 @Composable
 fun PassbookNavHost(
+    sessionManager: SessionManager,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     userViewModel: UserViewModel = hiltViewModel()
 ) {
     val authState by userViewModel.authState.collectAsStateWithLifecycle()
-    // Check if user is authenticated by examining AuthState
-    val startDestination = if (authState is AuthState.Success) Routes.HOME else Routes.LOGIN
+
+    val startDestination = if (authState is AuthState.Success) {
+        Routes.HOME
+    } else {
+        Routes.LOGIN
+    }
 
     NavHost(
         navController = navController,
@@ -51,7 +57,8 @@ fun PassbookNavHost(
                 },
                 onNavigateToRegister = {
                     navController.navigate(Routes.REGISTER)
-                }
+                },
+                sessionManager = sessionManager
             )
         }
 
@@ -64,7 +71,8 @@ fun PassbookNavHost(
                 },
                 onNavigateToLogin = {
                     navController.popBackStack()
-                }
+                },
+                sessionManager = sessionManager
             )
         }
 
@@ -85,16 +93,18 @@ fun PassbookNavHost(
             )
         }
 
-        // ✅ FIXED: Updated parameter names to match ItemListScreen
         composable(Routes.ITEM_LIST) {
             ItemListScreen(
-                onItemClick = { item ->  // ✅ FIXED: Receives Item object
+                onItemClick = { item ->
                     navController.navigate("${Routes.ITEM_DETAIL}/${item.id}")
                 },
-                onAddItem = {  // ✅ FIXED: was "onAddNewItem"
+                onAddItem = {
                     navController.navigate("${Routes.ITEM_DETAIL}/0")
                 },
-                onLogout = {  // ✅ FIXED: was "onBackClick"
+                onBackClick = {
+                    navController.popBackStack()
+                },
+                onLogout = {
                     userViewModel.logout()
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(0) { inclusive = true }
@@ -106,6 +116,7 @@ fun PassbookNavHost(
         composable("${Routes.ITEM_DETAIL}/{itemId}") { backStackEntry ->
             val itemIdString = backStackEntry.arguments?.getString("itemId")
             val itemId = itemIdString?.toLongOrNull()
+
             ItemDetailScreen(
                 itemId = if (itemId == 0L) null else itemId,
                 onSaveSuccess = {
