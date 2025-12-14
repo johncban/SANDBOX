@@ -6,7 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.jcb.passbook.data.datastore.UserPreferences
 import com.jcb.passbook.data.local.database.dao.UserDao
-import com.jcb.passbook.data.repository.UserRepository
+import com.jcb.passbook.data.repositories.UserRepository  // ← FIXED: Changed from .repository to .repositories
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,7 +20,6 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 @InstallIn(SingletonComponent::class)
 object DataStoreModule {
 
-    // FIXED: UserPreferences takes Context, NOT DataStore!
     @Provides
     @Singleton
     fun provideUserPreferences(@ApplicationContext context: Context): UserPreferences {
