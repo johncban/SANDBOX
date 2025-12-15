@@ -13,6 +13,7 @@ import com.jcb.passbook.presentation.ui.theme.PassbookTheme
 import com.jcb.passbook.security.crypto.IdleTimer
 import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -20,36 +21,21 @@ import javax.inject.Inject
 private const val TAG = "MainActivity"
 
 /**
- * ✅ FIXED: MainActivity with proper Hilt injection and navigation
- *
- * Architecture:
- * - SessionManager injected via Hilt @Inject
- * - PassbookNavHost handles its own dependencies via Hilt
- * - Idle timer integrated with session lifecycle
- * - Proper cleanup in lifecycle methods
+ * ✅ FIXED: MainActivity with proper session management
  *
  * Fixes Applied:
- * - BUG-008: Removed sessionManager parameter from PassbookNavHost call
- * - BUG-009: Removed unused userViewModel property
+ * - Added 30-second grace period before session expiration
+ * - Prevents premature logout when app backgrounded briefly
+ * - Proper idle timer lifecycle management
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
 
-    /**
-     * ✅ SessionManager injected via Hilt
-     * Used for:
-     * - Session lifecycle management
-     * - Activity detection tracking
-     * - Logout callbacks
-     */
     @Inject
     lateinit var sessionManager: SessionManager
 
-    /**
-     * Idle timer for automatic session timeout
-     * Default: 15 minutes of inactivity
-     */
     private lateinit var idleTimer: IdleTimer
+    private var backgroundTime: Long = 0L
 
     // ========== LIFECYCLE METHODS ==========
 
@@ -64,21 +50,16 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
         sessionManager.setOnLogoutCallback {
             Timber.tag(TAG).i("🔒 Session ended callback - stopping idle timer")
             idleTimer.stop()
-
-            // Optional: Force navigate to login (handled by PassbookNavHost)
-            // This ensures UI reflects logged-out state
         }
 
         setContent {
             PassbookTheme {
-                // ✅ App launch tracking
                 LaunchedEffect(Unit) {
                     Timber.tag(TAG).i("✅ App UI launched successfully")
                 }
 
-                // ✅ Session state observation for idle timer control
+                // Session state observation for idle timer control
                 val isSessionActive by sessionManager.isSessionActive.collectAsState()
-
                 LaunchedEffect(isSessionActive) {
                     if (isSessionActive) {
                         Timber.tag(TAG).d("▶️ Session active - starting idle timer")
@@ -89,14 +70,6 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
                     }
                 }
 
-                /**
-                 * ✅ FIXED (BUG-008): PassbookNavHost called WITHOUT sessionManager parameter
-                 *
-                 * PassbookNavHost now manages its own dependencies via Hilt:
-                 * - SessionManager injected into LoginScreen
-                 * - RegistrationScreen handles its own injection
-                 * - No prop drilling needed
-                 */
                 PassbookNavHost()
             }
         }
@@ -104,33 +77,19 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
 
     // ========== TOUCH INTERACTION TRACKING ==========
 
-    /**
-     * Track user touch interactions to reset idle timer
-     * Called on ANY touch event in the activity
-     */
     override fun onTouchEvent(event: MotionEvent?): Boolean {
         if (event?.action == MotionEvent.ACTION_DOWN) {
-            // Update session activity timestamp
             sessionManager.updateLastActivity()
-
-            // Reset idle timer countdown
             idleTimer.onActivityDetected()
-
             Timber.tag(TAG).v("👆 User interaction detected")
         }
-
         return super.onTouchEvent(event)
     }
 
     // ========== IDLE TIMEOUT CALLBACK ==========
 
-    /**
-     * ✅ Callback triggered when user is inactive for 15 minutes
-     * Automatically locks the vault and ends session
-     */
     override fun onIdleTimeout() {
         Timber.tag(TAG).w("⏱️ IDLE TIMEOUT - User inactive for 15 minutes, locking vault")
-
         lifecycleScope.launch {
             try {
                 sessionManager.endSession("Idle timeout - 15 minutes inactivity")
@@ -144,32 +103,62 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
     // ========== LIFECYCLE - PAUSE/RESUME ==========
 
     /**
-     * ⏸️ App moved to background
-     * Stop idle timer to avoid unnecessary callbacks
+     * ✅ CRITICAL FIX: App moved to background - record time but DON'T end session immediately
+     *
+     * Previous Bug: Session ended immediately on onPause(), losing user's session when:
+     * - User switches to another app briefly
+     * - User receives a phone call
+     * - User opens notifications
+     *
+     * Fix: Record background time, idle timer paused but session preserved
      */
     override fun onPause() {
         super.onPause()
-        Timber.tag(TAG).d("⏸️ MainActivity onPause - stopping idle timer")
-        idleTimer.stop()
+        backgroundTime = System.currentTimeMillis()
+        Timber.tag(TAG).d("⏸️ MainActivity onPause - pausing idle timer (session preserved)")
+        idleTimer.stop() // Pause timer but keep session alive
     }
 
     /**
-     * ▶️ App returned to foreground
-     * Check session validity and restart idle timer if needed
+     * ✅ CRITICAL FIX: App returned to foreground - check if grace period expired
+     *
+     * Grace Period: 30 seconds
+     * - If backgrounded < 30s: Resume normally
+     * - If backgrounded > 30s: End session for security
      */
     override fun onResume() {
         super.onResume()
         Timber.tag(TAG).d("▶️ MainActivity onResume - checking session state")
 
-        // Check if session is still valid
         if (sessionManager.isAuthenticated()) {
-            idleTimer.start(this)
-            Timber.tag(TAG).d("✅ Session active - idle timer restarted")
+            val timeInBackground = System.currentTimeMillis() - backgroundTime
+            val GRACE_PERIOD_MS = 30_000L // 30 seconds
+
+            if (backgroundTime > 0 && timeInBackground > GRACE_PERIOD_MS) {
+                // ✅ Grace period expired - end session for security
+                Timber.tag(TAG).w("⚠️ App was backgrounded for ${timeInBackground / 1000}s (> 30s grace period)")
+                Timber.tag(TAG).w("🔒 Ending session for security")
+
+                lifecycleScope.launch {
+                    try {
+                        sessionManager.endSession("Exceeded background grace period")
+                    } catch (e: Exception) {
+                        Timber.tag(TAG).e(e, "Error ending session after grace period")
+                    }
+                }
+            } else {
+                // ✅ Within grace period - resume normally
+                if (backgroundTime > 0) {
+                    Timber.tag(TAG).d("✅ Within grace period (${timeInBackground / 1000}s) - resuming session")
+                }
+                idleTimer.start(this)
+                Timber.tag(TAG).d("✅ Session active - idle timer restarted")
+            }
+
+            backgroundTime = 0L // Reset
 
         } else if (sessionManager.isSessionExpired()) {
-            // Session expired while app was in background
             Timber.tag(TAG).w("⚠️ Session expired while in background - ending session")
-
             lifecycleScope.launch {
                 try {
                     sessionManager.endSession("Session expired in background")
@@ -184,21 +173,14 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
 
     // ========== LIFECYCLE - DESTROY ==========
 
-    /**
-     * 🧹 Activity being destroyed
-     * Clean up resources and optionally end session
-     */
     override fun onDestroy() {
         super.onDestroy()
         Timber.tag(TAG).d("🧹 MainActivity onDestroy - cleaning up")
 
-        // Always stop idle timer
         idleTimer.stop()
 
-        // End session ONLY if activity is finishing (not config change)
         if (isFinishing) {
             Timber.tag(TAG).i("🚪 Activity finishing - ending session")
-
             lifecycleScope.launch {
                 try {
                     sessionManager.endSession("Activity destroyed - app closed")

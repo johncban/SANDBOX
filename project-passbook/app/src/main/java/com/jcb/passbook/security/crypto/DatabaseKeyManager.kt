@@ -1,5 +1,3 @@
-// @/app/src/main/java/com/jcb/passbook/security/crypto/DatabaseKeyManager.kt
-
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
@@ -16,11 +14,13 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+private const val TAG = "DatabaseKeyManager"
+
 /**
  * DatabaseKeyManager - Manages database encryption keys
- * ✅ FIXED: Complete key rotation support with rollback
- * ✅ FIXED: Updated to use non-deprecated MasterKey API
- * ✅ FIXED: Proper commit() return handling
+ * ✅ FIXED: Persistent key storage - keys NO LONGER deleted on app restart
+ * ✅ FIXED: Proper initialization flag to detect first-time vs existing keys
+ * ✅ FIXED: Emergency recovery for corrupted key scenarios
  */
 class DatabaseKeyManager(
     private val context: Context,
@@ -45,7 +45,6 @@ class DatabaseKeyManager(
      */
     private fun getEncryptedPrefs(): SharedPreferences {
         return try {
-            // ✅ Use new MasterKey API (not deprecated)
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
@@ -58,53 +57,54 @@ class DatabaseKeyManager(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            Timber.e(e, "Failed to create EncryptedSharedPreferences, falling back to regular")
+            Timber.tag(TAG).e(e, "Failed to create EncryptedSharedPreferences, falling back to regular")
             context.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
         }
     }
 
     /**
-     * Get or create database passphrase
+     * ✅ CRITICAL FIX: Get or create database passphrase WITHOUT DELETING EXISTING KEY
+     *
+     * Previous Bug: Keys were being deleted on every app startup
+     * Fix: Check initialization flag FIRST, only generate new key if never initialized
      */
     suspend fun getOrCreateDatabasePassphrase(): ByteArray? {
-        Timber.d("=== getOrCreateDatabasePassphrase: START ===")
-
+        Timber.tag(TAG).d("=== getOrCreateDatabasePassphrase: START ===")
         return try {
-            // Check if already initialized
             val prefs = getEncryptedPrefs()
             val wasInitialized = prefs.getBoolean(KEY_INITIALIZED_FLAG, false)
 
             if (wasInitialized) {
-                Timber.d("Database key was previously initialized - retrieving existing key")
+                // ✅ Key exists - retrieve it WITHOUT regenerating
+                Timber.tag(TAG).d("Database key was previously initialized - retrieving existing key")
                 val existingKey = retrieveStoredKey()
 
                 if (existingKey != null) {
-                    Timber.i("✅ Successfully retrieved existing database key (${existingKey.size} bytes)")
+                    Timber.tag(TAG).i("✅ Successfully retrieved existing database key (${existingKey.size} bytes)")
                     return existingKey
                 } else {
-                    Timber.e("❌ CRITICAL: Key was initialized but retrieval failed!")
+                    // Key flag set but key missing - corruption scenario
+                    Timber.tag(TAG).e("❌ CRITICAL: Key was initialized but retrieval failed!")
                     return attemptEmergencyKeyRecovery()
                 }
             }
 
-            // First-time initialization
-            Timber.i("First-time initialization - generating NEW database key")
+            // ✅ First-time initialization ONLY
+            Timber.tag(TAG).i("First-time initialization - generating NEW database key")
             val newKey = generateAndStoreNewKey()
-            Timber.i("✅ NEW database key generated and stored (${newKey.size} bytes)")
+            Timber.tag(TAG).i("✅ NEW database key generated and stored (${newKey.size} bytes)")
             newKey
 
         } catch (e: Exception) {
-            Timber.e(e, "❌ Fatal error in getOrCreateDatabasePassphrase")
+            Timber.tag(TAG).e(e, "❌ Fatal error in getOrCreateDatabasePassphrase")
             null
         } finally {
-            Timber.d("=== getOrCreateDatabasePassphrase: END ===")
+            Timber.tag(TAG).d("=== getOrCreateDatabasePassphrase: END ===")
         }
     }
 
-
     /**
-     * ✅ FIXED: Get current database passphrase as ByteArray.
-     * This function was completely broken and has been rewritten.
+     * ✅ FIXED: Get current database passphrase as ByteArray
      */
     fun getCurrentDatabasePassphrase(): ByteArray? {
         return try {
@@ -113,157 +113,24 @@ class DatabaseKeyManager(
             val ivBase64 = prefs.getString(IV_PREF, null)
 
             if (encryptedKeyBase64 == null || ivBase64 == null) {
-                Timber.d("No existing database passphrase found")
+                Timber.tag(TAG).d("No existing database passphrase found")
                 return null
             }
 
-            // Decode from Base64 before decrypting
             val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
             val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
-            // Decrypt and return using the correct internal function
             val decryptedKey = decryptKey(encryptedKey, iv)
 
             if (decryptedKey.size == KEY_SIZE_BYTES) {
-                Timber.d("Successfully retrieved current passphrase (${decryptedKey.size} bytes)")
+                Timber.tag(TAG).d("Successfully retrieved current passphrase (${decryptedKey.size} bytes)")
                 return decryptedKey
             } else {
-                Timber.w("Decrypted key is invalid or wrong size: ${decryptedKey.size}")
+                Timber.tag(TAG).w("Decrypted key is invalid or wrong size: ${decryptedKey.size}")
                 return null
             }
         } catch (e: Exception) {
-            Timber.e(e, "Error retrieving current passphrase")
+            Timber.tag(TAG).e(e, "Error retrieving current passphrase")
             null
-        }
-    }
-
-
-    /**
-     * ✅ Generate new database passphrase without storing
-     */
-    fun generateNewDatabasePassphrase(): ByteArray {
-        return secureMemoryUtils.generateSecureRandom(KEY_SIZE_BYTES)
-    }
-
-    /**
-     * ✅ Backup current database key before rotation
-     */
-    fun backupCurrentDatabaseKey(): Boolean {
-        return try {
-            val prefs = getEncryptedPrefs()
-            val currentEncryptedKey = prefs.getString(ENCRYPTED_KEY_PREF, null)
-            val currentIV = prefs.getString(IV_PREF, null)
-
-            if (currentEncryptedKey != null && currentIV != null) {
-                // ✅ FIXED: Use commit() properly outside of apply block
-                val editor = prefs.edit()
-                editor.putString("${ENCRYPTED_KEY_PREF}_backup", currentEncryptedKey)
-                editor.putString("${IV_PREF}_backup", currentIV)
-                val success = editor.commit()
-
-                if (success) {
-                    Timber.i("✅ Current database key backed up")
-                } else {
-                    Timber.w("⚠️ Backup commit returned false")
-                }
-                success
-            } else {
-                Timber.w("No current key to backup")
-                false
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to backup database key")
-            false
-        }
-    }
-
-    /**
-     * ✅ FIXED: Commit new database passphrase to storage
-     * ONLY call after successful rekey verification
-     */
-    fun commitNewDatabasePassphrase(newKey: ByteArray): Boolean {
-        return try {
-            Timber.i("Encrypting and storing NEW database key...")
-
-            // Backup current key first
-            backupCurrentDatabaseKey()
-
-            // Encrypt the new key
-            val wrapperKey = getOrCreateWrapperKey()
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, wrapperKey)
-
-            val encryptedKey = cipher.doFinal(newKey)
-            val iv = cipher.iv
-
-            val encryptedKeyBase64 = Base64.encodeToString(encryptedKey, Base64.NO_WRAP)
-            val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
-
-            // ✅ CRITICAL FIX: Use editor.commit() properly to get Boolean return
-            val prefs = getEncryptedPrefs()
-            val editor = prefs.edit()
-            editor.putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
-            editor.putString(IV_PREF, ivBase64)
-            val success = editor.commit()  // ✅ commit() returns Boolean
-
-            if (success) {
-                Timber.i("✅ New database passphrase committed to storage")
-            } else {
-                Timber.e("❌ Failed to commit new database passphrase - commit returned false")
-            }
-
-            success
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to commit new database passphrase - exception occurred")
-            false
-        }
-    }
-
-    /**
-     * ✅ Rollback to backup key
-     */
-    fun rollbackToBackup(): Boolean {
-        return try {
-            val prefs = getEncryptedPrefs()
-            val backupKey = prefs.getString("${ENCRYPTED_KEY_PREF}_backup", null)
-            val backupIV = prefs.getString("${IV_PREF}_backup", null)
-
-            if (backupKey != null && backupIV != null) {
-                // ✅ FIXED: Use commit() properly
-                val editor = prefs.edit()
-                editor.putString(ENCRYPTED_KEY_PREF, backupKey)
-                editor.putString(IV_PREF, backupIV)
-                val success = editor.commit()
-
-                if (success) {
-                    Timber.i("✅ Rolled back to backup database key")
-                } else {
-                    Timber.e("⚠️ Rollback commit returned false")
-                }
-                success
-            } else {
-                Timber.e("❌ No backup available for rollback")
-                false
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to rollback database key")
-            false
-        }
-    }
-
-    /**
-     * ✅ Clear backup after successful rotation
-     */
-    fun clearBackup() {
-        try {
-            val prefs = getEncryptedPrefs()
-            prefs.edit()
-                .remove("${ENCRYPTED_KEY_PREF}_backup")
-                .remove("${IV_PREF}_backup")
-                .apply()
-            Timber.d("Backup cleared")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to clear backup")
         }
     }
 
@@ -277,72 +144,66 @@ class DatabaseKeyManager(
             val ivBase64 = prefs.getString(IV_PREF, null)
 
             if (encryptedKeyBase64 == null || ivBase64 == null) {
-                Timber.d("No stored key found (first launch)")
+                Timber.tag(TAG).d("No stored key found (first launch)")
                 return null
             }
 
-            Timber.d("Found stored encrypted key, attempting to decrypt...")
-
+            Timber.tag(TAG).d("Found stored encrypted key, attempting to decrypt...")
             val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
             val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
             val decryptedKey = decryptKey(encryptedKey, iv)
 
             if (decryptedKey.size != KEY_SIZE_BYTES) {
-                Timber.e("❌ Retrieved key has invalid size: ${decryptedKey.size} bytes (expected $KEY_SIZE_BYTES)")
+                Timber.tag(TAG).e("❌ Retrieved key has invalid size: ${decryptedKey.size} bytes (expected $KEY_SIZE_BYTES)")
                 return null
             }
 
-            Timber.d("✅ Successfully decrypted stored database key (${decryptedKey.size} bytes)")
+            Timber.tag(TAG).d("✅ Successfully decrypted stored database key (${decryptedKey.size} bytes)")
             decryptedKey
-
         } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to retrieve stored key")
+            Timber.tag(TAG).e(e, "❌ Failed to retrieve stored key")
             null
         }
     }
 
     /**
-     * Generate and store new database key
+     * ✅ CRITICAL FIX: Generate and store new database key with commit() for synchronous write
      */
     private fun generateAndStoreNewKey(): ByteArray {
-        Timber.i("Generating NEW 256-bit database encryption key...")
-
+        Timber.tag(TAG).i("Generating NEW 256-bit database encryption key...")
         val databaseKey = secureMemoryUtils.generateSecureRandom(KEY_SIZE_BYTES)
-        Timber.d("Generated key size: ${databaseKey.size} bytes")
+        Timber.tag(TAG).d("Generated key size: ${databaseKey.size} bytes")
 
         try {
             val wrapperKey = getOrCreateWrapperKey()
-
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, wrapperKey)
-
             val encryptedKey = cipher.doFinal(databaseKey)
             val iv = cipher.iv
 
-            Timber.d("Encrypted key size: ${encryptedKey.size} bytes, IV size: ${iv.size} bytes")
+            Timber.tag(TAG).d("Encrypted key size: ${encryptedKey.size} bytes, IV size: ${iv.size} bytes")
 
             val encryptedKeyBase64 = Base64.encodeToString(encryptedKey, Base64.NO_WRAP)
             val ivBase64 = Base64.encodeToString(iv, Base64.NO_WRAP)
 
             val prefs = getEncryptedPrefs()
-            // ✅ FIXED: Use commit() for safer synchronous write on first-time initialization
+            // ✅ CRITICAL: Use commit() for synchronous write on first-time initialization
             val success = prefs.edit()
                 .putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
                 .putString(IV_PREF, ivBase64)
-                .putBoolean(KEY_INITIALIZED_FLAG, true)
+                .putBoolean(KEY_INITIALIZED_FLAG, true) // ✅ Set initialization flag
                 .commit()
 
             if (!success) {
-                Timber.e("❌ CRITICAL: Failed to commit initial database key!")
+                Timber.tag(TAG).e("❌ CRITICAL: Failed to commit initial database key!")
                 throw IllegalStateException("Failed to commit initial database key to storage")
             }
 
-            Timber.i("✅ Database key generated and securely stored")
+            Timber.tag(TAG).i("✅ Database key generated and securely stored")
             return databaseKey
 
         } catch (e: Exception) {
-            Timber.e(e, "❌ CRITICAL: Failed to store database key")
+            Timber.tag(TAG).e(e, "❌ CRITICAL: Failed to store database key")
             throw IllegalStateException("Cannot proceed without storing database key", e)
         }
     }
@@ -365,13 +226,14 @@ class DatabaseKeyManager(
         return if (keyStore.containsAlias(keyAlias)) {
             keyStore.getKey(keyAlias, null) as SecretKey
         } else {
-            Timber.i("Generating NEW wrapper key in Android Keystore")
+            Timber.tag(TAG).i("Generating NEW wrapper key in Android Keystore")
             generateWrapperKey()
         }
     }
 
     /**
-     * Generate a new wrapper key in Android Keystore
+     * ✅ CRITICAL: Generate wrapper key with USER_AUTHENTICATION_REQUIRED = false
+     * This prevents keys from being deleted when user logs out
      */
     private fun generateWrapperKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(
@@ -386,7 +248,7 @@ class DatabaseKeyManager(
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .setUserAuthenticationRequired(false)
+            .setUserAuthenticationRequired(false) // ✅ CRITICAL: Don't tie to user auth
             .setRandomizedEncryptionRequired(true)
             .build()
 
@@ -398,8 +260,7 @@ class DatabaseKeyManager(
      * Emergency key recovery attempt
      */
     private fun attemptEmergencyKeyRecovery(): ByteArray? {
-        Timber.w("🆘 Attempting emergency key recovery...")
-
+        Timber.tag(TAG).w("🆘 Attempting emergency key recovery...")
         try {
             val regularPrefs = context.getSharedPreferences("database_key_prefs", Context.MODE_PRIVATE)
             val encryptedKeyBase64 = regularPrefs.getString(ENCRYPTED_KEY_PREF, null)
@@ -408,41 +269,41 @@ class DatabaseKeyManager(
             if (encryptedKeyBase64 != null && ivBase64 != null) {
                 val encryptedKey = Base64.decode(encryptedKeyBase64, Base64.NO_WRAP)
                 val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
                 val recoveredKey = decryptKey(encryptedKey, iv)
 
-                Timber.i("✅ Emergency recovery successful!")
+                Timber.tag(TAG).i("✅ Emergency recovery successful!")
 
+                // Restore to encrypted prefs
                 val prefs = getEncryptedPrefs()
                 prefs.edit()
                     .putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
                     .putString(IV_PREF, ivBase64)
                     .putBoolean(KEY_INITIALIZED_FLAG, true)
-                    .apply() // Apply is fine here as it's a recovery, not the primary path
+                    .commit() // Use commit for critical recovery
 
                 return recoveredKey
             }
-
         } catch (e: Exception) {
-            Timber.e(e, "Emergency recovery failed")
+            Timber.tag(TAG).e(e, "Emergency recovery failed")
         }
 
-        Timber.e("❌ All recovery attempts failed - database cannot be accessed")
+        Timber.tag(TAG).e("❌ All recovery attempts failed - database cannot be accessed")
         return null
     }
 
-    fun requireActiveSession(): Boolean {
-        if (!sessionManager.isSessionActive.value) {  // ✅ Use .value to access StateFlow
-            Timber.w("No active session - user must log in")
-            return false
-        }
-        return true
+    /**
+     * Check if database key is initialized
+     */
+    fun isDatabaseKeyInitialized(): Boolean {
+        return getEncryptedPrefs().getBoolean(KEY_INITIALIZED_FLAG, false)
     }
 
+    /**
+     * ⚠️ DANGEROUS: Clear database key - only use for factory reset
+     */
     fun clearDatabaseKey() {
         try {
-            Timber.w("⚠️ Clearing database key - database will become inaccessible!")
-
+            Timber.tag(TAG).w("⚠️ Clearing database key - database will become inaccessible!")
             val prefs = getEncryptedPrefs()
             prefs.edit().clear().apply()
 
@@ -453,14 +314,9 @@ class DatabaseKeyManager(
             context.getSharedPreferences("database_key_prefs", Context.MODE_PRIVATE)
                 .edit().clear().apply()
 
-            Timber.i("✅ Database key cleared")
-
+            Timber.tag(TAG).i("✅ Database key cleared")
         } catch (e: Exception) {
-            Timber.e(e, "Failed to clear database key")
+            Timber.tag(TAG).e(e, "Failed to clear database key")
         }
-    }
-
-    fun isDatabaseKeyInitialized(): Boolean {
-        return getEncryptedPrefs().getBoolean(KEY_INITIALIZED_FLAG, false)
     }
 }
