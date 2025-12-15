@@ -24,7 +24,7 @@ object KeystorePassphraseManager {
 
     // ✅ CRITICAL FIX: Use underscore prefix to avoid Android auto-deletion
     // private const val KEY_ALIAS = "_passbook_database_encryption_key"
-    private const val KEY_ALIAS = "_passbook_database_encryption_key_"
+    private const val KEY_ALIAS = "jcb.passbook.db.key"
 
 
     private const val PREF_NAME = "db_key_prefs"
