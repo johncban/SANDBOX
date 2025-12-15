@@ -16,7 +16,7 @@ class DatabaseEncryptionManager(private val context: Context) {
     }
 
     /**
-     * Get encryption passphrase with fallback and recovery logic.
+     * ✅ FIXED: Get encryption passphrase with proper existing key check
      *
      * @return ByteArray passphrase for SQLCipher database encryption
      * @throws Exception if all passphrase generation methods fail
@@ -25,31 +25,25 @@ class DatabaseEncryptionManager(private val context: Context) {
         return try {
             Timber.tag(TAG).d("Attempting to get encryption passphrase...")
 
-            // Try to get existing passphrase from Android Keystore
-            // Convert String? to ByteArray?
+            // ✅ CRITICAL FIX: Try to get EXISTING passphrase first
+            // This prevents regenerating a new passphrase on every app restart
             val existingPassphraseString: String? =
                 KeystorePassphraseManager.getCurrentPassphrase(context)
 
-            val existingPassphrase: ByteArray? =
-                existingPassphraseString?.toByteArray(Charsets.UTF_8)
-
-            if (existingPassphrase != null && existingPassphrase.isNotEmpty()) {
+            if (existingPassphraseString != null && existingPassphraseString.isNotEmpty()) {
                 Timber.tag(TAG).d("✓ Using existing passphrase from Keystore")
-                existingPassphrase
-            } else {
-                // If no existing passphrase, create new one
-                Timber.tag(TAG).i("No existing passphrase found, generating new one...")
-
-                // Convert String to ByteArray
-                val newPassphraseString: String =
-                    KeystorePassphraseManager.getOrCreatePassphrase(context)
-
-                val newPassphrase: ByteArray =
-                    newPassphraseString.toByteArray(Charsets.UTF_8)
-
-                Timber.tag(TAG).d("✓ New passphrase generated and stored")
-                newPassphrase
+                return existingPassphraseString.toByteArray(Charsets.UTF_8)
             }
+
+            // ✅ ONLY create new passphrase if none exists (first launch scenario)
+            Timber.tag(TAG).i("No existing passphrase found, generating new one (first launch)...")
+
+            val newPassphraseString: String =
+                KeystorePassphraseManager.getOrCreatePassphrase(context)
+
+            Timber.tag(TAG).d("✓ New passphrase generated and stored")
+            newPassphraseString.toByteArray(Charsets.UTF_8)
+
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "❌ Error getting encryption passphrase, using fallback...")
 
