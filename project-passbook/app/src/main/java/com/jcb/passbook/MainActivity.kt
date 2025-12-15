@@ -157,15 +157,6 @@ class MainActivity : ComponentActivity(), IdleTimer.IdleCallback {
 
             backgroundTime = 0L // Reset
 
-        } else if (sessionManager.isSessionExpired()) {
-            Timber.tag(TAG).w("⚠️ Session expired while in background - ending session")
-            lifecycleScope.launch {
-                try {
-                    sessionManager.endSession("Session expired in background")
-                } catch (e: Exception) {
-                    Timber.tag(TAG).e(e, "❌ Error ending expired session")
-                }
-            }
         } else {
             Timber.tag(TAG).d("ℹ️ No active session - user needs to login")
         }
