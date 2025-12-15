@@ -17,6 +17,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,7 +34,34 @@ fun RegistrationScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+
+    // ✅ Observe auth state for registration result
+    val authState by userViewModel.authState.collectAsStateWithLifecycle()
+
+    // ✅ Handle registration success/error
+    LaunchedEffect(authState) {
+        when (authState) {
+            is AuthState.Success -> {
+                val userId = (authState as AuthState.Success).userId
+                isLoading = false
+                onRegistrationSuccess(userId)
+                userViewModel.clearAuthState()
+            }
+            is AuthState.Error -> {
+                errorMessage = (authState as AuthState.Error).message
+                isLoading = false
+            }
+            is AuthState.Loading -> {
+                isLoading = true
+                errorMessage = null
+            }
+            else -> {
+                isLoading = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -80,6 +109,7 @@ fun RegistrationScreen(
                 leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                enabled = !isLoading,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Text,
                     imeAction = ImeAction.Next
@@ -112,6 +142,7 @@ fun RegistrationScreen(
                 else PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                enabled = !isLoading,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Next
@@ -144,6 +175,7 @@ fun RegistrationScreen(
                 else PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                enabled = !isLoading,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Done
@@ -172,22 +204,33 @@ fun RegistrationScreen(
                         password.length < 6 -> errorMessage = "Password must be at least 6 characters"
                         password != confirmPassword -> errorMessage = "Passwords do not match"
                         else -> {
-                            // TODO: Implement actual registration via viewModel
-                            onRegistrationSuccess(1L)
+                            // ✅ ACTUAL REGISTRATION - Save user to database
+                            userViewModel.register(username, password)
                         }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank()
+                enabled = !isLoading && username.isNotBlank() && password.isNotBlank() && confirmPassword.isNotBlank()
             ) {
-                Icon(Icons.Default.PersonAdd, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Register")
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Default.PersonAdd, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Register")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            TextButton(onClick = onNavigateToLogin) {
+            TextButton(
+                onClick = onNavigateToLogin,
+                enabled = !isLoading
+            ) {
                 Text("Already have an account? Login")
             }
         }

@@ -17,7 +17,6 @@ class UserRepository @Inject constructor(
 
     fun getCurrentUser(): Flow<User?> = flow {
         val userId = userPreferences.currentUserId.first()
-
         if (userId != -1) {
             val user = userDao.getUserById(userId.toLong())
             emit(user)
@@ -28,7 +27,6 @@ class UserRepository @Inject constructor(
 
     suspend fun authenticateUser(username: String, passwordHash: String): User? {
         val user = userDao.getUserByUsername(username)
-
         return if (user != null && user.passwordHash == passwordHash) {
             userPreferences.setCurrentUserId(user.id.toInt())
             user
@@ -51,5 +49,15 @@ class UserRepository @Inject constructor(
 
     suspend fun deleteUser(user: User) {
         userDao.delete(user)
+    }
+
+    // ✅ NEW: Set current user ID in preferences
+    suspend fun setCurrentUserId(userId: Int) {
+        userPreferences.setCurrentUserId(userId)
+    }
+
+    // ✅ NEW: Get user by username (for duplicate check)
+    suspend fun getUserByUsername(username: String): User? {
+        return userDao.getUserByUsername(username)
     }
 }
