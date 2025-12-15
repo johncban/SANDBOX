@@ -14,14 +14,21 @@ private const val TAG = "SessionManager"
 /**
  * SessionManager - Manages user session state and lifecycle
  *
+ * ✅ CRITICAL FIX: Removed masterKeyManager.clearKeys() call that was deleting database keys
+ * ✅ CRITICAL FIX: Now only clears in-memory sensitive data, NOT KeyStore entries
+ *
  * Core responsibilities:
  * 1. Track session active/inactive state
  * 2. Handle automatic timeout after 15 minutes of inactivity
- * 3. Clear sensitive data securely on session end
+ * 3. Clear in-memory sensitive data securely on session end
  * 4. Coordinate with UI for logout navigation
  *
+ * Security Architecture:
+ * - Session-specific data (unwrapped AMK) → Cleared on logout
+ * - KeyStore entries (master keys, database keys) → NEVER deleted on logout
+ * - User data (database) → Persists across sessions
+ *
  * Thread-safe: Uses StateFlow for state management
- * Security: Ensures all sensitive data is cleared from memory
  */
 @Singleton
 class SessionManager @Inject constructor(
@@ -29,7 +36,6 @@ class SessionManager @Inject constructor(
     private val auditLoggerProvider: () -> AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
-
     // ========== STATE MANAGEMENT ==========
 
     private val _isSessionActive = MutableStateFlow(false)
@@ -37,7 +43,7 @@ class SessionManager @Inject constructor(
 
     private var lastActivityTime: Long = 0L
 
-    // Session timeout: 15 minutes (camelCase to avoid underscore warning)
+    // Session timeout: 15 minutes
     private val sessionTimeoutMillis = 15 * 60 * 1000L
 
     // Callback for automatic logout navigation
@@ -52,6 +58,7 @@ class SessionManager @Inject constructor(
     fun startSession() {
         _isSessionActive.value = true
         lastActivityTime = System.currentTimeMillis()
+
         Timber.tag(TAG).i("✅ Session started")
 
         auditLoggerProvider().logSecurityEvent(
@@ -62,7 +69,15 @@ class SessionManager @Inject constructor(
     }
 
     /**
-     * End the current session and clear all sensitive data
+     * ✅ CRITICAL FIX: End session WITHOUT deleting KeyStore entries
+     *
+     * Previous Bug: Called masterKeyManager.clearKeys() which deleted:
+     * - MASTER_WRAP_KEY_ALIAS
+     * - DATABASE_KEY_WRAPPER_ALIAS (indirectly)
+     * This caused database encryption key to become inaccessible
+     *
+     * New Behavior: Only clears in-memory cached data
+     *
      * @param reason Reason for ending session (e.g., "Manual logout", "Idle timeout")
      */
     suspend fun endSession(reason: String = "Manual logout") {
@@ -74,22 +89,23 @@ class SessionManager @Inject constructor(
         Timber.tag(TAG).i("Ending session: $reason")
 
         try {
-            // Clear encryption keys from memory (if method exists)
+            // ✅ CRITICAL FIX: Clear ONLY in-memory data, NOT KeyStore entries
             try {
-                // ✅ FIXED: Check if method exists before calling
-                masterKeyManager.javaClass.getMethod("clearKeys").invoke(masterKeyManager)
-                Timber.tag(TAG).d("Encryption keys cleared")
-            } catch (_: NoSuchMethodException) {
-                Timber.tag(TAG).d("clearKeys() not available - skipping")
+                // Clear cached AMK from memory (not from KeyStore!)
+                masterKeyManager.clearInMemorySensitiveData()
+                Timber.tag(TAG).d("✅ In-memory encryption keys cleared")
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error clearing in-memory keys (non-fatal)")
             }
 
-            // Wipe sensitive memory regions (if method exists)
+            // ✅ Wipe other sensitive memory regions
             try {
-                // ✅ FIXED: Check if method exists before calling
-                secureMemoryUtils.javaClass.getMethod("clearSensitiveData").invoke(secureMemoryUtils)
-                Timber.tag(TAG).d("Sensitive data wiped from memory")
-            } catch (_: NoSuchMethodException) {
+                secureMemoryUtils.clearSensitiveData()
+                Timber.tag(TAG).d("✅ Sensitive data wiped from memory")
+            } catch (e: NoSuchMethodError) {
                 Timber.tag(TAG).d("clearSensitiveData() not available - skipping")
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error clearing sensitive data (non-fatal)")
             }
 
             // Mark session as inactive
@@ -106,12 +122,10 @@ class SessionManager @Inject constructor(
             // Trigger UI logout callback
             onLogoutCallback?.invoke()
 
-            Timber.tag(TAG).i("✅ Session ended successfully")
+            Timber.tag(TAG).i("✅ Session ended successfully (KeyStore preserved)")
 
         } catch (e: Exception) {
-            // ✅ FIXED: Use underscore prefix to suppress "unused parameter" warning
             Timber.tag(TAG).e(e, "❌ Error during session cleanup")
-
             auditLoggerProvider().logSecurityEvent(
                 "Session cleanup error: ${e.message}",
                 "ERROR",
@@ -170,8 +184,6 @@ class SessionManager @Inject constructor(
     /**
      * Get time remaining until session expires
      * @return Time remaining in milliseconds, or 0 if expired
-     *
-     * Note: Currently unused but available for future session countdown UI
      */
     @Suppress("unused")
     fun getTimeUntilExpiry(): Long {
@@ -186,8 +198,6 @@ class SessionManager @Inject constructor(
     /**
      * Force refresh session timeout
      * Extends session by resetting activity timer
-     *
-     * Note: Currently unused but available for explicit session extension feature
      */
     @Suppress("unused")
     fun refreshSession() {

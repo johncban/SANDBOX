@@ -307,9 +307,6 @@ class DatabaseKeyManager(
             val prefs = getEncryptedPrefs()
             prefs.edit().clear().apply()
 
-            if (keyStore.containsAlias(keyAlias)) {
-                keyStore.deleteEntry(keyAlias)
-            }
 
             context.getSharedPreferences("database_key_prefs", Context.MODE_PRIVATE)
                 .edit().clear().apply()

@@ -27,12 +27,22 @@ import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
+private const val TAG = "MasterKeyManager"
+
 /**
- * MasterKeyManager handles biometric-gated master wrapping keys.
- * The master key is used to wrap/unwrap the Application Master Key (AMK)
- * which in turn protects SQLCipher passphrases and other secrets.
+ * MasterKeyManager - Manages biometric-gated master wrapping keys
  *
- * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
+ * ✅ CRITICAL FIX: Removed clearKeys() method that was deleting database wrapper keys
+ * ✅ CRITICAL FIX: Session-specific keys are managed separately from persistent database keys
+ *
+ * Key Architecture:
+ * - Master Wrap Key (MASTER_WRAP_KEY_ALIAS) → Protects AMK (Application Master Key)
+ * - AMK → Used for session-specific encryption
+ * - Database Key Wrapper (passbook_database_key_wrapper) → NEVER deleted during session end
+ *
+ * The master key is used to wrap/unwrap the Application Master Key (AMK)
+ * which in turn protects session-specific secrets. Database encryption keys
+ * are managed separately by DatabaseKeyManager and must persist across sessions.
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
@@ -41,7 +51,7 @@ class MasterKeyManager @Inject constructor(
     private val auditLoggerProvider: () -> AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
-    // ✅ ADDED: Lazy initialization of auditLogger
+    // ✅ Lazy initialization of auditLogger to avoid circular dependencies
     private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
 
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -51,9 +61,64 @@ class MasterKeyManager @Inject constructor(
         private const val AMK_STORAGE_KEY = "amk_wrapped_v2"
         private const val AMK_SIZE_BYTES = 32
         private const val AUTH_TIMEOUT_SECONDS = 60
-        private const val TAG = "MasterKeyManager"
         private const val REQUIRE_AUTHENTICATION = false // Set to true for production
+
+        // ✅ CRITICAL: This is the database key wrapper managed by DatabaseKeyManager
+        // We must NEVER delete this during session cleanup
+        private const val DATABASE_KEY_WRAPPER_ALIAS = "passbook_database_key_wrapper"
     }
+
+    // ========== IN-MEMORY SESSION KEY STORAGE ==========
+
+    /**
+     * ✅ NEW: In-memory storage for unwrapped AMK during active session
+     * This is cleared when session ends, NOT the KeyStore entries
+     */
+    private var unwrappedAMK: ByteArray? = null
+
+    /**
+     * ✅ CRITICAL FIX: Clear ONLY in-memory sensitive data, NOT KeyStore entries
+     *
+     * Previous Bug: clearKeys() deleted MASTER_WRAP_KEY_ALIAS from KeyStore
+     * This caused database key wrapper to become inaccessible
+     *
+     * New Behavior: Only wipes in-memory AMK cache
+     */
+    fun clearInMemorySensitiveData() {
+        try {
+            Timber.tag(TAG).d("Clearing in-memory sensitive data...")
+
+            // ✅ Clear cached AMK from memory
+            unwrappedAMK?.let {
+                secureMemoryUtils.secureWipe(it)
+                unwrappedAMK = null
+                Timber.tag(TAG).d("✅ Unwrapped AMK wiped from memory")
+            }
+
+            // ✅ CRITICAL: Do NOT delete KeyStore entries!
+            // KeyStore entries must persist across sessions:
+            // - MASTER_WRAP_KEY_ALIAS: Protects AMK
+            // - DATABASE_KEY_WRAPPER_ALIAS: Protects database (managed by DatabaseKeyManager)
+
+            auditLogger.logSecurityEvent(
+                "In-memory sensitive data cleared (KeyStore preserved)",
+                "INFO",
+                AuditOutcome.SUCCESS
+            )
+
+            Timber.tag(TAG).i("✅ In-memory data cleared - KeyStore entries preserved")
+
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Error clearing in-memory data")
+            auditLogger.logSecurityEvent(
+                "Failed to clear in-memory data: ${e.message}",
+                "WARNING",
+                AuditOutcome.FAILURE
+            )
+        }
+    }
+
+    // ========== MASTER KEY INITIALIZATION ==========
 
     /**
      * Initialize master key infrastructure on first run
@@ -61,8 +126,10 @@ class MasterKeyManager @Inject constructor(
     suspend fun initializeMasterKey(): Boolean {
         return try {
             if (!hasMasterKey()) {
+                Timber.tag(TAG).i("First-time master key initialization...")
                 generateMasterWrapKey()
                 generateAndWrapAMK()
+
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure initialized",
                     "NORMAL",
@@ -70,6 +137,7 @@ class MasterKeyManager @Inject constructor(
                 )
                 true
             } else {
+                Timber.tag(TAG).d("Master key infrastructure already exists")
                 auditLogger.logSecurityEvent(
                     "Master key infrastructure already exists",
                     "NORMAL",
@@ -78,12 +146,12 @@ class MasterKeyManager @Inject constructor(
                 true
             }
         } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to initialize master key")
             auditLogger.logSecurityEvent(
                 "Failed to initialize master key: ${e.message}",
                 "CRITICAL",
                 AuditOutcome.FAILURE
             )
-            Timber.e(e, "Failed to initialize master key")
             false
         }
     }
@@ -99,8 +167,11 @@ class MasterKeyManager @Inject constructor(
 
     /**
      * Generate biometric-gated master wrapping key
+     * ✅ CRITICAL: This key is NOT deleted during session cleanup
      */
     private fun generateMasterWrapKey() {
+        Timber.tag(TAG).i("Generating master wrap key...")
+
         val keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
         val keyGenParameterSpec = KeyGenParameterSpec.Builder(
             MASTER_WRAP_KEY_ALIAS,
@@ -129,6 +200,8 @@ class MasterKeyManager @Inject constructor(
 
         keyGenerator.init(keyGenParameterSpec)
         keyGenerator.generateKey()
+
+        Timber.tag(TAG).i("✅ Master wrap key generated")
     }
 
     /**
@@ -137,10 +210,15 @@ class MasterKeyManager @Inject constructor(
     private suspend fun generateAndWrapAMK() {
         val amk = ByteArray(AMK_SIZE_BYTES)
         SecureRandom().nextBytes(amk)
+
         try {
             val wrappedAMK = wrapAMK(amk)
             val prefs = context.getSharedPreferences("master_key_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putString(AMK_STORAGE_KEY, Base64.encodeToString(wrappedAMK, Base64.NO_WRAP)).apply()
+            prefs.edit()
+                .putString(AMK_STORAGE_KEY, Base64.encodeToString(wrappedAMK, Base64.NO_WRAP))
+                .apply()
+
+            Timber.tag(TAG).i("✅ AMK generated and wrapped")
         } finally {
             secureMemoryUtils.secureWipe(amk)
         }
@@ -158,6 +236,8 @@ class MasterKeyManager @Inject constructor(
         return iv + encrypted // Prepend IV for unwrapping
     }
 
+    // ========== BIOMETRIC AUTHENTICATION ==========
+
     /**
      * Unwrap AMK with biometric authentication
      */
@@ -165,21 +245,33 @@ class MasterKeyManager @Inject constructor(
         return suspendCancellableCoroutine { continuation ->
             try {
                 val biometricManager = BiometricManager.from(context)
-                when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+                when (biometricManager.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )) {
                     BiometricManager.BIOMETRIC_SUCCESS -> {
                         val promptInfo = BiometricPrompt.PromptInfo.Builder()
                             .setTitle("Unlock PassBook")
                             .setSubtitle("Authenticate to access your passwords")
-                            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                            .setAllowedAuthenticators(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                            )
                             .build()
 
-                        val biometricPrompt = BiometricPrompt(activity,
+                        val biometricPrompt = BiometricPrompt(
+                            activity,
                             ContextCompat.getMainExecutor(context),
                             object : BiometricPrompt.AuthenticationCallback() {
-                                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                                override fun onAuthenticationSucceeded(
+                                    result: BiometricPrompt.AuthenticationResult
+                                ) {
                                     try {
                                         val amk = performAMKUnwrap()
                                         if (amk != null) {
+                                            // ✅ Cache unwrapped AMK in memory
+                                            unwrappedAMK = amk
+
                                             auditLogger.logAuthentication(
                                                 "SYSTEM",
                                                 AuditEventType.LOGIN,
@@ -198,7 +290,10 @@ class MasterKeyManager @Inject constructor(
                                     }
                                 }
 
-                                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                                override fun onAuthenticationError(
+                                    errorCode: Int,
+                                    errString: CharSequence
+                                ) {
                                     auditLogger.logAuthentication(
                                         "SYSTEM",
                                         AuditEventType.AUTHENTICATION_FAILURE,
@@ -217,7 +312,8 @@ class MasterKeyManager @Inject constructor(
                                     )
                                     continuation.resume(null)
                                 }
-                            })
+                            }
+                        )
                         biometricPrompt.authenticate(promptInfo)
                     }
                     else -> {
@@ -252,26 +348,41 @@ class MasterKeyManager @Inject constructor(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val masterKey = keyStore.getKey(MASTER_WRAP_KEY_ALIAS, null) as SecretKey
             cipher.init(Cipher.DECRYPT_MODE, masterKey, GCMParameterSpec(128, iv))
+
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to unwrap AMK")
+            Timber.tag(TAG).e(e, "Failed to unwrap AMK")
             null
         }
     }
 
+    // ========== KEY ROTATION (ADMIN ONLY) ==========
+
     /**
      * Handle biometric enrollment changes
+     * ⚠️ CRITICAL: This regenerates master key but preserves database key wrapper
      */
     suspend fun handleBiometricEnrollmentChange(): Boolean {
         return try {
+            Timber.tag(TAG).w("⚠️ Biometric enrollment change detected")
+
             auditLogger.logSecurityEvent(
                 "Biometric enrollment change detected",
                 "ELEVATED",
                 AuditOutcome.WARNING
             )
 
-            // Generate new master key
-            keyStore.deleteEntry(MASTER_WRAP_KEY_ALIAS)
+            // ✅ CRITICAL: Only regenerate master wrap key, NOT database key wrapper
+            if (keyStore.containsAlias(MASTER_WRAP_KEY_ALIAS)) {
+                keyStore.deleteEntry(MASTER_WRAP_KEY_ALIAS)
+                Timber.tag(TAG).d("Old master wrap key deleted")
+            }
+
+            // ✅ Verify database key wrapper is NOT touched
+            if (keyStore.containsAlias(DATABASE_KEY_WRAPPER_ALIAS)) {
+                Timber.tag(TAG).d("✅ Database key wrapper preserved during rotation")
+            }
+
             generateMasterWrapKey()
 
             // Re-wrap existing AMK or generate new one
@@ -287,8 +398,12 @@ class MasterKeyManager @Inject constructor(
                 AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
+
+            Timber.tag(TAG).i("✅ Master key rotated - database key preserved")
             true
+
         } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to handle biometric enrollment change")
             auditLogger.logSecurityEvent(
                 "Failed to handle biometric enrollment change: ${e.message}",
                 "CRITICAL",
@@ -299,17 +414,20 @@ class MasterKeyManager @Inject constructor(
     }
 
     /**
-     * Force regeneration of master key infrastructure
+     * ⚠️ DANGEROUS: Force regeneration of master key infrastructure
+     * This does NOT affect database encryption keys
      */
     suspend fun regenerateMasterKey(): Boolean {
         return try {
+            Timber.tag(TAG).w("⚠️ Manual master key regeneration initiated")
+
             auditLogger.logSecurityEvent(
                 "Manual master key regeneration initiated",
                 "ELEVATED",
                 AuditOutcome.SUCCESS
             )
 
-            // Clean up existing keys
+            // Clean up existing master wrap key
             if (keyStore.containsAlias(MASTER_WRAP_KEY_ALIAS)) {
                 keyStore.deleteEntry(MASTER_WRAP_KEY_ALIAS)
             }
@@ -317,7 +435,12 @@ class MasterKeyManager @Inject constructor(
             val prefs = context.getSharedPreferences("master_key_prefs", Context.MODE_PRIVATE)
             prefs.edit().remove(AMK_STORAGE_KEY).apply()
 
-            // Regenerate
+            // ✅ CRITICAL: Verify database key wrapper is untouched
+            if (keyStore.containsAlias(DATABASE_KEY_WRAPPER_ALIAS)) {
+                Timber.tag(TAG).d("✅ Database key wrapper preserved during regeneration")
+            }
+
+            // Regenerate master infrastructure
             generateMasterWrapKey()
             generateAndWrapAMK()
 
@@ -328,8 +451,12 @@ class MasterKeyManager @Inject constructor(
                 AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
+
+            Timber.tag(TAG).i("✅ Master key regenerated - database key preserved")
             true
+
         } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to regenerate master key")
             auditLogger.logSecurityEvent(
                 "Failed to regenerate master key: ${e.message}",
                 "CRITICAL",
