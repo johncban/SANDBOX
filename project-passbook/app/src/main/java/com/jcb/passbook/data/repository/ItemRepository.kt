@@ -2,20 +2,54 @@ package com.jcb.passbook.data.repository
 
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.entities.Item
+import com.jcb.passbook.data.local.database.entities.PasswordCategory
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
+import javax.inject.Singleton
 
-class ItemRepository @Inject constructor(private val itemDao: ItemDao) {
+@Singleton
+class ItemRepository @Inject constructor(
+    private val itemDao: ItemDao
+) {
 
-    // val allItems: Flow<List<Item>> = itemDao.getAllItems()  // Remove or restrict
+    fun getItemsForUser(userId: Long): Flow<List<Item>> {
+        return itemDao.getItemsForUser(userId)
+    }
 
-    fun getItemsForUser(userId: Long): Flow<List<Item>> = itemDao.getItemsForUser(userId.toInt())
+    fun getItem(id: Long, userId: Long): Flow<Item?> {
+        return itemDao.getItem(id, userId)
+    }
 
-    fun getItem(id: Int, userId: Int): Flow<Item?> = itemDao.getItem(id, userId)
+    suspend fun insertItem(item: Item): Long {
+        return itemDao.insert(item)
+    }
 
-    suspend fun insert(item: Item) = itemDao.insert(item)
+    suspend fun updateItem(item: Item) {
+        itemDao.update(item)
+    }
 
-    suspend fun update(item: Item) = itemDao.update(item)
+    suspend fun deleteItem(item: Item) {
+        itemDao.delete(item)
+    }
 
-    suspend fun delete(item: Item) = itemDao.delete(item)
+    // NEW: Category-based operations
+    fun getItemsByCategory(userId: Long, category: PasswordCategory): Flow<List<Item>> {
+        return itemDao.getItemsByCategory(userId, category.name)
+    }
+
+    fun searchItems(
+        userId: Long,
+        searchQuery: String,
+        category: PasswordCategory? = null
+    ): Flow<List<Item>> {
+        return itemDao.searchItems(userId, searchQuery, category?.name)
+    }
+
+    fun getCountByCategory(userId: Long, category: PasswordCategory): Flow<Int> {
+        return itemDao.getCountByCategory(userId, category.name)
+    }
+
+    fun getFavoriteItems(userId: Long): Flow<List<Item>> {
+        return itemDao.getFavoriteItems(userId)
+    }
 }

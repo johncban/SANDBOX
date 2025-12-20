@@ -15,27 +15,31 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.R
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
-import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 
+
+/**
+ * LoginScreen - User authentication UI with state-driven validation
+ *
+ * @param userViewModel Manages authentication state and user session
+ * @param onLoginSuccess Callback with userId (Long) on successful authentication
+ * @param onNavigateToRegister Callback to navigate to registration screen
+ */
 @Composable
 fun LoginScreen(
     userViewModel: UserViewModel,
-    itemViewModel: ItemViewModel,
-    onLoginSuccess: (Int) -> Unit,
+    onLoginSuccess: (userId: Long) -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
     val authState by userViewModel.authState.collectAsState()
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    // Handle successful login
+    // Handle successful login - trigger navigation with userId
     LaunchedEffect(authState) {
         if (authState is AuthState.Success) {
             val userId = (authState as AuthState.Success).userId
-            itemViewModel.setUserId(userId)
-            userViewModel.setUserId(userId)
-            onLoginSuccess(userId.toInt())
+            onLoginSuccess(userId)
             userViewModel.clearAuthState()
         }
     }
@@ -52,13 +56,15 @@ fun LoginScreen(
             if (authState is AuthState.Error) userViewModel.clearAuthState()
         },
         authState = authState,
-        onLoginClick = { userViewModel.login(username, password) },
+        onLoginClick = {
+            userViewModel.login(username.trim(), password)
+        },
         onRegisterClick = onNavigateToRegister
     )
 }
 
 @Composable
-fun LoginScreenContent(
+private fun LoginScreenContent(
     username: String,
     onUsernameChange: (String) -> Unit,
     password: String,
@@ -67,97 +73,212 @@ fun LoginScreenContent(
     onLoginClick: () -> Unit,
     onRegisterClick: () -> Unit
 ) {
-    // Error message extraction
+    // Validation state
     val usernameError = when {
         authState is AuthState.Error && username.isBlank() -> R.string.error_empty_username
         else -> null
     }
+
     val passwordError = when {
         authState is AuthState.Error && password.isBlank() -> R.string.error_empty_password
         else -> null
     }
+
     val generalError = when {
-        authState is AuthState.Error && username.isNotBlank() && password.isNotBlank() -> authState.messageId
+        authState is AuthState.Error && username.isNotBlank() && password.isNotBlank() ->
+            authState.messageId
         else -> null
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        UsernameField(username, onUsernameChange, usernameError)
-        Spacer(modifier = Modifier.height(8.dp))
-        PasswordField(password, onPasswordChange, passwordError)
-        Spacer(modifier = Modifier.height(16.dp))
-        generalError?.let {
+    Scaffold { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // App branding
             Text(
-                text = stringResource(it),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(bottom = 8.dp)
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.primary
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Secure Password Manager",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // Input fields
+            UsernameField(
+                value = username,
+                onValueChange = onUsernameChange,
+                errorMessage = usernameError,
+                enabled = authState !is AuthState.Loading
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            PasswordField(
+                value = password,
+                onValueChange = onPasswordChange,
+                errorMessage = passwordError,
+                enabled = authState !is AuthState.Loading
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // General error message
+            generalError?.let {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = stringResource(it),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Action buttons
+            AuthButtons(
+                onLoginClick = onLoginClick,
+                onRegisterClick = onRegisterClick,
+                authState = authState,
+                loginEnabled = username.isNotBlank() && password.isNotBlank()
+            )
+
+            // Loading indicator
+            if (authState is AuthState.Loading) {
+                Spacer(modifier = Modifier.height(16.dp))
+                CircularProgressIndicator()
+            }
         }
-        AuthButtons(onLoginClick, onRegisterClick, authState)
     }
 }
 
 @Composable
-fun UsernameField(value: String, onValueChange: (String) -> Unit, @StringRes errorMessage: Int?) {
+private fun UsernameField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    @StringRes errorMessage: Int?,
+    enabled: Boolean
+) {
     OutlinedTextField(
         value = value,
-        onValueChange = { onValueChange(it) },
+        onValueChange = onValueChange,
         label = { Text(stringResource(R.string.username)) },
+        placeholder = { Text("Enter your username") },
         isError = errorMessage != null,
         supportingText = {
-            errorMessage?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-        },
-        modifier = Modifier.fillMaxWidth()
-    )
-}
-
-@Composable
-fun PasswordField(value: String, onValueChange: (String) -> Unit, @StringRes errorMessage: Int?) {
-    var passwordVisible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = value,
-        onValueChange = { onValueChange(it) },
-        label = { Text(stringResource(R.string.password)) },
-        isError = errorMessage != null,
-        supportingText = {
-            errorMessage?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-        },
-        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            val image = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility
-            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                Icon(imageVector = image, contentDescription = "Toggle password visibility")
+            errorMessage?.let {
+                Text(
+                    text = stringResource(it),
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         },
+        enabled = enabled,
+        singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
 }
 
 @Composable
-fun AuthButtons(onLoginClick: () -> Unit, onRegisterClick: () -> Unit, authState: AuthState) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+private fun PasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    @StringRes errorMessage: Int?,
+    enabled: Boolean
+) {
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(stringResource(R.string.password)) },
+        placeholder = { Text("Enter your password") },
+        isError = errorMessage != null,
+        supportingText = {
+            errorMessage?.let {
+                Text(
+                    text = stringResource(it),
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        },
+        visualTransformation = if (passwordVisible)
+            VisualTransformation.None
+        else
+            PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                Icon(
+                    imageVector = if (passwordVisible)
+                        Icons.Filled.VisibilityOff
+                    else
+                        Icons.Filled.Visibility,
+                    contentDescription = if (passwordVisible)
+                        "Hide password"
+                    else
+                        "Show password"
+                )
+            }
+        },
+        enabled = enabled,
+        singleLine = true,
         modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun AuthButtons(
+    onLoginClick: () -> Unit,
+    onRegisterClick: () -> Unit,
+    authState: AuthState,
+    loginEnabled: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Button(
             onClick = onLoginClick,
-            modifier = Modifier.weight(1f),
-            enabled = authState !is AuthState.Loading
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            enabled = loginEnabled && authState !is AuthState.Loading
         ) {
-            Text(stringResource(R.string.login))
+            Text(
+                text = stringResource(R.string.login),
+                style = MaterialTheme.typography.labelLarge
+            )
         }
-        Button(
+
+        OutlinedButton(
             onClick = onRegisterClick,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
             enabled = authState !is AuthState.Loading
         ) {
-            Text(stringResource(R.string.register))
+            Text(
+                text = stringResource(R.string.register),
+                style = MaterialTheme.typography.labelLarge
+            )
         }
     }
 }

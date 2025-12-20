@@ -18,13 +18,14 @@ import androidx.room.PrimaryKey
         ForeignKey(
             entity = Category::class,
             parentColumns = ["id"],
-            childColumns = ["category_id"],  // ✅ FIXED: Changed from categoryId
+            childColumns = ["category_id"],
             onDelete = ForeignKey.SET_NULL
         )
     ],
     indices = [
         Index(value = ["userId"]),
-        Index(value = ["category_id"]),  // ✅ FIXED: Changed from categoryId
+        Index(value = ["category_id"]),
+        Index(value = ["password_category"]),  // NEW: Index for enum category filtering
         Index(value = ["isFavorite"]),
         Index(value = ["createdAt"])
     ]
@@ -44,13 +45,17 @@ data class Item(
 
     val url: String? = null,
 
-    val notes: String? = null,
+    @ColumnInfo(name = "notes")
+    val notes: String? = null,  // EXISTING: Description field for password context
 
     @ColumnInfo(name = "category_id")
     val categoryId: Long? = null,
 
     @ColumnInfo(name = "category_name")
     val categoryName: String? = null,
+
+    @ColumnInfo(name = "password_category")  // NEW: Enum-based category stored as string
+    val passwordCategory: String = PasswordCategory.OTHER.name,
 
     val isFavorite: Boolean = false,
 
@@ -60,6 +65,13 @@ data class Item(
 
     val lastAccessedAt: Long? = null
 ) {
+    /**
+     * Convert stored string to enum for type-safe usage
+     */
+    fun getPasswordCategoryEnum(): PasswordCategory {
+        return PasswordCategory.fromString(passwordCategory)
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -75,6 +87,7 @@ data class Item(
         if (notes != other.notes) return false
         if (categoryId != other.categoryId) return false
         if (categoryName != other.categoryName) return false
+        if (passwordCategory != other.passwordCategory) return false
         if (isFavorite != other.isFavorite) return false
         if (createdAt != other.createdAt) return false
         if (updatedAt != other.updatedAt) return false
@@ -93,6 +106,7 @@ data class Item(
         result = 31 * result + (notes?.hashCode() ?: 0)
         result = 31 * result + (categoryId?.hashCode() ?: 0)
         result = 31 * result + (categoryName?.hashCode() ?: 0)
+        result = 31 * result + passwordCategory.hashCode()
         result = 31 * result + isFavorite.hashCode()
         result = 31 * result + createdAt.hashCode()
         result = 31 * result + updatedAt.hashCode()

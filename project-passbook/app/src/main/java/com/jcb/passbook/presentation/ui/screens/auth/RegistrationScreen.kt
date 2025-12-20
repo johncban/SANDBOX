@@ -9,9 +9,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.R
+import com.jcb.passbook.presentation.viewmodel.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.RegistrationState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
+
 
 @Composable
 fun RegistrationScreen(  // ✅ Name is correct
