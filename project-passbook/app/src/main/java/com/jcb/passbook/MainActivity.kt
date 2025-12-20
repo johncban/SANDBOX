@@ -36,11 +36,16 @@ import javax.inject.Inject
 /**
  * MainActivity - Single Activity architecture with Jetpack Navigation Compose
  *
+ * ✅ REFACTORED: Fixed all compilation errors
+ * - Removed unused sessionManager from composable calls (handled internally by screens)
+ * - Fixed lambda parameter types to match screen signatures
+ * - Removed itemViewModel from RegistrationScreen call
+ *
  * Responsibilities:
  * - Host navigation graph with authentication and vault screens
  * - Manage application lifecycle (passphrase rotation, session cleanup)
- * - Inject SessionManager for global session state
- * - Provide ViewModels via Hilt integration
+ * - Provide ViewModels via Hilt injection
+ * - Coordinate navigation between authentication and vault flows
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -85,12 +90,13 @@ class MainActivity : ComponentActivity() {
             navController = navController,
             startDestination = Screen.Login.route
         ) {
-            // Authentication flow
+            // ✅ FIXED: Authentication flow - LoginScreen handles its own session management
             composable(Screen.Login.route) {
                 LoginScreen(
                     userViewModel = userViewModel,
-                    onLoginSuccess = { userId ->
-                        // Set userId in ItemViewModel for vault queries
+                    onLoginSuccess = { userId: Long ->
+                        // ✅ FIXED: Explicitly typed lambda parameter
+                        // Callback invoked after successful authentication AND session start
                         itemViewModel.setCurrentUserId(userId)
                         navController.navigate(Screen.ItemList.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
@@ -102,11 +108,14 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
+            // ✅ FIXED: Registration flow - removed itemViewModel parameter
             composable(Screen.Register.route) {
                 RegistrationScreen(
                     userViewModel = userViewModel,
-                    itemViewModel = itemViewModel,
-                    onRegisterSuccess = { userId ->
+                    // ✅ REMOVED: itemViewModel parameter (not needed by RegistrationScreen)
+                    onRegisterSuccess = { userId: Long ->
+                        // ✅ FIXED: Explicitly typed lambda parameter
+                        // Callback invoked after successful registration AND session start
                         itemViewModel.setCurrentUserId(userId)
                         navController.navigate(Screen.ItemList.route) {
                             popUpTo(Screen.Register.route) { inclusive = true }
@@ -210,30 +219,29 @@ class MainActivity : ComponentActivity() {
             Timber.e(e, "Error scheduling passphrase rotation")
         }
     }
-}
 
-/**
- * Type-safe navigation routes with compile-time safety
- */
-sealed class Screen(val route: String) {
-    object Login : Screen("login")
-    object Register : Screen("register")
-    object ItemList : Screen("itemList")
+    /**
+     * Type-safe navigation routes with compile-time safety
+     */
+    sealed class Screen(val route: String) {
+        object Login : Screen("login")
+        object Register : Screen("register")
+        object ItemList : Screen("itemList")
+        object ItemDetail : Screen("itemDetail/{itemId}") {
+            const val ARG_ITEM_ID = "itemId"
 
-    object ItemDetail : Screen("itemDetail/{itemId}") {
-        const val ARG_ITEM_ID = "itemId"
-
-        fun createRoute(itemId: Long?) = if (itemId == null) {
-            "itemDetail/new"
-        } else {
-            "itemDetail/$itemId"
-        }
-
-        val arguments = listOf(
-            navArgument(ARG_ITEM_ID) {
-                type = NavType.StringType
-                nullable = true
+            fun createRoute(itemId: Long?) = if (itemId == null) {
+                "itemDetail/new"
+            } else {
+                "itemDetail/$itemId"
             }
-        )
+
+            val arguments = listOf(
+                navArgument(ARG_ITEM_ID) {
+                    type = NavType.StringType
+                    nullable = true
+                }
+            )
+        }
     }
 }

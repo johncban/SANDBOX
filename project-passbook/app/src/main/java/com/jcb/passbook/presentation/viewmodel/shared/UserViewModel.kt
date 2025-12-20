@@ -64,17 +64,21 @@ sealed class KeyRotationState {
 /**
  * UserViewModel - Manages authentication, registration, and user session
  *
+ * ✅ REFACTORED: Authentication flow separated from session management
+ * - ViewModel authenticates user and emits userId
+ * - UI layer (Screen composables) handle session start with SessionManager
+ *
  * Responsibilities:
  * - Authenticate users with Argon2id password hashing
  * - Register new users with secure password storage
- * - Manage session lifecycle via SessionManager
+ * - Emit authentication state for UI to handle session creation
  * - Log all authentication events via AuditLogger
  * - Handle database key rotation (manual only, no automatic rotation)
  *
  * Security considerations:
  * - Passwords hashed with Argon2id (5 iterations, 64MB memory, parallelism 2)
  * - Salt generated with SecureRandom (16 bytes)
- * - Session started on successful auth, cleared on logout
+ * - Session management delegated to UI layer with FragmentActivity access
  * - All auth events audited with outcome and error details
  */
 @HiltViewModel
@@ -97,8 +101,9 @@ class UserViewModel @Inject constructor(
     val keyRotationState: StateFlow<KeyRotationState> = _keyRotationState.asStateFlow()
 
     /**
-     * Authenticate user with username and password
-     * Validates credentials, starts session, and emits AuthState.Success with userId
+     * ✅ REFACTORED: Authenticate user with username and password
+     * Only validates credentials - does NOT start session
+     * Session is started by UI layer after observing AuthState.Success
      *
      * @param username User's username (trimmed automatically)
      * @param password User's plaintext password
@@ -119,21 +124,16 @@ class UserViewModel @Inject constructor(
         }
 
         _authState.value = AuthState.Loading
-
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val user = userRepository.getUserByUsername(trimmedUsername)
-
                 if (user != null && verifyPassword(password, user.passwordHash, user.salt)) {
-                    // Successful authentication - start session with userId
-                    sessionManager.startSession(user.id)
-
+                    // ✅ FIXED: Only emit success with userId - session start delegated to UI
                     auditLogger.logAuthentication(
                         username = user.username,
                         eventType = AuditEventType.LOGIN,
                         outcome = AuditOutcome.SUCCESS
                     )
-
                     Timber.i("Login successful for user: ${user.username}, userId: ${user.id}")
                     _authState.value = AuthState.Success(user.id)
                 } else {
@@ -144,7 +144,6 @@ class UserViewModel @Inject constructor(
                         outcome = AuditOutcome.FAILURE,
                         errorMessage = "Invalid username or password"
                     )
-
                     Timber.w("Login failed for user: $trimmedUsername")
                     _authState.value = AuthState.Error(R.string.error_invalid_credentials)
                 }
@@ -155,7 +154,6 @@ class UserViewModel @Inject constructor(
                     outcome = AuditOutcome.FAILURE,
                     errorMessage = "Login exception: ${e.message}"
                 )
-
                 Timber.e(e, "Login failure for user: $trimmedUsername")
                 _authState.value = AuthState.Error(R.string.error_login_failed, e.localizedMessage)
             }
@@ -189,7 +187,6 @@ class UserViewModel @Inject constructor(
         }
 
         _registrationState.value = RegistrationState.Loading
-
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // Check username uniqueness
@@ -200,7 +197,6 @@ class UserViewModel @Inject constructor(
                         outcome = AuditOutcome.FAILURE,
                         errorMessage = "Username already exists"
                     )
-
                     Timber.w("Registration failed: username already exists: $trimmedUsername")
                     _registrationState.value = RegistrationState.Error(R.string.error_username_exists)
                     return@launch
@@ -209,7 +205,6 @@ class UserViewModel @Inject constructor(
                 // Hash password with Argon2id
                 val salt = generateSalt()
                 val passwordHash = hashPassword(password, salt)
-
                 val newUser = User(
                     username = trimmedUsername,
                     passwordHash = passwordHash,
@@ -217,13 +212,11 @@ class UserViewModel @Inject constructor(
                 )
 
                 val userId = userDao.insert(newUser)
-
                 auditLogger.logAuthentication(
                     username = trimmedUsername,
                     eventType = AuditEventType.REGISTER,
                     outcome = AuditOutcome.SUCCESS
                 )
-
                 Timber.i("Registration successful for user: $trimmedUsername, userId: $userId")
                 _registrationState.value = RegistrationState.Success(userId)
             } catch (e: Exception) {
@@ -233,7 +226,6 @@ class UserViewModel @Inject constructor(
                     outcome = AuditOutcome.FAILURE,
                     errorMessage = "Registration failed: ${e.message}"
                 )
-
                 Timber.e(e, "Registration failed for user: $trimmedUsername")
                 _registrationState.value = RegistrationState.Error(
                     R.string.registration_failed,
@@ -244,18 +236,16 @@ class UserViewModel @Inject constructor(
     }
 
     /**
-     * Logout current user
-     * Ends session, clears keys from memory, and audits logout event
+     * ✅ FIXED: Logout current user
+     * Retrieves userId from SessionManager, audits logout, then ends session
      */
     fun logout() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Get current user before ending session
+                // ✅ FIXED: Get current user from SessionManager
                 val currentUserId = sessionManager.getCurrentUserId()
-
                 if (currentUserId != null) {
                     val user = userDao.getUser(currentUserId)
-
                     user?.let {
                         auditLogger.logAuthentication(
                             username = it.username,
@@ -264,13 +254,11 @@ class UserViewModel @Inject constructor(
                         )
                     }
                 }
-
                 sessionManager.endSession("User logout")
                 Timber.i("Logout successful")
             } catch (e: Exception) {
                 Timber.e(e, "Error during logout")
             }
-
             _authState.value = AuthState.Idle
         }
     }
@@ -283,7 +271,6 @@ class UserViewModel @Inject constructor(
     @RequiresApi(Build.VERSION_CODES.M)
     fun rotateDatabaseKey() {
         _keyRotationState.value = KeyRotationState.Loading
-
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val newPassphrase = KeystorePassphraseManager.generateNewPassphrase()
@@ -358,7 +345,6 @@ class UserViewModel @Inject constructor(
             hashLengthInBytes = 32,
             version = Argon2Version.V13
         )
-
         return hashResult.rawHashAsByteArray()
     }
 

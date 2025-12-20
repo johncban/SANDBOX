@@ -20,7 +20,9 @@ import javax.inject.Singleton
  * SessionManager handles ephemeral session keys and manages their lifecycle.
  * Session keys are derived from AMK and wiped on inactivity or app backgrounding.
  *
- * ✅ ENHANCED: Now automatically triggers key rotation on logout
+ * ✅ REFACTORED: Now tracks userId with session for proper audit trail
+ * ✅ FIXED: Moved session state from companion object to instance variables
+ * ✅ ADDED: Thread-safe access with @Volatile and synchronized blocks
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
@@ -39,16 +41,16 @@ class SessionManager @Inject constructor(
         private const val TAG = "SessionManager"
     }
 
-    private var amk: ByteArray? = null
-    private var esk: ByteArray? = null
-    private var sessionId: String? = null
-    private var sessionStartTime: Long = 0
-    private var lastActivityTime: Long = 0
+    // ✅ REFACTORED: Instance variables instead of companion object (thread-safe)
+    @Volatile private var amk: ByteArray? = null
+    @Volatile private var esk: ByteArray? = null
+    @Volatile private var sessionId: String? = null
+    @Volatile private var currentUserId: Long? = null // ✅ NEW: Track user ID
+    @Volatile private var sessionStartTime: Long = 0
+    @Volatile private var lastActivityTime: Long = 0
     private var timeoutJob: Job? = null
     private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    @Volatile
-    private var isSessionActive = false
+    @Volatile private var isSessionActive = false
 
     // ✅ NEW: Callback for logout event
     private var onLogoutCallback: (suspend () -> Unit)? = null
@@ -65,9 +67,12 @@ class SessionManager @Inject constructor(
     }
 
     /**
-     * Start a new session with biometric authentication
+     * ✅ REFACTORED: Start a new session with biometric authentication and userId tracking
+     *
+     * @param activity FragmentActivity for biometric authentication UI
+     * @param userId User ID to associate with this session
      */
-    suspend fun startSession(activity: FragmentActivity): SessionResult {
+    suspend fun startSession(activity: FragmentActivity, userId: Long): SessionResult {
         var unwrappedAMK: ByteArray? = null
         return try {
             if (isSessionActive) {
@@ -90,29 +95,30 @@ class SessionManager @Inject constructor(
                 return SessionResult.AuthenticationFailed
             }
 
-            // Store AMK and derive ESK
-            amk = secureMemoryUtils.secureCopy(unwrappedAMK)
-            deriveEphemeralSessionKey()
-
-            sessionId = UUID.randomUUID().toString()
-            sessionStartTime = System.currentTimeMillis()
-            lastActivityTime = sessionStartTime
-            isSessionActive = true
+            // ✅ FIXED: Store userId alongside session data
+            synchronized(this) {
+                amk = secureMemoryUtils.secureCopy(unwrappedAMK)
+                deriveEphemeralSessionKey()
+                sessionId = UUID.randomUUID().toString()
+                currentUserId = userId // ✅ NEW: Store userId
+                sessionStartTime = System.currentTimeMillis()
+                lastActivityTime = sessionStartTime
+                isSessionActive = true
+            }
 
             // Start inactivity timeout
             startTimeoutTimer()
 
             auditLogger.logUserAction(
-                null, "SYSTEM", AuditEventType.LOGIN,
+                userId, "SYSTEM", AuditEventType.LOGIN,
                 "Session started successfully",
                 "SESSION", sessionId,
                 AuditOutcome.SUCCESS,
                 null, "NORMAL"
             )
 
-            Timber.d("Session started: $sessionId")
-            SessionResult.Success(sessionId!!)
-
+            Timber.d("Session started: $sessionId for userId: $userId")
+            SessionResult.Success(sessionId!!, userId)
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
                 "Failed to start session: ${e.message}",
@@ -131,11 +137,9 @@ class SessionManager @Inject constructor(
      */
     private fun deriveEphemeralSessionKey() {
         val amkCopy = amk ?: throw IllegalStateException("AMK not available")
-
         // Simple HKDF-like derivation (in production, use proper HKDF)
         val sessionNonce = secureMemoryUtils.generateSecureRandom(16)
         val combined = amkCopy + sessionNonce + "ESK".toByteArray()
-
         try {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             val derived = digest.digest(combined)
@@ -161,6 +165,11 @@ class SessionManager @Inject constructor(
         updateLastActivity()
         return amk?.let { secureMemoryUtils.secureCopy(it) }
     }
+
+    /**
+     * ✅ NEW: Get the current user ID associated with the session
+     */
+    fun getCurrentUserId(): Long? = currentUserId
 
     /**
      * Update last activity time and restart timeout
@@ -198,20 +207,22 @@ class SessionManager @Inject constructor(
         // Cancel timeout timer
         timeoutJob?.cancel()
 
-        // Wipe sensitive data
-        amk?.let { secureMemoryUtils.secureWipe(it) }
-        esk?.let { secureMemoryUtils.secureWipe(it) }
-        amk = null
-        esk = null
-        isSessionActive = false
-
-        val endedSessionId = sessionId
-        sessionId = null
+        // ✅ FIXED: Wipe sensitive data in synchronized block
+        synchronized(this) {
+            amk?.let { secureMemoryUtils.secureWipe(it) }
+            esk?.let { secureMemoryUtils.secureWipe(it) }
+            amk = null
+            esk = null
+            isSessionActive = false
+            val endedSessionId = sessionId
+            sessionId = null
+            currentUserId = null // ✅ NEW: Clear userId
+        }
 
         auditLogger.logUserAction(
             null, "SYSTEM", AuditEventType.LOGOUT,
             "Session ended: $reason (duration: ${duration}ms)",
-            "SESSION", endedSessionId,
+            "SESSION", currentSessionId,
             AuditOutcome.SUCCESS,
             null, "NORMAL"
         )
@@ -248,9 +259,9 @@ class SessionManager @Inject constructor(
     /**
      * Force session renewal (useful for key rotation)
      */
-    suspend fun renewSession(activity: FragmentActivity): SessionResult {
+    suspend fun renewSession(activity: FragmentActivity, userId: Long): SessionResult {
         endSession("Session renewal")
-        return startSession(activity)
+        return startSession(activity, userId)
     }
 
     // Lifecycle observers
@@ -265,13 +276,15 @@ class SessionManager @Inject constructor(
             endSession("App destroyed")
         }
         sessionScope.cancel()
+        onLogoutCallback = null // ✅ FIXED: Clear callback to prevent memory leaks
     }
 
     /**
      * Session operation results
+     * ✅ REFACTORED: Success now includes userId
      */
     sealed class SessionResult {
-        data class Success(val sessionId: String) : SessionResult()
+        data class Success(val sessionId: String, val userId: Long) : SessionResult()
         object AuthenticationFailed : SessionResult()
         object AlreadyActive : SessionResult()
         data class Error(val message: String) : SessionResult()

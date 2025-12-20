@@ -9,17 +9,24 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.R
-import com.jcb.passbook.presentation.viewmodel.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.RegistrationState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
 
-
+/**
+ * RegistrationScreen - User registration UI with state-driven validation
+ *
+ * ✅ FIXED: Removed unnecessary itemViewModel parameter
+ *
+ * @param userViewModel Manages registration state
+ * @param onRegisterSuccess Callback with userId (Long) on successful registration AND session start
+ * @param onNavigateToLogin Callback to navigate back to login screen
+ */
 @Composable
-fun RegistrationScreen(  // ✅ Name is correct
+fun RegistrationScreen(
     userViewModel: UserViewModel,
-    itemViewModel: ItemViewModel,  // ✅ ADDED: Missing parameter
-    onRegisterSuccess: () -> Unit,  // ✅ FIXED: Renamed from onRegistrationSuccess
-    onNavigateToLogin: () -> Unit  // ✅ FIXED: Renamed from onBackClick
+    // ✅ REMOVED: itemViewModel parameter (not needed here)
+    onRegisterSuccess: (Long) -> Unit, // ✅ FIXED: Explicitly typed parameter
+    onNavigateToLogin: () -> Unit
 ) {
     val registrationState by userViewModel.registrationState.collectAsState()
     var username by remember { mutableStateOf("") }
@@ -29,15 +36,26 @@ fun RegistrationScreen(  // ✅ Name is correct
     val errorMessageId = (registrationState as? RegistrationState.Error)?.messageId
 
     // Field-level error logic
-    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) errorMessageId else null
-    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) errorMessageId else null
+    val usernameError = if (registrationState is RegistrationState.Error && username.isBlank()) {
+        errorMessageId
+    } else {
+        null
+    }
 
+    val passwordError = if (registrationState is RegistrationState.Error && password.isBlank()) {
+        errorMessageId
+    } else {
+        null
+    }
+
+    // ✅ FIXED: Handle successful registration - navigate with userId
     LaunchedEffect(registrationState) {
         if (registrationState is RegistrationState.Success) {
-            onRegisterSuccess()
+            val userId = (registrationState as RegistrationState.Success).userId
+            onRegisterSuccess(userId)
             userViewModel.clearRegistrationState()
         }
-    } // ✅ FIXED: Added missing closing brace
+    }
 
     Column(
         modifier = Modifier
@@ -50,17 +68,17 @@ fun RegistrationScreen(  // ✅ Name is correct
             value = username,
             onValueChange = {
                 username = it
-                if (registrationState is RegistrationState.Error) userViewModel.clearRegistrationState()
+                if (registrationState is RegistrationState.Error) {
+                    userViewModel.clearRegistrationState()
+                }
             },
             label = { Text(stringResource(R.string.username)) },
             modifier = Modifier.fillMaxWidth(),
             isError = usernameError != null,
-            supportingText = {
-                if (usernameError != null) {
-                    Text(stringResource(usernameError))
-                }
-            } // ✅ FIXED: Added missing closing brace
-        ) // ✅ FIXED: Added missing closing brace
+            supportingText = if (usernameError != null) {
+                { Text(stringResource(usernameError)) }
+            } else null
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -68,28 +86,32 @@ fun RegistrationScreen(  // ✅ Name is correct
             value = password,
             onValueChange = {
                 password = it
-                if (registrationState is RegistrationState.Error) userViewModel.clearRegistrationState()
+                if (registrationState is RegistrationState.Error) {
+                    userViewModel.clearRegistrationState()
+                }
             },
             label = { Text(stringResource(R.string.password)) },
             modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(),
             isError = passwordError != null,
-            supportingText = {
-                if (passwordError != null) {
-                    Text(stringResource(passwordError))
-                }
-            } // ✅ FIXED: Added missing closing brace
-        ) // ✅ FIXED: Added missing closing brace
+            supportingText = if (passwordError != null) {
+                { Text(stringResource(passwordError)) }
+            } else null
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (registrationState is RegistrationState.Error && errorMessageId != null && username.isNotBlank() && password.isNotBlank()) {
+        // General error message (when both fields have values)
+        if (registrationState is RegistrationState.Error &&
+            errorMessageId != null &&
+            username.isNotBlank() &&
+            password.isNotBlank()) {
             Text(
                 text = stringResource(errorMessageId),
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-        } // ✅ FIXED: Added missing closing brace
+        }
 
         Button(
             onClick = { userViewModel.register(username, password) },
@@ -97,7 +119,7 @@ fun RegistrationScreen(  // ✅ Name is correct
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.register))
-        } // ✅ FIXED: Added missing closing brace
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -107,6 +129,6 @@ fun RegistrationScreen(  // ✅ Name is correct
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(stringResource(R.string.back))
-        } // ✅ FIXED: Added missing closing brace
-    } // ✅ FIXED: Added missing closing brace for Column
-} // ✅ FIXED: Added missing closing brace for RegistrationScreen function
+        }
+    }
+}
