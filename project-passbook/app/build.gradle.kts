@@ -183,6 +183,7 @@ android {
 dependencies {
     // BOM management
     implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.benchmark.common)
     androidTestImplementation(platform(libs.androidx.compose.bom))
 
     // Core Android

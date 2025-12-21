@@ -1,6 +1,5 @@
 package com.jcb.passbook.presentation.ui.screens.vault
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -8,7 +7,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -16,8 +17,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.PasswordCategory
+import com.jcb.passbook.presentation.ui.components.AccessibleCard
+import com.jcb.passbook.presentation.ui.components.AccessibleIconButton
+import com.jcb.passbook.presentation.ui.util.WindowWidthSizeClass
+import com.jcb.passbook.presentation.ui.util.horizontalGap
+import com.jcb.passbook.presentation.ui.util.rememberWindowSizeClasses
+import com.jcb.passbook.presentation.ui.util.screenPadding
 import com.jcb.passbook.presentation.viewmodel.ItemViewModel
-
+import com.jcb.passbook.presentation.viewmodel.ItemUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,59 +35,133 @@ fun ItemListScreen(
     onAddClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val (widthClass, _) = rememberWindowSizeClasses()
+    val outerPadding = screenPadding()
+    val gap = horizontalGap()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Password Vault") },
                 actions = {
-                    IconButton(onClick = onAddClick) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Password")
+                    AccessibleIconButton(
+                        onClick = onAddClick,
+                        contentDescription = "Add password"
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
                     }
                 }
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddClick) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
+                Icon(Icons.Default.Add, contentDescription = "Add password")
             }
         }
     ) { paddingValues ->
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Search bar
-            SearchBar(
-                query = uiState.searchQuery,
-                onQueryChange = viewModel::updateSearchQuery,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+        when (widthClass) {
+            WindowWidthSizeClass.Expanded -> {
+                // Tablet / large devices: two-pane layout
+                Row(
+                    modifier = modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(outerPadding),
+                    horizontalArrangement = Arrangement.spacedBy(gap)
+                ) {
+                    // Left: search + filters
+                    Column(
+                        modifier = Modifier
+                            .weight(0.35f)
+                            .fillMaxHeight()
+                    ) {
+                        SearchBar(
+                            query = uiState.searchQuery,
+                            onQueryChange = viewModel::updateSearchQuery,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                        )
 
-            // Category filter chips
-            CategoryFilterRow(
-                selectedCategory = uiState.selectedCategory,
-                onCategorySelected = viewModel::filterByCategory,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
+                        CategoryFilterRow(
+                            selectedCategory = uiState.selectedCategory,
+                            onCategorySelected = viewModel::filterByCategory,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-            // Items list
-            if (uiState.isLoading) {
+                    // Right: list content
+                    ItemListContent(
+                        uiState = uiState,
+                        onItemClick = onItemClick,
+                        onClearError = viewModel::clearError,
+                        modifier = Modifier.weight(0.65f)
+                    )
+                }
+            }
+
+            else -> {
+                // Phone / compact layout: vertical stack
+                Column(
+                    modifier = modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(horizontal = outerPadding, vertical = outerPadding / 2)
+                ) {
+                    SearchBar(
+                        query = uiState.searchQuery,
+                        onQueryChange = viewModel::updateSearchQuery,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+
+                    CategoryFilterRow(
+                        selectedCategory = uiState.selectedCategory,
+                        onCategorySelected = viewModel::filterByCategory,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+
+                    ItemListContent(
+                        uiState = uiState,
+                        onItemClick = onItemClick,
+                        onClearError = viewModel::clearError,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ItemListContent(
+    uiState: ItemUiState,
+    onItemClick: (Item) -> Unit,
+    onClearError: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        when {
+            uiState.isLoading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
                 }
-            } else if (uiState.items.isEmpty()) {
+            }
+
+            uiState.items.isEmpty() -> {
                 EmptyVaultMessage(modifier = Modifier.fillMaxSize())
-            } else {
+            }
+
+            else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(
@@ -94,19 +175,20 @@ fun ItemListScreen(
                     }
                 }
             }
+        }
 
-            // Error snackbar
-            uiState.error?.let { error ->
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    action = {
-                        TextButton(onClick = viewModel::clearError) {
-                            Text("Dismiss")
-                        }
+        uiState.error?.let { error ->
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+                action = {
+                    TextButton(onClick = onClearError) {
+                        Text("Dismiss")
                     }
-                ) {
-                    Text(error)
                 }
+            ) {
+                Text(error)
             }
         }
     }
@@ -129,7 +211,7 @@ fun SearchBar(
         trailingIcon = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                    Icon(Icons.Default.Clear, contentDescription = "Clear search")
                 }
             }
         },
@@ -158,7 +240,8 @@ fun CategoryFilterRow(
             )
         }
 
-        items(PasswordCategory.entries) { category ->
+        items(PasswordCategory.entries.size) { index ->
+            val category = PasswordCategory.entries[index]
             FilterChip(
                 selected = selectedCategory == category,
                 onClick = { onCategorySelected(category) },
@@ -177,11 +260,9 @@ fun ItemCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    AccessibleCard(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
@@ -210,14 +291,15 @@ fun ItemCard(
                     if (item.isFavorite) {
                         Icon(
                             imageVector = Icons.Default.Star,
-                            contentDescription = "Favorite",
+                            contentDescription = "Favorite item",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
                 item.username?.let { username ->
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = username,
                         style = MaterialTheme.typography.bodyMedium,

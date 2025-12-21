@@ -3,23 +3,28 @@ package com.jcb.passbook.presentation.ui.screens.auth
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.R
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-
+import com.jcb.passbook.presentation.ui.components.AccessiblePasswordField
 
 /**
  * LoginScreen - User authentication UI with state-driven validation
+ *
+ * Refactored with:
+ * - AccessiblePasswordField for enhanced accessibility
+ * - Responsive layout support
+ * - Improved error handling and user feedback
  *
  * @param userViewModel Manages authentication state and user session
  * @param onLoginSuccess Callback with userId (Long) on successful authentication
@@ -99,57 +104,27 @@ private fun LoginScreenContent(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // App branding
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Secure Password Manager",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // App branding section
+            AppBranding()
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            // Input fields
-            UsernameField(
-                value = username,
-                onValueChange = onUsernameChange,
-                errorMessage = usernameError,
-                enabled = authState !is AuthState.Loading
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            PasswordField(
-                value = password,
-                onValueChange = onPasswordChange,
-                errorMessage = passwordError,
+            // Input fields section
+            InputFieldsSection(
+                username = username,
+                onUsernameChange = onUsernameChange,
+                usernameError = usernameError,
+                password = password,
+                onPasswordChange = onPasswordChange,
+                passwordError = passwordError,
                 enabled = authState !is AuthState.Loading
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // General error message
+            // General error message display
             generalError?.let {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Text(
-                        text = stringResource(it),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                ErrorCard(errorMessageId = it)
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
@@ -171,6 +146,65 @@ private fun LoginScreenContent(
 }
 
 @Composable
+private fun AppBranding() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = stringResource(R.string.app_name),
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = "Secure Password Manager",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun InputFieldsSection(
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    usernameError: Int?,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    passwordError: Int?,
+    enabled: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        UsernameField(
+            value = username,
+            onValueChange = onUsernameChange,
+            errorMessage = usernameError,
+            enabled = enabled
+        )
+
+        PasswordField(
+            value = password,
+            onValueChange = onPasswordChange,
+            errorMessage = passwordError,
+            enabled = enabled
+        )
+    }
+}
+
+@Composable
 private fun UsernameField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -182,6 +216,12 @@ private fun UsernameField(
         onValueChange = onValueChange,
         label = { Text(stringResource(R.string.username)) },
         placeholder = { Text("Enter your username") },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null
+            )
+        },
         isError = errorMessage != null,
         supportingText = {
             errorMessage?.let {
@@ -204,13 +244,12 @@ private fun PasswordField(
     @StringRes errorMessage: Int?,
     enabled: Boolean
 ) {
-    var passwordVisible by remember { mutableStateOf(false) }
-
-    OutlinedTextField(
+    AccessiblePasswordField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(stringResource(R.string.password)) },
-        placeholder = { Text("Enter your password") },
+        label = stringResource(R.string.password),
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
         isError = errorMessage != null,
         supportingText = {
             errorMessage?.let {
@@ -219,29 +258,39 @@ private fun PasswordField(
                     color = MaterialTheme.colorScheme.error
                 )
             }
-        },
-        visualTransformation = if (passwordVisible)
-            VisualTransformation.None
-        else
-            PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                Icon(
-                    imageVector = if (passwordVisible)
-                        Icons.Filled.VisibilityOff
-                    else
-                        Icons.Filled.Visibility,
-                    contentDescription = if (passwordVisible)
-                        "Hide password"
-                    else
-                        "Show password"
-                )
-            }
-        },
-        enabled = enabled,
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth()
+        }
     )
+}
+
+@Composable
+private fun ErrorCard(
+    @StringRes errorMessageId: Int
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                text = stringResource(errorMessageId),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
 }
 
 @Composable
