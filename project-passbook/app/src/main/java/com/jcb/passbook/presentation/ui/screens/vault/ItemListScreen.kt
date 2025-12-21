@@ -3,8 +3,13 @@ package com.jcb.passbook.presentation.ui.screens.vault
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -19,8 +24,12 @@ import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.PasswordCategory
 import com.jcb.passbook.presentation.ui.components.AccessibleCard
 import com.jcb.passbook.presentation.ui.components.AccessibleIconButton
-import com.jcb.passbook.presentation.viewmodel.ItemViewModel
+import com.jcb.passbook.presentation.ui.responsive.getRecommendedColumnCount
+import com.jcb.passbook.presentation.ui.responsive.isTabletMode
+import com.jcb.passbook.presentation.ui.responsive.rememberScreenInfo
+import com.jcb.passbook.presentation.ui.theme.getResponsiveDimensions
 import com.jcb.passbook.presentation.viewmodel.ItemUiState
+import com.jcb.passbook.presentation.viewmodel.ItemViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +40,10 @@ fun ItemListScreen(
     onAddClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val screenInfo = rememberScreenInfo()
+    val dimensions = getResponsiveDimensions(screenInfo.widthSizeClass)
+    val isTablet = isTabletMode()
+    val columnCount = getRecommendedColumnCount()
 
     Scaffold(
         topBar = {
@@ -47,46 +60,59 @@ fun ItemListScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddClick) {
+            FloatingActionButton(
+                onClick = onAddClick,
+                modifier = Modifier.size(dimensions.touchTargetSize)
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Add password")
             }
         }
     ) { paddingValues ->
-        // ✅ FIXED: Single-column layout for simplicity
         Column(
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(
+                    horizontal = dimensions.paddingMedium,
+                    vertical = dimensions.paddingSmall
+                ),
+            verticalArrangement = Arrangement.spacedBy(dimensions.spacingM)
         ) {
             SearchBar(
                 query = uiState.searchQuery,
                 onQueryChange = viewModel::updateSearchQuery,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             )
 
             CategoryFilterRow(
                 selectedCategory = uiState.selectedCategory,
                 onCategorySelected = viewModel::filterByCategory,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
+                modifier = Modifier.fillMaxWidth()
             )
 
-            ItemListContent(
-                uiState = uiState,
-                onItemClick = onItemClick,
-                onClearError = viewModel::clearError,
-                modifier = Modifier.fillMaxSize()
-            )
+            // Adaptive layout: grid for tablets, list for phones
+            if (isTablet && columnCount > 1) {
+                ItemListContentGrid(
+                    uiState = uiState,
+                    columns = columnCount,
+                    onItemClick = onItemClick,
+                    onClearError = viewModel::clearError,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                ItemListContentList(
+                    uiState = uiState,
+                    onItemClick = onItemClick,
+                    onClearError = viewModel::clearError,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ItemListContent(
+private fun ItemListContentList(
     uiState: ItemUiState,
     onItemClick: (Item) -> Unit,
     onClearError: () -> Unit,
@@ -124,7 +150,65 @@ private fun ItemListContent(
             }
         }
 
-        // ✅ FIXED: Error snackbar now in proper composable context
+        uiState.error?.let { error ->
+            Snackbar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+                action = {
+                    TextButton(onClick = onClearError) {
+                        Text("Dismiss")
+                    }
+                }
+            ) {
+                Text(error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ItemListContentGrid(
+    uiState: ItemUiState,
+    columns: Int,
+    onItemClick: (Item) -> Unit,
+    onClearError: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        when {
+            uiState.isLoading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            uiState.items.isEmpty() -> {
+                EmptyVaultMessage(modifier = Modifier.fillMaxSize())
+            }
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = uiState.items,
+                        key = { it.id }
+                    ) { item ->
+                        ItemCard(
+                            item = item,
+                            onClick = { onItemClick(item) }
+                        )
+                    }
+                }
+            }
+        }
+
         uiState.error?.let { error ->
             Snackbar(
                 modifier = Modifier
@@ -183,7 +267,7 @@ fun CategoryFilterRow(
                 onClick = { onCategorySelected(null) },
                 label = { Text("All") },
                 leadingIcon = {
-                    Icon(Icons.Default.List, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
                 }
             )
         }
@@ -280,7 +364,7 @@ fun ItemCard(
             }
 
             Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = "View details",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )

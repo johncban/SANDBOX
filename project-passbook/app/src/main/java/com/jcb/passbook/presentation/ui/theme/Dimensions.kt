@@ -6,95 +6,68 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Responsive dimension system for adaptive layouts
- * Automatically scales based on device screen width
+ * Responsive dimension values based on device screen size
+ * Ensures consistent, accessible spacing across all devices
  */
 data class ResponsiveDimensions(
-    // Padding dimensions
-    val paddingXSmall: Dp = 4.dp,
+    // Padding values
+    val paddingExtraSmall: Dp = 4.dp,
     val paddingSmall: Dp = 8.dp,
     val paddingMedium: Dp = 16.dp,
     val paddingLarge: Dp = 24.dp,
-    val paddingXLarge: Dp = 32.dp,
+    val paddingExtraLarge: Dp = 32.dp,
 
-    // Spacing dimensions
-    val spacingSmall: Dp = 8.dp,
-    val spacingMedium: Dp = 16.dp,
-    val spacingLarge: Dp = 24.dp,
-    val spacingXLarge: Dp = 32.dp,
+    // Element sizes
+    val touchTargetSize: Dp = 48.dp,
+    val smallButtonHeight: Dp = 40.dp,
+    val standardButtonHeight: Dp = 48.dp,
+    val largeButtonHeight: Dp = 56.dp,
 
-    // Component dimensions
-    val buttonHeight: Dp = 48.dp,
-    val textFieldHeight: Dp = 56.dp,
-    val iconSize: Dp = 24.dp,
-    val largeIconSize: Dp = 64.dp,
+    // Icon sizes
+    val iconSmall: Dp = 16.dp,
+    val iconMedium: Dp = 24.dp,
+    val iconLarge: Dp = 48.dp,
+    val iconExtraLarge: Dp = 64.dp,
 
-    // Layout configuration
-    val maxContentWidth: Dp = Dp.Unspecified,
-    val gridColumns: Int = 1,
-    val itemSpacing: Dp = 8.dp
+    // Spacing
+    val spacingXS: Dp = 4.dp,
+    val spacingS: Dp = 8.dp,
+    val spacingM: Dp = 12.dp,
+    val spacingL: Dp = 16.dp,
+    val spacingXL: Dp = 24.dp,
+    val spacingXXL: Dp = 32.dp,
+
+    // TextField
+    val textFieldHeight: Dp = 56.dp
 )
 
 /**
- * Create responsive dimensions based on window width class
- * Supports phone, tablet, and desktop layouts
- *
- * @param windowWidthClass The current window width size class
- * @return ResponsiveDimensions configured for the screen size
+ * Get responsive dimensions based on window size class
+ * Automatically adjusts padding, sizes, etc. for different devices
  */
 @Composable
-fun createResponsiveDimensions(
-    windowWidthClass: WindowWidthSizeClass
-): ResponsiveDimensions {
-    return when (windowWidthClass) {
-        WindowWidthSizeClass.Compact -> {
-            // Phone: < 600dp
-            ResponsiveDimensions(
-                paddingLarge = 16.dp,
-                gridColumns = 1
-            )
-        }
-        WindowWidthSizeClass.Medium -> {
-            // Tablet: 600-840dp
-            ResponsiveDimensions(
-                paddingLarge = 24.dp,
-                gridColumns = 2,
-                maxContentWidth = 800.dp,
-                itemSpacing = 12.dp
-            )
-        }
-        WindowWidthSizeClass.Expanded -> {
-            // Desktop: > 840dp
-            ResponsiveDimensions(
-                paddingLarge = 32.dp,
-                gridColumns = 3,
-                maxContentWidth = 1200.dp,
-                itemSpacing = 16.dp
-            )
-        }
-        else -> {
-            // Fallback for any unknown size class (future-proofing)
-            ResponsiveDimensions(
-                paddingLarge = 16.dp,
-                gridColumns = 1
-            )
-        }
+fun getResponsiveDimensions(windowSizeClass: WindowWidthSizeClass): ResponsiveDimensions {
+    return when (windowSizeClass) {
+        WindowWidthSizeClass.Compact -> ResponsiveDimensions(
+            paddingMedium = 12.dp,
+            paddingLarge = 16.dp,
+            iconExtraLarge = 56.dp,
+            textFieldHeight = 48.dp
+        )
+        WindowWidthSizeClass.Medium -> ResponsiveDimensions(
+            paddingMedium = 16.dp,
+            paddingLarge = 24.dp,
+            iconExtraLarge = 64.dp,
+            textFieldHeight = 56.dp
+        )
+        WindowWidthSizeClass.Expanded -> ResponsiveDimensions(
+            paddingMedium = 24.dp,
+            paddingLarge = 32.dp,
+            paddingExtraLarge = 48.dp,
+            touchTargetSize = 56.dp,
+            iconExtraLarge = 72.dp,
+            textFieldHeight = 60.dp
+        )
+        else -> ResponsiveDimensions() // Default fallback
     }
-}
-
-/**
- * Convenience object for quick access to default dimensions
- */
-object ResponsiveDefaults {
-    val phoneDimensions = ResponsiveDimensions()
-    val tabletDimensions = ResponsiveDimensions(
-        paddingLarge = 24.dp,
-        gridColumns = 2,
-        maxContentWidth = 800.dp
-    )
-    val desktopDimensions = ResponsiveDimensions(
-        paddingLarge = 32.dp,
-        gridColumns = 3,
-        maxContentWidth = 1200.dp
-    )
 }
