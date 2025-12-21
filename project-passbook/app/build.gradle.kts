@@ -274,4 +274,7 @@ dependencies {
 
     // Release optimization
     releaseImplementation(libs.androidx.profileinstaller)
+
+
+    implementation("androidx.compose.material3:material3-window-size-class:1.2.0")
 }

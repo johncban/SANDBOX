@@ -8,22 +8,67 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+// Light color scheme using your Teal / security palette
+private val LightColorScheme = lightColorScheme(
+    primary = TealPrimary,
+    onPrimary = Color.White,
+    primaryContainer = TealLight,
+    onPrimaryContainer = TealDark,
+
+    secondary = SuccessGreen,
+    onSecondary = Color.White,
+    secondaryContainer = SuccessGreen.copy(alpha = 0.15f),
+    onSecondaryContainer = TealDark,
+
+    tertiary = WarningOrange,
+    onTertiary = Color.White,
+    tertiaryContainer = WarningOrange.copy(alpha = 0.15f),
+    onTertiaryContainer = Color(0xFF4D3003),
+
+    error = ErrorRed,
+    onError = Color.White,
+
+    background = LightBackground,
+    onBackground = TextPrimary,
+    surface = LightSurface,
+    onSurface = TextPrimary,
+    surfaceVariant = LightSurface,
+    onSurfaceVariant = TextSecondary
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+// Dark color scheme using your Teal / security palette
+private val DarkColorScheme = darkColorScheme(
+    primary = TealLight,
+    onPrimary = TealDark,
+    primaryContainer = TealDark,
+    onPrimaryContainer = TealLight,
+
+    secondary = SuccessGreen,
+    onSecondary = Color.Black,
+    secondaryContainer = SuccessGreen.copy(alpha = 0.25f),
+    onSecondaryContainer = Color(0xFFB2DFDB),
+
+    tertiary = WarningOrange,
+    onTertiary = Color.Black,
+    tertiaryContainer = WarningOrange.copy(alpha = 0.25f),
+    onTertiaryContainer = Color(0xFFFFE0B2),
+
+    error = ErrorRed,
+    onError = Color.White,
+
+    background = DarkBackground,
+    onBackground = TextPrimaryDark,
+    surface = DarkSurface,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = DarkSurface,
+    onSurfaceVariant = TextSecondaryDark
 )
 
 @Composable
-fun PassbookTheme(  // ✅ FIXED: Changed from PassBookTheme to PassbookTheme (lowercase 'b')
+fun PassbookTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit

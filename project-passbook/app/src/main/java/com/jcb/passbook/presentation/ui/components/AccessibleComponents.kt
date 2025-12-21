@@ -1,61 +1,23 @@
 package com.jcb.passbook.presentation.ui.components
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 
 /**
- * Icon button with enforced 48dp touch target and proper contentDescription.
- */
-@Composable
-fun AccessibleIconButton(
-    onClick: () -> Unit,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable () -> Unit,
-) {
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier
-            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-            .semantics {
-                this.contentDescription = contentDescription
-                role = Role.Button
-            },
-        content = { content() }
-    )
-}
-
-/**
- * Password field with built-in visibility toggle and accessibility descriptions.
+ * Accessible password field with visibility toggle and screen reader support
  */
 @Composable
 fun AccessiblePasswordField(
@@ -65,92 +27,220 @@ fun AccessiblePasswordField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isError: Boolean = false,
-    supportingText: (@Composable () -> Unit)? = null,
+    supportingText: @Composable (() -> Unit)? = null,
+    maxCharacters: Int = 128,
+    contentDescription: String = "Password field",
+    onFocusedChange: (Boolean) -> Unit = {}
 ) {
-    var passwordVisible by remember { mutableStateOf(false) }
+    var isPasswordVisible by remember { mutableStateOf(false) }
 
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        modifier = modifier,
-        singleLine = true,
-        enabled = enabled,
-        isError = isError,
-        visualTransformation = if (passwordVisible) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        supportingText = supportingText,
-        trailingIcon = {
-            AccessibleIconButton(
-                onClick = { passwordVisible = !passwordVisible },
-                contentDescription = if (passwordVisible) {
-                    "Hide password for $label"
-                } else {
-                    "Show password for $label"
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { newValue ->
+                if (newValue.length <= maxCharacters) {
+                    onValueChange(newValue)
                 }
-            ) {
-                Icon(
-                    imageVector = if (passwordVisible) {
-                        Icons.Filled.VisibilityOff
-                    } else {
-                        Icons.Filled.Visibility
-                    },
-                    contentDescription = null
-                )
+            },
+            label = { Text(label) },
+            modifier = Modifier
+                .semantics {
+                    this.contentDescription = contentDescription
+                },
+            singleLine = true,
+            visualTransformation = if (isPasswordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                IconButton(
+                    onClick = { isPasswordVisible = !isPasswordVisible },
+                    modifier = Modifier.semantics {
+                        this.contentDescription = if (isPasswordVisible) {
+                            "Hide password"
+                        } else {
+                            "Show password"
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isPasswordVisible) {
+                            Icons.Default.VisibilityOff
+                        } else {
+                            Icons.Default.Visibility
+                        },
+                        contentDescription = null
+                    )
+                }
+            },
+            isError = isError,
+            enabled = enabled
+        )
+
+        // Character count
+        Text(
+            text = "${value.length}/$maxCharacters characters",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.semantics {
+                this.contentDescription = "${value.length} of $maxCharacters characters entered"
             }
-        }
-    )
+        )
+
+        supportingText?.invoke()
+    }
 }
 
 /**
- * Card that is fully clickable and exposed as a single semantics node.
+ * Accessible text field with input validation feedback
  */
+@Composable
+fun AccessibleTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    errorMessage: String? = null,
+    supportingText: @Composable (() -> Unit)? = null,
+    maxCharacters: Int = 256,
+    contentDescription: String = label
+) {
+    Column(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { newValue ->
+                if (newValue.length <= maxCharacters) {
+                    onValueChange(newValue)
+                }
+            },
+            label = { Text(label) },
+            modifier = Modifier
+                .semantics {
+                    this.contentDescription = if (isError && errorMessage != null) {
+                        "$contentDescription - Error: $errorMessage"
+                    } else {
+                        contentDescription
+                    }
+                },
+            isError = isError,
+            enabled = enabled,
+            singleLine = false
+        )
+
+        if (isError && errorMessage != null) {
+            Text(
+                text = "Error: $errorMessage",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Text(
+            text = "${value.length}/$maxCharacters",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        supportingText?.invoke()
+    }
+}
+
+/**
+ * Accessible card with semantic click handling
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccessibleCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    enabled: Boolean = true,
+    contentDescription: String? = null,
+    content: @Composable () -> Unit
 ) {
     Card(
-        modifier = modifier
-            .semantics(mergeDescendants = true) {
-                role = Role.Button
+        onClick = onClick,
+        modifier = modifier.semantics {
+            contentDescription?.let {
+                this.contentDescription = it
             }
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        },
+        enabled = enabled
     ) {
-        Box {
-            content()
-        }
+        content()
     }
 }
 
 /**
- * Simple favorite toggle wrapper. You can integrate this later if you add
- * an explicit “toggle favorite” affordance in the list.
+ * Accessible icon button with mandatory content description
  */
 @Composable
-fun FavoriteIcon(
-    isFavorite: Boolean,
+fun AccessibleIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String,
+    content: @Composable () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.semantics {
+            this.contentDescription = contentDescription
+        },
+        enabled = enabled
+    ) {
+        content()
+    }
+}
+
+/**
+ * Accessible button with enhanced semantics
+ */
+@Composable
+fun AccessibleButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String,
+    isLoading: Boolean = false,
+    enabled: Boolean = true,
+    contentDescription: String? = null,
+    content: @Composable () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.semantics {
+            this.contentDescription = contentDescription ?: label
+            if (isLoading) {
+                this.contentDescription = "$label - Loading"
+            }
+            if (!enabled) {
+                this.contentDescription = "$label - Disabled"
+            }
+        },
+        enabled = enabled && !isLoading
+    ) {
+        content()
+    }
+}
+
+/**
+ * Accessible icon with mandatory content description
+ */
+@Composable
+fun AccessibleIcon(
+    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    tint: androidx.compose.ui.graphics.Color = LocalContentColor.current
 ) {
-    AccessibleIconButton(
-        onClick = {},
+    Icon(
+        imageVector = imageVector,
         contentDescription = contentDescription,
-        modifier = modifier
-    ) {
-        // Currently just visual; hook into callback if needed
-        Icon(
-            imageVector = if (isFavorite) {
-                androidx.compose.material.icons.Icons.Default.Star
-            } else {
-                androidx.compose.material.icons.Icons.Default.StarBorder
-            },
-            contentDescription = null
-        )
-    }
+        modifier = modifier.semantics {
+            this.contentDescription = contentDescription
+        },
+        tint = tint
+    )
 }

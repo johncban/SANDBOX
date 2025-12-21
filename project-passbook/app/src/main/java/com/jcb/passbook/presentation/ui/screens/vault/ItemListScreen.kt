@@ -19,10 +19,6 @@ import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.PasswordCategory
 import com.jcb.passbook.presentation.ui.components.AccessibleCard
 import com.jcb.passbook.presentation.ui.components.AccessibleIconButton
-import com.jcb.passbook.presentation.ui.util.WindowWidthSizeClass
-import com.jcb.passbook.presentation.ui.util.horizontalGap
-import com.jcb.passbook.presentation.ui.util.rememberWindowSizeClasses
-import com.jcb.passbook.presentation.ui.util.screenPadding
 import com.jcb.passbook.presentation.viewmodel.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.ItemUiState
 
@@ -35,9 +31,6 @@ fun ItemListScreen(
     onAddClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val (widthClass, _) = rememberWindowSizeClasses()
-    val outerPadding = screenPadding()
-    val gap = horizontalGap()
 
     Scaffold(
         topBar = {
@@ -59,79 +52,35 @@ fun ItemListScreen(
             }
         }
     ) { paddingValues ->
-        when (widthClass) {
-            WindowWidthSizeClass.Expanded -> {
-                // Tablet / large devices: two-pane layout
-                Row(
-                    modifier = modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .padding(outerPadding),
-                    horizontalArrangement = Arrangement.spacedBy(gap)
-                ) {
-                    // Left: search + filters
-                    Column(
-                        modifier = Modifier
-                            .weight(0.35f)
-                            .fillMaxHeight()
-                    ) {
-                        SearchBar(
-                            query = uiState.searchQuery,
-                            onQueryChange = viewModel::updateSearchQuery,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp)
-                        )
+        // ✅ FIXED: Single-column layout for simplicity
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            SearchBar(
+                query = uiState.searchQuery,
+                onQueryChange = viewModel::updateSearchQuery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
 
-                        CategoryFilterRow(
-                            selectedCategory = uiState.selectedCategory,
-                            onCategorySelected = viewModel::filterByCategory,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+            CategoryFilterRow(
+                selectedCategory = uiState.selectedCategory,
+                onCategorySelected = viewModel::filterByCategory,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
 
-                    // Right: list content
-                    ItemListContent(
-                        uiState = uiState,
-                        onItemClick = onItemClick,
-                        onClearError = viewModel::clearError,
-                        modifier = Modifier.weight(0.65f)
-                    )
-                }
-            }
-
-            else -> {
-                // Phone / compact layout: vertical stack
-                Column(
-                    modifier = modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .padding(horizontal = outerPadding, vertical = outerPadding / 2)
-                ) {
-                    SearchBar(
-                        query = uiState.searchQuery,
-                        onQueryChange = viewModel::updateSearchQuery,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                    )
-
-                    CategoryFilterRow(
-                        selectedCategory = uiState.selectedCategory,
-                        onCategorySelected = viewModel::filterByCategory,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                    )
-
-                    ItemListContent(
-                        uiState = uiState,
-                        onItemClick = onItemClick,
-                        onClearError = viewModel::clearError,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
+            ItemListContent(
+                uiState = uiState,
+                onItemClick = onItemClick,
+                onClearError = viewModel::clearError,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
@@ -153,11 +102,9 @@ private fun ItemListContent(
                     CircularProgressIndicator()
                 }
             }
-
             uiState.items.isEmpty() -> {
                 EmptyVaultMessage(modifier = Modifier.fillMaxSize())
             }
-
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -177,6 +124,7 @@ private fun ItemListContent(
             }
         }
 
+        // ✅ FIXED: Error snackbar now in proper composable context
         uiState.error?.let { error ->
             Snackbar(
                 modifier = Modifier
@@ -262,7 +210,8 @@ fun ItemCard(
 ) {
     AccessibleCard(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth(),
+        contentDescription = "Password item: ${item.title}"
     ) {
         Row(
             modifier = Modifier
@@ -282,12 +231,14 @@ fun ItemCard(
                         text = item.getPasswordCategoryEnum().icon,
                         style = MaterialTheme.typography.titleMedium
                     )
+
                     Text(
                         text = item.title,
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
                     if (item.isFavorite) {
                         Icon(
                             imageVector = Icons.Default.Star,
@@ -353,11 +304,13 @@ fun EmptyVaultMessage(modifier: Modifier = Modifier) {
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
             Text(
                 text = "No passwords yet",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
             Text(
                 text = "Tap + to add your first password",
                 style = MaterialTheme.typography.bodyMedium,
