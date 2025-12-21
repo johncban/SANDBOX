@@ -7,7 +7,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Responsive dimension values based on device screen size
- * Ensures consistent, accessible spacing across all devices
+ * Ensures consistent, accessible spacing across all devices.
  */
 data class ResponsiveDimensions(
     // Padding values
@@ -16,6 +16,7 @@ data class ResponsiveDimensions(
     val paddingMedium: Dp = 16.dp,
     val paddingLarge: Dp = 24.dp,
     val paddingExtraLarge: Dp = 32.dp,
+    val paddingXXL: Dp = 40.dp,          // 🆕 for large horizontal spacing
 
     // Element sizes
     val touchTargetSize: Dp = 48.dp,
@@ -29,7 +30,7 @@ data class ResponsiveDimensions(
     val iconLarge: Dp = 48.dp,
     val iconExtraLarge: Dp = 64.dp,
 
-    // Spacing
+    // Spacing (general)
     val spacingXS: Dp = 4.dp,
     val spacingS: Dp = 8.dp,
     val spacingM: Dp = 12.dp,
@@ -42,8 +43,7 @@ data class ResponsiveDimensions(
 )
 
 /**
- * Get responsive dimensions based on window size class
- * Automatically adjusts padding, sizes, etc. for different devices
+ * Get responsive dimensions based on window size class.
  */
 @Composable
 fun getResponsiveDimensions(windowSizeClass: WindowWidthSizeClass): ResponsiveDimensions {
@@ -51,23 +51,30 @@ fun getResponsiveDimensions(windowSizeClass: WindowWidthSizeClass): ResponsiveDi
         WindowWidthSizeClass.Compact -> ResponsiveDimensions(
             paddingMedium = 12.dp,
             paddingLarge = 16.dp,
+            paddingExtraLarge = 24.dp,
+            paddingXXL = 32.dp,
             iconExtraLarge = 56.dp,
             textFieldHeight = 48.dp
         )
+
         WindowWidthSizeClass.Medium -> ResponsiveDimensions(
             paddingMedium = 16.dp,
             paddingLarge = 24.dp,
+            paddingExtraLarge = 32.dp,
+            paddingXXL = 36.dp,
             iconExtraLarge = 64.dp,
             textFieldHeight = 56.dp
         )
+
         WindowWidthSizeClass.Expanded -> ResponsiveDimensions(
             paddingMedium = 24.dp,
             paddingLarge = 32.dp,
             paddingExtraLarge = 48.dp,
+            paddingXXL = 48.dp,
             touchTargetSize = 56.dp,
             iconExtraLarge = 72.dp,
             textFieldHeight = 60.dp
         )
-        else -> ResponsiveDimensions() // Default fallback
+        else -> ResponsiveDimensions()
     }
 }
