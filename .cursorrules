@@ -1,0 +1,305 @@
+# Passbook Password Manager - Cursor AI Rules
+
+## Project Context
+This is a secure password manager Android application built with Kotlin and Jetpack Compose.
+Focus on security, privacy, and user experience.
+
+## Security Guidelines (CRITICAL)
+
+### Data Protection
+- NEVER log passwords, encryption keys, PINs, or biometric data
+- Always use SecureString/CharArray for sensitive data, not String
+- Clear sensitive data from memory immediately after use using SecurityMemoryUtils
+- Use encrypted SharedPreferences for any persisted sensitive data
+- All database operations must use encrypted database (SQLCipher)
+
+### Cryptography
+- Use only Android Keystore for key storage
+- Prefer hardware-backed keys when available
+- Use AES-256-GCM for encryption (never ECB mode)
+- Use PBKDF2 with at least 100,000 iterations for key derivation
+- Generate cryptographically secure random values using SecureRandom
+- Implement proper IV/nonce generation (never reuse)
+
+### Input Validation
+- Validate all user inputs before processing
+- Use parameterized queries for all database operations
+- Sanitize data before logging (even in debug builds)
+- Implement rate limiting for authentication attempts
+
+### Authentication
+- Enforce biometric authentication where available
+- Implement proper session timeout mechanisms
+- Lock vault after configurable inactivity period
+- Clear clipboard after password copy timeout
+
+### Audit Logging
+- Log all security-relevant events (auth attempts, vault access, settings changes)
+- Include timestamp, event type, outcome, and context
+- NEVER log the actual sensitive data, only metadata
+- Implement tamper-evident audit chain
+
+## Code Style & Architecture
+
+### Kotlin Best Practices
+- Use Kotlin coroutines and Flow for asynchronous operations
+- Prefer `suspend` functions over callbacks
+- Use sealed classes for state representation
+- Leverage Kotlin's null safety features
+- Use data classes for models
+- Prefer immutability where possible
+
+### Jetpack Compose
+- Follow Material Design 3 guidelines
+- Use remember/rememberSaveable appropriately
+- Implement proper state hoisting
+- Keep composables pure and reusable
+- Use CompositionLocal for theme/dependency injection
+- Optimize recomposition with remember and derivedStateOf
+
+### Architecture (Clean Architecture)
+- Separate concerns: UI → ViewModel → Repository → Data Source
+- Use Hilt for dependency injection
+- ViewModels should expose StateFlow/Flow, not LiveData
+- Repository pattern for data access
+- Use cases for complex business logic
+- Keep UI layer unaware of data sources
+
+### Naming Conventions
+- ViewModels: `[Feature]ViewModel.kt` (e.g., ItemViewModel)
+- Screens: `[Feature]Screen.kt` (e.g., LoginScreen)
+- Repositories: `[Entity]Repository.kt` (e.g., UserRepository)
+- DAOs: `[Entity]Dao.kt` (e.g., ItemDao)
+- Use descriptive names for security functions (e.g., `encryptWithMasterKey` not `enc`)
+
+## Testing Requirements
+
+### Unit Tests
+- Write unit tests for all ViewModels
+- Test all repository methods
+- Mock external dependencies using MockK
+- Follow AAA pattern (Arrange, Act, Assert)
+- Use descriptive test names: `should[Expected]_when[Condition]`
+- Aim for >80% code coverage for business logic
+
+### Security Tests
+- Test cryptographic operations with known test vectors
+- Verify proper key generation and storage
+- Test session timeout mechanisms
+- Verify audit logging completeness
+- Test root/tamper detection
+
+### Integration Tests
+- Test database migrations
+- Test end-to-end encryption flows
+- Test biometric authentication flows
+- Use Hilt test components
+
+## Performance Considerations
+
+### Database
+- Use proper indexing for frequently queried fields
+- Implement pagination for large lists
+- Use database transactions for batch operations
+- Optimize queries (avoid N+1 problems)
+
+### UI
+- Use LazyColumn/LazyRow for lists
+- Implement proper image caching
+- Avoid heavy operations on main thread
+- Use Compose stability annotations where beneficial
+
+### Memory
+- Clear sensitive data immediately after use
+- Avoid memory leaks (check lifecycle awareness)
+- Use appropriate collection types
+- Profile memory usage regularly
+
+## Error Handling
+
+### General
+- Use Result/Either types for operations that can fail
+- Provide meaningful error messages to users (without exposing internals)
+- Log errors with sufficient context for debugging
+- Implement proper exception hierarchy
+
+### Security Errors
+- Don't reveal whether username or password is incorrect (say "Invalid credentials")
+- Rate limit authentication attempts
+- Don't expose system information in error messages
+- Implement graceful degradation when hardware security unavailable
+
+## Accessibility
+
+### UI Requirements
+- All interactive elements must have contentDescription
+- Minimum touch target size: 48dp
+- Support TalkBack screen reader
+- Ensure sufficient color contrast (WCAG AA)
+- Support dynamic font sizing
+- Test with accessibility scanner
+
+## Privacy
+
+### Data Minimization
+- Collect only necessary data
+- Implement proper data retention policies
+- Allow users to export their data
+- Implement secure data deletion
+
+### Permissions
+- Request permissions only when needed
+- Explain permission usage to users
+- Handle permission denial gracefully
+- Use runtime permissions properly
+
+## Git & Version Control
+
+### Commit Messages
+- Use conventional commits format
+- Be descriptive about security changes
+- Reference issue numbers
+- Keep commits atomic and focused
+
+### Branch Strategy
+- Feature branches: `feature/[feature-name]`
+- Bug fixes: `bugfix/[bug-name]`
+- Security: `security/[security-fix]`
+- Hotfix: `hotfix/[issue]`
+
+## Documentation
+
+### Code Comments
+- Document WHY, not WHAT
+- Explain security decisions
+- Document assumptions and constraints
+- Use KDoc for public APIs
+
+### README/Wiki
+- Keep architecture documentation updated
+- Document security model
+- Provide setup instructions
+- Include troubleshooting guide
+
+## When Suggesting Code
+
+### Priorities
+1. Security first - never compromise security for convenience
+2. Privacy second - protect user data
+3. User experience - make security usable
+4. Performance - keep app responsive
+5. Maintainability - write clear, testable code
+
+### Code Generation
+- Include proper error handling
+- Add relevant comments for complex logic
+- Follow existing code style
+- Include necessary imports
+- Consider edge cases
+- Add TODOs for follow-up work
+
+### Refactoring
+- Maintain backward compatibility when possible
+- Update tests when refactoring
+- Consider database migration needs
+- Update documentation
+- Preserve security properties
+
+## Android-Specific
+
+### Minimum SDK
+- Target SDK: Latest stable
+- Min SDK: As defined in build.gradle.kts
+- Use @RequiresApi for newer API usage
+- Provide fallbacks for older APIs
+
+### Lifecycle Awareness
+- Use lifecycle-aware components
+- Handle configuration changes properly
+- Cleanup resources in proper lifecycle methods
+- Use ViewModel for UI state
+
+### Background Work
+- Use WorkManager for deferrable tasks
+- Handle doze mode appropriately
+- Implement proper foreground service notifications
+- Respect battery optimization
+
+## AI-Assisted Development Tips
+
+### When to Ask for Help
+- Implementing new security features
+- Reviewing cryptographic code
+- Optimizing performance bottlenecks
+- Writing comprehensive tests
+- Refactoring complex components
+- Updating to new Android/Compose APIs
+
+### How to Ask
+- Provide context about the feature/issue
+- Reference relevant files with @mentions
+- Specify security requirements upfront
+- Ask for explanation of generated code
+- Request test coverage with implementation
+
+### Code Review
+- Ask AI to review for security vulnerabilities
+- Request performance optimization suggestions
+- Check for accessibility issues
+- Validate architecture decisions
+- Verify test coverage
+
+## Common Patterns in This Codebase
+
+### ViewModel Pattern
+```kotlin
+class FeatureViewModel @Inject constructor(
+    private val repository: FeatureRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow<FeatureState>(FeatureState.Initial)
+    val state: StateFlow<FeatureState> = _state.asStateFlow()
+    
+    fun performAction() = viewModelScope.launch {
+        // Implementation
+    }
+}
+```
+
+### Repository Pattern
+```kotlin
+class FeatureRepository @Inject constructor(
+    private val dao: FeatureDao,
+    private val cryptoManager: CryptoManager
+) {
+    fun getData(): Flow<List<Entity>> = dao.getAll()
+    
+    suspend fun saveData(data: Entity) {
+        // Encrypt if needed
+        dao.insert(data)
+    }
+}
+```
+
+### Screen Pattern
+```kotlin
+@Composable
+fun FeatureScreen(
+    viewModel: FeatureViewModel = hiltViewModel(),
+    onNavigate: (String) -> Unit
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    
+    // UI implementation
+}
+```
+
+## Remember
+- Security cannot be added later - build it in from the start
+- User trust is earned through transparency and security
+- Test security features thoroughly
+- Keep dependencies updated for security patches
+- Privacy is a feature, not an afterthought
+
+---
+
+**When in doubt about security decisions, ask for a security review before implementing.**
