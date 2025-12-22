@@ -125,7 +125,6 @@ class MainActivity : ComponentActivity() {
                     }
 
                     is AuthState.Error -> {
-                        // ✅ FIXED: Safe error handling without accessing .message
                         Timber.w("🔐 Auth state: Authentication error - $authState")
                         // Optionally clear userId on error
                         // itemViewModel.clearVault()
@@ -322,15 +321,11 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Type-safe navigation routes with compile-time safety
-     *
-     * ✅ REFACTORED: Simplified routes
-     * - Removed ItemDetail route (now handled by modal bottom sheet)
-     * - Added AddItem route for creating new passwords
      */
     sealed class Screen(val route: String) {
         object Login : Screen("login")
         object Register : Screen("register")
         object ItemList : Screen("itemList")
-        object AddItem : Screen("addItem") // ✅ Simplified route for adding new items
+        object AddItem : Screen("addItem")
     }
 }
