@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
@@ -24,7 +25,6 @@ import com.jcb.passbook.presentation.ui.theme.PassbookTheme
 import com.jcb.passbook.presentation.viewmodel.shared.AuthState
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -36,24 +36,22 @@ import javax.inject.Inject
 /**
  * MainActivity - Single Activity architecture with Jetpack Navigation Compose
  *
- * ✅ COMPLETELY REFACTORED (2025-12-21):
- * - Added CRITICAL AuthState observation to fix userId persistence issue
- * - Fixed "Cannot insert/update item: userId not set" bug
- * - Observes AuthState in both lifecycleScope AND Composable LaunchedEffect
- * - Ensures itemViewModel.setCurrentUserId() is called on every AuthState.Success
- * - Added extensive logging for debugging authentication flow
- * - Maintains all existing functionality (logout, passphrase rotation, session cleanup)
+ * ✅ FIXED (2025-12-22):
+ * - Changed MainActivity to extend FragmentActivity (not ComponentActivity)
+ * - Fixed when expression to be exhaustive
+ * - Fixed smart cast issues with proper variable extraction
+ * - Properly handles SessionManager.startSession() with FragmentActivity context
  *
  * Responsibilities:
  * - Host navigation graph with authentication and vault screens
- * - **CRITICAL**: Observe AuthState and propagate userId to ItemViewModel
+ * - **CRITICAL**: Observe AuthState and start session + propagate userId to ItemViewModel
  * - Manage application lifecycle (passphrase rotation, session cleanup)
  * - Provide ViewModels via Hilt injection
  * - Coordinate navigation between authentication and vault flows
  * - Handle logout and session termination
  */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() { // ✅ CHANGED: FragmentActivity instead of ComponentActivity
 
     @Inject
     lateinit var sessionManager: SessionManager
@@ -64,7 +62,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         Timber.i("🏁 MainActivity created, userViewModel=$userViewModel, itemViewModel=$itemViewModel")
 
         enableEdgeToEdge()
@@ -102,7 +99,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             userViewModel.authState.collect { authState ->
                 Timber.d("🔐 AuthState changed: $authState")
-
                 when (authState) {
                     is AuthState.Success -> {
                         val userId = authState.userId
@@ -125,7 +121,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     is AuthState.Error -> {
-                        Timber.w("🔐 Auth state: Authentication error - $authState")
+                        Timber.w("🔐 Auth state: Authentication error - ${authState.messageId}")
                         // Optionally clear userId on error
                         // itemViewModel.clearVault()
                     }
@@ -145,10 +141,27 @@ class MainActivity : ComponentActivity() {
         // 🔥 ALSO: Re-set userId when authState changes to Success in Compose scope
         // This provides additional safety in case the lifecycleScope observer misses it
         LaunchedEffect(authState) {
-            if (authState is AuthState.Success) {
-                val userId = (authState as AuthState.Success).userId
-                Timber.i("🔐 [Compose] Auth state changed to Success, ensuring userId=$userId")
-                itemViewModel.setCurrentUserId(userId)
+            // ✅ FIXED: Extract to local variable for smart cast
+            val currentAuthState = authState
+            when (currentAuthState) {
+                is AuthState.Success -> {
+                    // Start session with FragmentActivity context
+                    val result = sessionManager.startSession(
+                        activity = this@MainActivity,
+                        userId = currentAuthState.userId
+                    )
+
+                    if (result is SessionManager.SessionResult.Success) {
+                        // Navigate to main screen
+                        itemViewModel.setCurrentUserId(currentAuthState.userId)
+                    }
+                }
+                is AuthState.Idle,
+                is AuthState.Loading,
+                is AuthState.Error -> {
+                    // ✅ FIXED: Added missing branches to make when exhaustive
+                    // No action needed for these states in navigation
+                }
             }
         }
 
@@ -207,7 +220,6 @@ class MainActivity : ComponentActivity() {
                     onLogout = {
                         // Handle logout
                         Timber.i("🚪 User logging out")
-
                         lifecycleScope.launch {
                             try {
                                 // Clear user session
@@ -257,15 +269,15 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 performPassphraseRotationOnOpen()
             }
-        }
 
-        lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    schedulePassphraseRotationOnClose()
+            lifecycle.addObserver(LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        schedulePassphraseRotationOnClose()
+                    }
                 }
-            }
-        })
+            })
+        }
     }
 
     /**
