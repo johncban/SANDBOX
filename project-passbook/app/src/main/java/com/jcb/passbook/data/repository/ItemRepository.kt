@@ -11,7 +11,6 @@ import javax.inject.Singleton
 class ItemRepository @Inject constructor(
     private val itemDao: ItemDao
 ) {
-
     fun getItemsForUser(userId: Long): Flow<List<Item>> {
         return itemDao.getItemsForUser(userId)
     }
@@ -30,6 +29,14 @@ class ItemRepository @Inject constructor(
 
     suspend fun deleteItem(item: Item) {
         itemDao.delete(item)
+    }
+
+    /**
+     * ✅ NEW: Delete item by ID
+     * Required for ItemViewModel.deleteItem(itemId: Long)
+     */
+    suspend fun deleteById(itemId: Long) {
+        itemDao.deleteById(itemId)
     }
 
     // NEW: Category-based operations

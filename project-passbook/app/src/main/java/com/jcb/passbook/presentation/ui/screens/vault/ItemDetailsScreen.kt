@@ -16,12 +16,17 @@ import com.jcb.passbook.data.local.database.entities.PasswordCategory
 import com.jcb.passbook.presentation.ui.components.AccessiblePasswordField
 import com.jcb.passbook.presentation.ui.util.WindowHeightSizeClass
 import com.jcb.passbook.presentation.ui.util.rememberWindowSizeClasses
-import com.jcb.passbook.presentation.viewmodel.ItemViewModel
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 
+
+/**
+ * ItemDetailScreen - For ADDING NEW password items only
+ *
+ * NOTE: Editing existing items is handled via modal bottom sheet in ItemListScreen
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemDetailScreen(
-    itemId: Long? = null,
     onNavigateBack: () -> Unit,
     viewModel: ItemViewModel = hiltViewModel()
 ) {
@@ -40,28 +45,38 @@ fun ItemDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (itemId == null) "Add Password" else "Edit Password") },
+                title = { Text("Add New Password") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        // TODO: Encrypt password before saving
-                        viewModel.insertOrUpdateItem(
-                            id = itemId ?: 0,
-                            title = title,
-                            username = username.takeIf { it.isNotBlank() },
-                            encryptedPassword = password.toByteArray(), // Replace with actual encryption
-                            url = url.takeIf { it.isNotBlank() },
-                            notes = notes.takeIf { it.isNotBlank() },
-                            passwordCategory = selectedCategory,
-                            isFavorite = isFavorite
+                    IconButton(
+                        onClick = {
+                            // TODO: Encrypt password before saving
+                            viewModel.insertOrUpdateItem(
+                                id = 0, // New item
+                                title = title,
+                                username = username.takeIf { it.isNotBlank() },
+                                encryptedPassword = password.toByteArray(), // Replace with actual encryption
+                                url = url.takeIf { it.isNotBlank() },
+                                notes = notes.takeIf { it.isNotBlank() },
+                                passwordCategory = selectedCategory,
+                                isFavorite = isFavorite
+                            )
+                            onNavigateBack()
+                        },
+                        enabled = title.isNotBlank() && password.isNotBlank()
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "Save",
+                            tint = if (title.isNotBlank() && password.isNotBlank())
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        onNavigateBack()
-                    }) {
-                        Icon(Icons.Default.Check, contentDescription = "Save")
                     }
                 }
             )

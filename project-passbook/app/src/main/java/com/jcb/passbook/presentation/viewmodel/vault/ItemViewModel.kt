@@ -1,4 +1,4 @@
-package com.jcb.passbook.presentation.viewmodel
+package com.jcb.passbook.presentation.viewmodel.vault
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -24,6 +24,8 @@ data class ItemUiState(
 
 /**
  * ItemViewModel - Manages password vault state and operations
+ *
+ * ✅ REFACTORED: Added updateItem() and deleteItem(itemId) methods
  *
  * Responsibilities:
  * - Load and filter vault items by category and search query
@@ -188,20 +190,60 @@ class ItemViewModel @Inject constructor(
     }
 
     /**
-     * Delete password entry from vault
+     * ✅ NEW: Update existing password item (for modal bottom sheet)
+     *
+     * @param item Item entity with updated values
+     */
+    fun updateItem(item: Item) {
+        viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(isLoading = true) }
+                repository.updateItem(item)
+                Timber.i("Updated item: id=${item.id}, title=${item.title}")
+                _uiState.update { it.copy(isLoading = false, error = null) }
+            } catch (e: Exception) {
+                Timber.e(e, "Error updating item")
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to update password"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * ✅ NEW: Delete password entry by ID (for modal bottom sheet)
+     *
+     * @param itemId Item ID to delete
+     */
+    fun deleteItem(itemId: Long) {
+        viewModelScope.launch {
+            try {
+                _uiState.update { it.copy(isLoading = true) }
+                repository.deleteById(itemId)
+                Timber.i("Deleted item: id=$itemId")
+                _uiState.update { it.copy(isLoading = false, error = null) }
+            } catch (e: Exception) {
+                Timber.e(e, "Error deleting item")
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to delete password"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Delete password entry from vault (legacy method - kept for compatibility)
      *
      * @param item Item entity to delete
      */
     fun deleteItem(item: Item) {
-        viewModelScope.launch {
-            try {
-                repository.deleteItem(item)
-                Timber.i("Deleted item: id=${item.id}, title=${item.title}")
-            } catch (e: Exception) {
-                Timber.e(e, "Error deleting item")
-                _uiState.update { it.copy(error = "Failed to delete password: ${e.message}") }
-            }
-        }
+        deleteItem(item.id)
     }
 
     /**

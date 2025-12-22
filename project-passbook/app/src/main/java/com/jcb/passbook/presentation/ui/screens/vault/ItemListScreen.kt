@@ -8,15 +8,16 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -28,15 +29,28 @@ import com.jcb.passbook.presentation.ui.responsive.getRecommendedColumnCount
 import com.jcb.passbook.presentation.ui.responsive.isTabletMode
 import com.jcb.passbook.presentation.ui.responsive.rememberScreenInfo
 import com.jcb.passbook.presentation.ui.theme.getResponsiveDimensions
-import com.jcb.passbook.presentation.viewmodel.ItemUiState
-import com.jcb.passbook.presentation.viewmodel.ItemViewModel
+import com.jcb.passbook.presentation.viewmodel.vault.ItemUiState
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 
+
+import kotlinx.coroutines.launch
+
+/**
+ * ItemListScreen - Refactored with Modal Bottom Sheet
+ *
+ * Features:
+ * - Modal bottom sheet for viewing/editing passwords
+ * - Show/hide password functionality in list view
+ * - Logout button in top app bar
+ * - Responsive grid/list layout
+ * - Search and category filtering
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemListScreen(
     modifier: Modifier = Modifier,
     viewModel: ItemViewModel = hiltViewModel(),
-    onItemClick: (Item) -> Unit,
+    onLogout: () -> Unit,
     onAddClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -45,16 +59,30 @@ fun ItemListScreen(
     val isTablet = isTabletMode()
     val columnCount = getRecommendedColumnCount()
 
+    // Modal bottom sheet state
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = false
+    )
+    val scope = rememberCoroutineScope()
+    var selectedItem by remember { mutableStateOf<Item?>(null) }
+    var showBottomSheet by remember { mutableStateOf(false) }
+    var isEditMode by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Password Vault") },
                 actions = {
+                    // Logout button
                     AccessibleIconButton(
-                        onClick = onAddClick,
-                        contentDescription = "Add password"
+                        onClick = onLogout,
+                        contentDescription = "Logout"
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = "Logout",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             )
@@ -95,18 +123,74 @@ fun ItemListScreen(
                 ItemListContentGrid(
                     uiState = uiState,
                     columns = columnCount,
-                    onItemClick = onItemClick,
+                    onItemClick = { item ->
+                        selectedItem = item
+                        isEditMode = false
+                        showBottomSheet = true
+                    },
                     onClearError = viewModel::clearError,
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
                 ItemListContentList(
                     uiState = uiState,
-                    onItemClick = onItemClick,
+                    onItemClick = { item ->
+                        selectedItem = item
+                        isEditMode = false
+                        showBottomSheet = true
+                    },
                     onClearError = viewModel::clearError,
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
+    }
+
+    // Modal Bottom Sheet for viewing/editing password
+    if (showBottomSheet && selectedItem != null) {
+        ModalBottomSheet(
+            onDismissRequest = {
+                showBottomSheet = false
+                isEditMode = false
+                selectedItem = null
+            },
+            sheetState = sheetState,
+            modifier = Modifier.fillMaxHeight(0.95f)
+        ) {
+            ItemBottomSheetContent(
+                item = selectedItem!!,
+                isEditMode = isEditMode,
+                onEditModeChange = { isEditMode = it },
+                onSave = { updatedItem ->
+                    viewModel.updateItem(updatedItem)
+                    scope.launch {
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        showBottomSheet = false
+                        isEditMode = false
+                        selectedItem = null
+                    }
+                },
+                onDelete = {
+                    viewModel.deleteItem(selectedItem!!.id)
+                    scope.launch {
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        showBottomSheet = false
+                        isEditMode = false
+                        selectedItem = null
+                    }
+                },
+                onDismiss = {
+                    scope.launch {
+                        sheetState.hide()
+                    }.invokeOnCompletion {
+                        showBottomSheet = false
+                        isEditMode = false
+                        selectedItem = null
+                    }
+                }
+            )
         }
     }
 }
@@ -141,7 +225,7 @@ private fun ItemListContentList(
                         items = uiState.items,
                         key = { it.id }
                     ) { item ->
-                        ItemCard(
+                        ItemCardWithPassword(
                             item = item,
                             onClick = { onItemClick(item) }
                         )
@@ -200,7 +284,7 @@ private fun ItemListContentGrid(
                         items = uiState.items,
                         key = { it.id }
                     ) { item ->
-                        ItemCard(
+                        ItemCardWithPassword(
                             item = item,
                             onClick = { onItemClick(item) }
                         )
@@ -286,55 +370,75 @@ fun CategoryFilterRow(
     }
 }
 
+/**
+ * ItemCardWithPassword - Shows password with show/hide toggle
+ */
 @Composable
-fun ItemCard(
+fun ItemCardWithPassword(
     item: Item,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var isPasswordVisible by remember { mutableStateOf(false) }
+
+    // Decrypt password (simplified - use actual decryption in production)
+    val decryptedPassword = remember(item) {
+        String(item.encryptedPassword)
+    }
+
     AccessibleCard(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         contentDescription = "Password item: ${item.title}"
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Column(
-                modifier = Modifier.weight(1f)
+            // Header row with icon, title, and favorite star
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = item.getPasswordCategoryEnum().icon,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                Text(
+                    text = item.getPasswordCategoryEnum().icon,
+                    style = MaterialTheme.typography.titleMedium
+                )
 
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
 
-                    if (item.isFavorite) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = "Favorite item",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                if (item.isFavorite) {
+                    Icon(
+                        imageVector = Icons.Default.Star,
+                        contentDescription = "Favorite item",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
+            }
 
-                item.username?.let { username ->
-                    Spacer(modifier = Modifier.height(4.dp))
+            // Username/Email
+            item.username?.let { username ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Text(
                         text = username,
                         style = MaterialTheme.typography.bodyMedium,
@@ -343,31 +447,75 @@ fun ItemCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
 
-                if (!item.notes.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
+            // Password field with show/hide toggle
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Text(
-                        text = item.notes,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
+                        text = if (isPasswordVisible) decryptedPassword else "••••••••",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                // Show/Hide toggle button
+                IconButton(
+                    onClick = { isPasswordVisible = !isPasswordVisible },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Notes preview (if available)
+            if (!item.notes.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = item.getPasswordCategoryEnum().displayName,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    text = item.notes,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "View details",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Category label
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = item.getPasswordCategoryEnum().displayName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }

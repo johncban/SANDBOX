@@ -20,6 +20,9 @@ interface ItemDao {
     @Delete
     suspend fun delete(item: Item)
 
+    @Query("DELETE FROM items WHERE id = :itemId")
+    suspend fun deleteById(itemId: Long)
+
     @Query("SELECT * FROM items WHERE userId = :userId ORDER BY updatedAt DESC")
     fun getItemsForUser(userId: Long): Flow<List<Item>>
 

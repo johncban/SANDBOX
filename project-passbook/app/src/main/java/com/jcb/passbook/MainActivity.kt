@@ -16,15 +16,15 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
-import androidx.navigation.NavType
 import com.jcb.passbook.presentation.ui.screens.auth.LoginScreen
 import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemDetailScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 import com.jcb.passbook.presentation.ui.theme.PassbookTheme
-import com.jcb.passbook.presentation.viewmodel.ItemViewModel
+import com.jcb.passbook.presentation.viewmodel.shared.AuthState
+import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
 import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
+
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.SessionManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -36,16 +36,21 @@ import javax.inject.Inject
 /**
  * MainActivity - Single Activity architecture with Jetpack Navigation Compose
  *
- * ✅ REFACTORED: Fixed all compilation errors
- * - Removed unused sessionManager from composable calls (handled internally by screens)
- * - Fixed lambda parameter types to match screen signatures
- * - Removed itemViewModel from RegistrationScreen call
+ * ✅ COMPLETELY REFACTORED (2025-12-21):
+ * - Added CRITICAL AuthState observation to fix userId persistence issue
+ * - Fixed "Cannot insert/update item: userId not set" bug
+ * - Observes AuthState in both lifecycleScope AND Composable LaunchedEffect
+ * - Ensures itemViewModel.setCurrentUserId() is called on every AuthState.Success
+ * - Added extensive logging for debugging authentication flow
+ * - Maintains all existing functionality (logout, passphrase rotation, session cleanup)
  *
  * Responsibilities:
  * - Host navigation graph with authentication and vault screens
+ * - **CRITICAL**: Observe AuthState and propagate userId to ItemViewModel
  * - Manage application lifecycle (passphrase rotation, session cleanup)
  * - Provide ViewModels via Hilt injection
  * - Coordinate navigation between authentication and vault flows
+ * - Handle logout and session termination
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -59,10 +64,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
 
+        Timber.i("🏁 MainActivity created, userViewModel=$userViewModel, itemViewModel=$itemViewModel")
+
+        enableEdgeToEdge()
         setupPassphraseRotation()
         setupSessionCleanup()
+
+        // 🔥 CRITICAL: Observe authentication state and set userId
+        // This is the PRIMARY fix for "Cannot insert/update item: userId not set"
+        setupAuthStateObserver()
 
         setContent {
             PassbookTheme {
@@ -79,25 +90,85 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 🔥 CRITICAL FIX: Setup AuthState observer
+     *
+     * This observes the authentication state and propagates userId to ItemViewModel
+     * whenever the user successfully logs in or registers.
+     *
+     * This is the CORE fix for the bug where userId becomes null when saving passwords.
+     */
+    private fun setupAuthStateObserver() {
+        lifecycleScope.launch {
+            userViewModel.authState.collect { authState ->
+                Timber.d("🔐 AuthState changed: $authState")
+
+                when (authState) {
+                    is AuthState.Success -> {
+                        val userId = authState.userId
+                        Timber.i("🔐 Login/Registration successful! Setting userId=$userId in ItemViewModel")
+                        Timber.i("🔐 Current thread: ${Thread.currentThread().name}")
+
+                        // Set userId in ItemViewModel
+                        itemViewModel.setCurrentUserId(userId)
+
+                        // Verify it was set
+                        Timber.i("🔐 ItemViewModel userId after set: ${itemViewModel.currentUserId.value}")
+                    }
+
+                    is AuthState.Idle -> {
+                        Timber.d("🔐 Auth state: Idle (user logged out or app started)")
+                    }
+
+                    is AuthState.Loading -> {
+                        Timber.d("🔐 Auth state: Loading (authentication in progress)")
+                    }
+
+                    is AuthState.Error -> {
+                        // ✅ FIXED: Safe error handling without accessing .message
+                        Timber.w("🔐 Auth state: Authentication error - $authState")
+                        // Optionally clear userId on error
+                        // itemViewModel.clearVault()
+                    }
+                }
+            }
+        }
+    }
+
     @Composable
     private fun AppNavigation(
         userViewModel: UserViewModel,
         itemViewModel: ItemViewModel
     ) {
         val navController = rememberNavController()
+        val authState by userViewModel.authState.collectAsState()
+
+        // 🔥 ALSO: Re-set userId when authState changes to Success in Compose scope
+        // This provides additional safety in case the lifecycleScope observer misses it
+        LaunchedEffect(authState) {
+            if (authState is AuthState.Success) {
+                val userId = (authState as AuthState.Success).userId
+                Timber.i("🔐 [Compose] Auth state changed to Success, ensuring userId=$userId")
+                itemViewModel.setCurrentUserId(userId)
+            }
+        }
 
         NavHost(
             navController = navController,
             startDestination = Screen.Login.route
         ) {
-            // ✅ FIXED: Authentication flow - LoginScreen handles its own session management
+            // ✅ Authentication flow - LoginScreen
             composable(Screen.Login.route) {
                 LoginScreen(
                     userViewModel = userViewModel,
                     onLoginSuccess = { userId: Long ->
-                        // ✅ FIXED: Explicitly typed lambda parameter
                         // Callback invoked after successful authentication AND session start
+                        Timber.i("🔐 [LoginScreen Callback] Login success, userId=$userId")
+
+                        // Set userId (redundant with AuthState observer, but provides fallback)
                         itemViewModel.setCurrentUserId(userId)
+
+                        // Navigate to item list
                         navController.navigate(Screen.ItemList.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
@@ -108,15 +179,18 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // ✅ FIXED: Registration flow - removed itemViewModel parameter
+            // ✅ Registration flow
             composable(Screen.Register.route) {
                 RegistrationScreen(
                     userViewModel = userViewModel,
-                    // ✅ REMOVED: itemViewModel parameter (not needed by RegistrationScreen)
                     onRegisterSuccess = { userId: Long ->
-                        // ✅ FIXED: Explicitly typed lambda parameter
                         // Callback invoked after successful registration AND session start
+                        Timber.i("🔐 [RegistrationScreen Callback] Registration success, userId=$userId")
+
+                        // Set userId (redundant with AuthState observer, but provides fallback)
                         itemViewModel.setCurrentUserId(userId)
+
+                        // Navigate to item list
                         navController.navigate(Screen.ItemList.route) {
                             popUpTo(Screen.Register.route) { inclusive = true }
                         }
@@ -127,27 +201,47 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Vault flow
+            // ✅ Vault flow - ItemListScreen with logout
             composable(Screen.ItemList.route) {
                 ItemListScreen(
                     viewModel = itemViewModel,
-                    onItemClick = { item ->
-                        navController.navigate(Screen.ItemDetail.createRoute(item.id))
+                    onLogout = {
+                        // Handle logout
+                        Timber.i("🚪 User logging out")
+
+                        lifecycleScope.launch {
+                            try {
+                                // Clear user session
+                                sessionManager.endSession("User logged out")
+
+                                // Clear vault data
+                                itemViewModel.clearVault()
+
+                                // Clear user authentication
+                                userViewModel.clearAuthState()
+
+                                Timber.i("🚪 Logout complete, navigating to login")
+
+                                // Navigate back to login
+                                navController.navigate(Screen.Login.route) {
+                                    popUpTo(Screen.ItemList.route) { inclusive = true }
+                                }
+                            } catch (e: Exception) {
+                                Timber.e(e, "Error during logout")
+                            }
+                        }
                     },
                     onAddClick = {
-                        navController.navigate(Screen.ItemDetail.createRoute(null))
+                        // Navigate to add new item screen
+                        navController.navigate(Screen.AddItem.route)
                     }
                 )
             }
 
-            composable(
-                route = Screen.ItemDetail.route,
-                arguments = Screen.ItemDetail.arguments
-            ) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getString("itemId")?.toLongOrNull()
+            // ✅ ItemDetailScreen now only for ADDING new items
+            // Editing existing items is handled via modal bottom sheet in ItemListScreen
+            composable(Screen.AddItem.route) {
                 ItemDetailScreen(
-                    itemId = itemId,
-                    viewModel = itemViewModel,
                     onNavigateBack = {
                         navController.popBackStack()
                     }
@@ -164,15 +258,15 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(Dispatchers.IO) {
                 performPassphraseRotationOnOpen()
             }
-
-            lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_STOP) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        schedulePassphraseRotationOnClose()
-                    }
-                }
-            })
         }
+
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    schedulePassphraseRotationOnClose()
+                }
+            }
+        })
     }
 
     /**
@@ -182,6 +276,7 @@ class MainActivity : ComponentActivity() {
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_DESTROY) {
                 lifecycleScope.launch {
+                    Timber.i("🧹 MainActivity destroying, cleaning up session and secrets")
                     sessionManager.endSession("Activity destroyed")
                     itemViewModel.clearSecrets()
                 }
@@ -220,28 +315,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        Timber.d("🧹 MainActivity destroyed, secrets cleared")
+    }
+
     /**
      * Type-safe navigation routes with compile-time safety
+     *
+     * ✅ REFACTORED: Simplified routes
+     * - Removed ItemDetail route (now handled by modal bottom sheet)
+     * - Added AddItem route for creating new passwords
      */
     sealed class Screen(val route: String) {
         object Login : Screen("login")
         object Register : Screen("register")
         object ItemList : Screen("itemList")
-        object ItemDetail : Screen("itemDetail/{itemId}") {
-            const val ARG_ITEM_ID = "itemId"
-
-            fun createRoute(itemId: Long?) = if (itemId == null) {
-                "itemDetail/new"
-            } else {
-                "itemDetail/$itemId"
-            }
-
-            val arguments = listOf(
-                navArgument(ARG_ITEM_ID) {
-                    type = NavType.StringType
-                    nullable = true
-                }
-            )
-        }
+        object AddItem : Screen("addItem") // ✅ Simplified route for adding new items
     }
 }
