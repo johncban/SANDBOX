@@ -29,6 +29,7 @@ fun LoginScreen(
     onNavigateToRegister: () -> Unit
 ) {
     val authState by userViewModel.authState.collectAsState()
+    val isBiometricAvailable by userViewModel.isBiometricAvailable.collectAsState()
 
     // ✅ FIX: Use TextFieldValue instead of String
     var username by remember { mutableStateOf(TextFieldValue("")) }
@@ -55,7 +56,9 @@ fun LoginScreen(
             passwordVisible = passwordVisible,
             onPasswordVisibilityToggle = { passwordVisible = !passwordVisible },
             authState = authState,
-            onLoginClick = { userViewModel.login(username.text.trim(), password.text) },  // ✅ Use .text
+            isBiometricAvailable = isBiometricAvailable,
+            onLoginClick = { userViewModel.login(username.text.trim(), password.text) },
+            onBiometricLoginClick = { /* TODO: Implement actual biometric auth trigger */ },
             onRegisterClick = onNavigateToRegister
         )
     } else {
@@ -67,7 +70,9 @@ fun LoginScreen(
             passwordVisible = passwordVisible,
             onPasswordVisibilityToggle = { passwordVisible = !passwordVisible },
             authState = authState,
-            onLoginClick = { userViewModel.login(username.text.trim(), password.text) },  // ✅ Use .text
+            isBiometricAvailable = isBiometricAvailable,
+            onLoginClick = { userViewModel.login(username.text.trim(), password.text) },
+            onBiometricLoginClick = { /* TODO: Implement actual biometric auth trigger */ },
             onRegisterClick = onNavigateToRegister
         )
     }
@@ -75,14 +80,16 @@ fun LoginScreen(
 
 @Composable
 private fun LoginScreenVertical(
-    username: TextFieldValue,  // ✅ Changed parameter type
-    onUsernameChange: (TextFieldValue) -> Unit,  // ✅ Changed parameter type
-    password: TextFieldValue,  // ✅ Changed parameter type
-    onPasswordChange: (TextFieldValue) -> Unit,  // ✅ Changed parameter type
+    username: TextFieldValue,
+    onUsernameChange: (TextFieldValue) -> Unit,
+    password: TextFieldValue,
+    onPasswordChange: (TextFieldValue) -> Unit,
     passwordVisible: Boolean,
     onPasswordVisibilityToggle: () -> Unit,
     authState: AuthState,
+    isBiometricAvailable: Boolean,
     onLoginClick: () -> Unit,
+    onBiometricLoginClick: () -> Unit,
     onRegisterClick: () -> Unit
 ) {
     val screenInfo = rememberScreenInfo()
@@ -282,6 +289,31 @@ private fun LoginScreenVertical(
                     }
                 }
 
+                // Biometric Login Button
+                if (isBiometricAvailable) {
+                    OutlinedButton(
+                        onClick = onBiometricLoginClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.standardButtonHeight),
+                        enabled = authState !is AuthState.Loading,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            modifier = Modifier.size(dimensions.iconSmall)
+                        )
+                        Spacer(modifier = Modifier.width(dimensions.paddingSmall))
+                        Text(
+                            text = stringResource(R.string.biometric_login),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+
                 OutlinedButton(
                     onClick = onRegisterClick,
                     modifier = Modifier
@@ -301,14 +333,16 @@ private fun LoginScreenVertical(
 
 @Composable
 private fun LoginScreenHorizontal(
-    username: TextFieldValue,  // ✅ Changed
-    onUsernameChange: (TextFieldValue) -> Unit,  // ✅ Changed
-    password: TextFieldValue,  // ✅ Changed
-    onPasswordChange: (TextFieldValue) -> Unit,  // ✅ Changed
+    username: TextFieldValue,
+    onUsernameChange: (TextFieldValue) -> Unit,
+    password: TextFieldValue,
+    onPasswordChange: (TextFieldValue) -> Unit,
     passwordVisible: Boolean,
     onPasswordVisibilityToggle: () -> Unit,
     authState: AuthState,
+    isBiometricAvailable: Boolean,
     onLoginClick: () -> Unit,
+    onBiometricLoginClick: () -> Unit,
     onRegisterClick: () -> Unit
 ) {
     val screenInfo = rememberScreenInfo()
@@ -400,6 +434,32 @@ private fun LoginScreenHorizontal(
                     enabled = username.text.isNotBlank() && password.text.isNotBlank()
                 ) {
                     Text(stringResource(R.string.login))
+                }
+
+                // Biometric Login Button
+                if (isBiometricAvailable) {
+                    OutlinedButton(
+                        onClick = onBiometricLoginClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(dimensions.standardButtonHeight)
+                            .padding(bottom = dimensions.paddingSmall),
+                        enabled = authState !is AuthState.Loading,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            modifier = Modifier.size(dimensions.iconSmall)
+                        )
+                        Spacer(modifier = Modifier.width(dimensions.paddingSmall))
+                        Text(
+                            text = stringResource(R.string.biometric_login),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                 }
 
                 OutlinedButton(

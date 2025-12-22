@@ -13,6 +13,7 @@ import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.data.local.database.entities.User
 import com.jcb.passbook.data.repository.UserRepository
 import com.jcb.passbook.security.audit.AuditLogger
+import com.jcb.passbook.security.crypto.BiometricEnrollmentMonitor
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.SessionManager
 import com.lambdapioneer.argon2kt.Argon2Kt
@@ -88,7 +89,8 @@ class UserViewModel @Inject constructor(
     private val userDao: UserDao,
     private val argon2Kt: Argon2Kt,
     private val auditLogger: AuditLogger,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val biometricEnrollmentMonitor: BiometricEnrollmentMonitor
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -99,6 +101,20 @@ class UserViewModel @Inject constructor(
 
     private val _keyRotationState = MutableStateFlow<KeyRotationState>(KeyRotationState.Idle)
     val keyRotationState: StateFlow<KeyRotationState> = _keyRotationState.asStateFlow()
+
+    private val _isBiometricAvailable = MutableStateFlow(false)
+    val isBiometricAvailable: StateFlow<Boolean> = _isBiometricAvailable.asStateFlow()
+
+    init {
+        checkBiometricAvailability()
+    }
+
+    /**
+     * Check if biometric authentication is available on the device
+     */
+    fun checkBiometricAvailability() {
+        _isBiometricAvailable.value = biometricEnrollmentMonitor.isBiometricAvailable()
+    }
 
     /**
      * ✅ REFACTORED: Authenticate user with username and password
