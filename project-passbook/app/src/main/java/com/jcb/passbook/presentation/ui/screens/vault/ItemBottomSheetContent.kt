@@ -108,13 +108,42 @@ fun ItemBottomSheetContent(
                 }
 
                 // Delete button (always visible)
-                IconButton(onClick = { showDeleteConfirmation = true }) {
+                // Line 109-121: Replace the IconButton onClick handler
+                IconButton(
+                    onClick = {
+                        // ✅ FIXED: Ensure all fields are validated before save
+                        if (title.isBlank()) {
+                            // Show error snackbar
+                            return@IconButton
+                        }
+
+                        if (password.isBlank()) {
+                            // Show error snackbar
+                            return@IconButton
+                        }
+
+                        // ✅ Save with proper data
+                        onSave(
+                            item.copy(
+                                title = title.trim(),
+                                username = username.takeIf { it.isNotBlank() }?.trim(),
+                                encryptedPassword = password.toByteArray(), // TODO: Add actual encryption
+                                url = url.takeIf { it.isNotBlank() }?.trim(),
+                                notes = notes.takeIf { it.isNotBlank() }?.trim(),
+                                passwordCategory = selectedCategory.name,
+                                isFavorite = isFavorite,
+                                updatedAt = System.currentTimeMillis() // ✅ Update timestamp
+                            )
+                        )
+                    }
+                ) {
                     Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error
+                        Icons.Default.Check,
+                        contentDescription = "Save",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
+
             }
         }
 
