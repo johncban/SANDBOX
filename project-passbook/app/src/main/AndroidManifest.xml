@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-sdk tools:overrideLibrary="androidx.security"/>
+
+    <!-- Only modern biometric permission needed -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- REMOVED: tools:overrideLibrary="androidx.security" - SECURITY VULNERABILITY -->
+    <!-- This override forced installation on incompatible devices, bypassing security checks -->
 
     <application
-        android:allowBackup="true"
         android:name=".core.application.CoreApp"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -13,18 +19,30 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.PassBook"
-        tools:targetApi="31">
+        android:hardwareAccelerated="true"
+        tools:targetApi="34">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.PassBook">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize|stateVisible"
+            android:theme="@style/Theme.PassBook"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+            android:screenOrientation="fullSensor">
+
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Add network security config for production -->
+        <meta-data
+            android:name="android.net.http.clearTextTrafficPermitted"
+            android:value="false" />
+            
     </application>
 
 </manifest>

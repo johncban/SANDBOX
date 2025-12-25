@@ -2,9 +2,17 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("kotlin-kapt")
-    // id("kotlin-android") // Redundant if alias(libs.plugins.kotlin.android) is present
-    id("dagger.hilt.android.plugin")
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.ksp)
+    alias(libs.plugins.hilt.android)
+    alias(libs.plugins.kotlin.parcelize)
+}
+
+// Force correct dependency versions
+configurations.all {
+    resolutionStrategy {
+        force("androidx.biometric:biometric:1.1.0")
+    }
 }
 
 android {
@@ -18,154 +26,255 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // vectorDrawables {
-        //     useSupportLibrary = true
-        // }
+        testInstrumentationRunner = "com.jcb.passbook.HiltTestRunner"
+
+        vectorDrawables {
+            useSupportLibrary = true
+        }
+
+        buildConfigField("boolean", "DEBUG_MODE", "false")
+        buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
+        buildConfigField("int", "VERSION_CODE", "${versionCode}")
+    }
+
+    // KSP configuration for Room
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+        arg("room.expandProjection", "true")
+        arg("room.generateKotlin", "true")
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(findProperty("RELEASE_STORE_FILE") ?: "release.keystore")
+            storePassword = findProperty("RELEASE_STORE_PASSWORD") as String? ?: ""
+            keyAlias = findProperty("RELEASE_KEY_ALIAS") as String? ?: ""
+            keyPassword = findProperty("RELEASE_KEY_PASSWORD") as String? ?: ""
+            enableV1Signing = false
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            isUniversalApk = true
+        }
     }
 
     buildTypes {
-        release {
+        debug {
             isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = true
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            buildConfigField("boolean", "DEBUG", "true")
+            buildConfigField("boolean", "DEBUG_MODE", "true")
+            buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
+            buildConfigField("String", "BUILD_TYPE", "\"debug\"")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro"
+            )
+        }
+
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            buildConfigField("boolean", "DEBUG", "false")
+            buildConfigField("boolean", "DEBUG_MODE", "false")
+            buildConfigField("boolean", "ALLOW_SECURITY_BYPASS", "false")
+            buildConfigField("String", "BUILD_TYPE", "\"release\"")
+            buildConfigField("String", "BUILD_TIMESTAMP", "\"${System.currentTimeMillis()}\"")
+
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
+        }
+
+        create("staging") {
+            initWith(getByName("release"))
+            isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            buildConfigField("boolean", "DEBUG_MODE", "true")
+            buildConfigField("String", "BUILD_TYPE", "\"staging\"")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
+
+        freeCompilerArgs += listOf(
+            "-opt-in=kotlin.RequiresOptIn",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-Xjsr305=strict",
+            "-Xjvm-default=all"
+        )
     }
+
     buildFeatures {
         compose = true
+        buildConfig = true
+        viewBinding = false
+        dataBinding = false
     }
-    // composeOptions {
-    //     kotlinCompilerExtensionVersion = "1.5.1" // Example, ensure it matches your Compose BOM
-    // }
-    // packaging {
-    //     resources {
-    //         excludes += "/META-INF/{AL2.0,LGPL2.1}"
-    //     }
-    // }
+
+    packaging {
+        resources {
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/INDEX.LIST",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/LICENSE*",
+                "/META-INF/NOTICE*",
+                "META-INF/licenses/**",
+                "kotlin/**"
+            )
+
+            pickFirsts += listOf(
+                "**/libc++_shared.so"
+            )
+        }
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
+
+    lint {
+        checkReleaseBuilds = true
+        abortOnError = false
+        baseline = file("lint-baseline.xml")
+        disable += listOf("MissingTranslation")
+    }
 }
 
 dependencies {
+    // BOM management
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.benchmark.common)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+
+    // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.core.splashscreen)
+
+    // Compose UI
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-    // implementation(libs.androidx.espresso.core) // Typically for androidTestImplementation
-    // implementation(libs.androidx.animation.core.lint) // Check usage, often not needed directly
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.compose.animation)
+    implementation(libs.androidx.compose.runtime.livedata)
 
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.navigation.runtime.ktx)
+
+    // Lifecycle & ViewModel
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.livedata.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+
+    // Database - Room
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Dependency Injection - Hilt
+    implementation(libs.hilt.android)
+    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.hilt.compiler)
+
+    // Security
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.biometric)
+    implementation(libs.argon2kt)
+    implementation(libs.sqlcipher)
+
+    // Background processing
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // Image loading
+    implementation(libs.coil.compose)
+
+    // Utilities
+    implementation(libs.timber)
+    implementation(libs.rootbeer)
+
+    // JSON serialization
+    implementation(libs.kotlinx.serialization.json)
+
+    // Coroutines
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.core)
+
+    // Unit Testing
     testImplementation(libs.junit)
+    testImplementation(libs.truth)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+    testImplementation(libs.hilt.android.testing)
+    kspTest(libs.hilt.compiler)
+
+    // Instrumentation Testing
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation(libs.androidx.work.testing)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.hilt.android.testing)
+    kspAndroidTest(libs.hilt.compiler)
+    androidTestImplementation(libs.androidx.test.runner)
+
+    // Debug tools
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+    debugImplementation(libs.leakcanary.android)
 
-    implementation("androidx.compose.material:material-icons-extended:1.7.0") // Version from original was 1.7.6, using 1.7.0 as an example if libs maps to it. Or use "1.7.0" directly.
-
-    // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    // annotationProcessor("androidx.room:room-compiler:2.6.1") // Not needed if using KAPT
-    kapt("androidx.room:room-compiler:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-
-    // Dagger Hilt
-    implementation("com.google.dagger:hilt-android:2.50") // Original was 2.50
-    kapt("com.google.dagger:hilt-compiler:2.50") // Original was 2.50
-
-    // Coroutine support (Coil is for image loading, not directly coroutine support for Retrofit)
-    implementation("io.coil-kt:coil-compose:2.5.0") // Original was 1.3.2, common current is higher like 2.5.0
-
-    // Lifecycle and ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0") // Original had 2.8.7, typical version could be 2.8.0 or latest stable
-    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.0") // Original had 2.8.7
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0") // Original had 2.8.7
-
-    // Navigation Compose
-    implementation("androidx.navigation:navigation-compose:2.7.7") // Original had 2.8.5, typical version
-
-    // SQLCipher
-    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
-
-    // Security Crypto
-    implementation("androidx.security:security-crypto:1.1.0-alpha06") { // Original had 1.0.0 and 1.1.0-alpha06. Consolidate to one.
-        exclude(group = "com.google.code.gson", module = "gson")
-    }
-
-    // Argon2 for password hashing
-    implementation("com.lambdapioneer.argon2kt:argon2kt:1.6.0")
-
-    // REMOVED Credential Manager dependencies
-    // implementation("androidx.credentials:credentials:1.5.0")
-    // implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    // Release optimization
+    releaseImplementation(libs.androidx.profileinstaller)
 
 
-    implementation("com.jakewharton.timber:timber:5.0.1")
-
-
-
-
-    implementation("com.scottyab:rootbeer-lib:0.1.1")
-
-
-
-    /***
-    // Add Firebase Crashlytics dependency
-    implementation("com.google.firebase:firebase-crashlytics-ktx:18.4.1")
-    implementation("com.google.firebase:firebase-analytics-ktx:21.3.0")
-    // Google Services
-    apply(plugin = "com.google.gms.google-services")
-    ***/
-
-
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.1")
-    //testImplementation("io.mockk:mockk:1.13.7")
-    testImplementation("com.google.truth:truth:1.4.2")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.7.0")
-    testImplementation("app.cash.turbine:turbine:1.0.0")
-
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.56.2")
-    kaptAndroidTest("com.google.dagger:hilt-compiler:2.56.2")
-
-
-
-
-    // Core testing libraries
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
-    // Jetpack Compose UI Testing
-    androidTestImplementation(platform("androidx.compose:compose-bom:2023.03.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
-
-    // MockK for mocking in unit tests (a modern alternative to Mockito for Kotlin)
-    testImplementation("io.mockk:mockk:1.13.5")
-
-    // Turbine for testing Kotlin Flows
-    //testImplementation("app.cash.turbine:turbine:1.0.0")
-
-    // Coroutines testing
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-
-    // Hilt for dependency injection in tests
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.48")
-    kaptAndroidTest("com.google.dagger:hilt-android-compiler:2.48")
-    testImplementation(kotlin("test"))
-
-
+    implementation("androidx.compose.material3:material3-window-size-class:1.2.0")
 }

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.7.2" type="baseline" client="gradle" dependencies="false" name="AGP (8.7.2)" variant="all" version="8.7.2">
+    <!-- This baseline file contains issues found by lint that are not yet addressed -->
+    <!-- New issues will be reported, but existing issues in this baseline will be ignored -->
+    
+    <!-- Suppress common false positives for security apps -->
+    <issue
+        id="HardcodedDebugMode"
+        message="Hardcoded value of `android:debuggable` can interfere with debug/release builds"
+        category="Security"
+        priority="5"
+        summary="Hardcoded value of `android:debuggable` in the manifest"
+        explanation="It's best to leave out the `android:debuggable` attribute from the manifest. If you do, then the tools will automatically insert `android:debuggable=true` when building an APK to debug on an emulator or device. And when you perform a release build, such as Exporting APK, it will automatically set it to `false`.&#xA;&#xA;If on the other hand you specify a specific value in the manifest file, then the tools will always use it. This can lead to accidentally publishing your app with debug information.">
+        <location file="app/src/main/AndroidManifest.xml" />
+    </issue>
+    
+    <!-- Placeholder for future lint issues that may need to be baselined -->
+    <!-- Add specific issues here as they are discovered and need to be temporarily ignored -->
+    
+</issues>

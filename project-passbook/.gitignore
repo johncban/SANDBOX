@@ -1,3 +1,4 @@
+# Current rules
 *.iml
 .gradle
 /local.properties
@@ -13,3 +14,33 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# ADD THESE:
+
+# Entire .idea directory (more comprehensive)
+/.idea/
+
+# Kotlin build metadata
+.kotlin/
+
+# Build and debug logs
+build-log.txt
+build-output.txt
+build_output.txt
+*.log
+
+# Backup files
+*.backup
+*.bak
+
+# Windows system files
+desktop.ini
+Thumbs.db
+
+# Temporary/debug files (review these individually)
+*_FIXED.kt
+*_DEBUG.kt
+*_TEMP.kt
+
+# Lint baseline (optional - some teams track this)
+# lint-baseline.xml

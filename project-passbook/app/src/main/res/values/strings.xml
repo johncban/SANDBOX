@@ -30,4 +30,6 @@
     <string name="confirm_delete">Confirm Delete</string>
     <string name="delete_confirmation_message">Are you sure you want to delete \'%1$s\'?</string>
     <string name="error_decryption_failed">[Decryption Failed]</string>
+
+    <string name="content_desc_app_lock_icon">Secure vault lock icon</string>
 </resources>
