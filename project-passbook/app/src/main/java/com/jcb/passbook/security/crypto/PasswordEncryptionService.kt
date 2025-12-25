@@ -1,105 +1,200 @@
 package com.jcb.passbook.security.crypto
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import androidx.annotation.VisibleForTesting
 import timber.log.Timber
+import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
- * PasswordEncryptionService - Encrypts/decrypts password entries using AMK
+ * ✅ UPDATED: PasswordEncryptionService with GCM authentication
  *
- * Uses AES-256-GCM for authenticated encryption with associated data (AEAD)
- * ✅ FIPS 140-2 compliant algorithm
- * ✅ Protects against tampering (authentication tag)
- * ✅ Unique IV per encryption operation
+ * Changes:
+ * 1. Integrates CryptoManager for metadata-based detection
+ * 2. Uses GCM mode for authenticated encryption
+ * 3. Adds encryption metadata header
+ * 4. Includes PasswordBasedKeyDerivation utility
  */
-@Singleton
 class PasswordEncryptionService @Inject constructor(
-    private val securityMemoryUtils: SecurityMemoryUtils
+    private val cryptoManager: CryptoManager
 ) {
     companion object {
-        private const val ALGORITHM = "AES/GCM/NoPadding"
-        private const val GCM_TAG_LENGTH = 128 // bits
-        private const val GCM_IV_LENGTH = 12 // bytes (96 bits recommended for GCM)
+        private const val KEY_ALIAS = "passbook_amk_key"
+        private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
+        private const val ENCRYPTION_ALGORITHM = "AES/GCM/NoPadding"
+        private const val GCM_TAG_LENGTH_BITS = 128
+        private const val GCM_NONCE_LENGTH = 12
     }
 
     /**
-     * Encrypt password using AMK (Authentication Master Key)
+     * ✅ CRITICAL: Encrypt password with GCM authentication
      *
-     * @param password Plaintext password to encrypt
-     * @param amk 256-bit AES key from SessionManager
-     * @return Encrypted data: [12-byte IV][ciphertext][16-byte auth tag]
+     * Returns: [VERSION | NONCE | CIPHERTEXT | AUTH_TAG]
      */
-    fun encryptPassword(password: String, amk: ByteArray): ByteArray {
+    fun encryptPassword(plainPassword: String, amk: ByteArray): ByteArray {
         return try {
-            require(amk.size == 32) { "AMK must be 256 bits (32 bytes)" }
-            require(password.isNotBlank()) { "Password cannot be blank" }
+            Timber.d("🔐 Encrypting password...")
 
-            // Generate unique IV for this encryption
-            val iv = ByteArray(GCM_IV_LENGTH)
-            SecureRandom().nextBytes(iv)
+            // Generate random nonce
+            val nonce = ByteArray(GCM_NONCE_LENGTH)
+            SecureRandom().nextBytes(nonce)
 
-            // Initialize cipher
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val secretKey = SecretKeySpec(amk, "AES")
-            val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
+            // Create cipher with GCM
+            val cipher = Cipher.getInstance(ENCRYPTION_ALGORITHM)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce)
+
+            val secretKey = createSecretKey(amk)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, spec)
 
             // Encrypt password
-            val plaintext = password.toByteArray(Charsets.UTF_8)
-            val ciphertext = cipher.doFinal(plaintext)
+            val ciphertext = cipher.doFinal(plainPassword.toByteArray(Charsets.UTF_8))
 
-            // Return: IV || ciphertext (includes auth tag at end)
-            iv + ciphertext
+            // Create encrypted data with metadata
+            val encryptedData = cryptoManager.createEncryptedData(nonce, ciphertext)
+
+            Timber.d("✅ Password encrypted successfully")
+            encryptedData
 
         } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to encrypt password")
+            Timber.e(e, "❌ Encryption failed")
             throw SecurityException("Password encryption failed: ${e.message}", e)
         }
     }
 
     /**
-     * Decrypt password using AMK
-     *
-     * @param encryptedData Encrypted data from database
-     * @param amk 256-bit AES key from SessionManager
-     * @return Decrypted plaintext password
+     * ✅ CRITICAL: Decrypt password with validation
      */
     fun decryptPassword(encryptedData: ByteArray, amk: ByteArray): String {
         return try {
-            require(amk.size == 32) { "AMK must be 256 bits (32 bytes)" }
-            require(encryptedData.size > GCM_IV_LENGTH) { "Invalid encrypted data" }
+            Timber.d("🔐 Decrypting password...")
 
-            // Extract IV and ciphertext
-            val iv = encryptedData.copyOfRange(0, GCM_IV_LENGTH)
-            val ciphertext = encryptedData.copyOfRange(GCM_IV_LENGTH, encryptedData.size)
+            // Validate encryption format
+            if (!cryptoManager.isEncrypted(encryptedData)) {
+                throw IllegalArgumentException("Data is not properly encrypted")
+            }
 
-            // Initialize cipher
-            val cipher = Cipher.getInstance(ALGORITHM)
-            val secretKey = SecretKeySpec(amk, "AES")
-            val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-            cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec)
+            // Extract components
+            val components = cryptoManager.extractEncryptionComponents(encryptedData)
 
-            // Decrypt and verify authentication tag
-            val plaintext = cipher.doFinal(ciphertext)
-            String(plaintext, Charsets.UTF_8)
+            // Create cipher with GCM
+            val cipher = Cipher.getInstance(ENCRYPTION_ALGORITHM)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, components.nonce)
 
-        } catch (e: javax.crypto.AEADBadTagException) {
-            Timber.e(e, "❌ Password authentication failed - data may be tampered")
-            throw SecurityException("Password integrity check failed", e)
+            val secretKey = createSecretKey(amk)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+
+            // Decrypt
+            val plainPassword = String(
+                cipher.doFinal(components.ciphertext),
+                Charsets.UTF_8
+            )
+
+            Timber.d("✅ Password decrypted successfully")
+            plainPassword
+
         } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to decrypt password")
+            Timber.e(e, "❌ Decryption failed")
             throw SecurityException("Password decryption failed: ${e.message}", e)
         }
     }
 
     /**
-     * Securely wipe password bytes from memory
+     * Create AES secret key from AMK
      */
-    fun wipePassword(passwordBytes: ByteArray) {
-        securityMemoryUtils.secureWipe(passwordBytes)
+    @VisibleForTesting
+    fun createSecretKey(amk: ByteArray): SecretKey {
+        return object : SecretKey {
+            override fun getAlgorithm(): String = "AES"
+            override fun getFormat(): String = "RAW"
+            override fun getEncoded(): ByteArray = amk
+        }
+    }
+
+    /**
+     * Initialize keystore (called once at app startup)
+     */
+    fun initializeKeystore() {
+        try {
+            val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER)
+            keyStore.load(null)
+
+            // Check if key already exists
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                Timber.d("✓ Keystore already initialized")
+                return
+            }
+
+            // Generate new key
+            val keyGen = KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES,
+                KEYSTORE_PROVIDER
+            )
+
+            val keySpec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build()
+
+            keyGen.init(keySpec)
+            keyGen.generateKey()
+
+            Timber.i("✅ Keystore initialized")
+        } catch (e: Exception) {
+            Timber.e(e, "❌ Failed to initialize keystore")
+        }
+    }
+}
+
+/**
+ * ✅ NEW: PasswordBasedKeyDerivation utility
+ * PBKDF2 with 600,000 iterations (NIST 2023 recommendation)
+ */
+class PasswordBasedKeyDerivation {
+    companion object {
+        private const val ALGORITHM = "PBKDF2WithHmacSHA256"
+        private const val ITERATIONS = 600_000  // NIST 2023
+        private const val KEY_SIZE = 256  // AES-256
+        private const val SALT_SIZE = 32  // 256 bits
+    }
+
+    fun deriveKey(userPassword: String, salt: ByteArray?): Pair<ByteArray, ByteArray> {
+        return try {
+            // Use provided salt or generate new one
+            val derivedSalt = salt ?: ByteArray(SALT_SIZE).apply {
+                SecureRandom().nextBytes(this)
+            }
+
+            // Derive key using PBKDF2
+            val factory = javax.crypto.SecretKeyFactory.getInstance(ALGORITHM)
+            val spec = javax.crypto.spec.PBEKeySpec(
+                userPassword.toCharArray(),
+                derivedSalt,
+                ITERATIONS,
+                KEY_SIZE
+            )
+            val key = factory.generateSecret(spec).encoded
+
+            Pair(key, derivedSalt)
+        } catch (e: Exception) {
+            throw SecurityException("Key derivation failed: ${e.message}", e)
+        }
+    }
+
+    fun verifyPassword(userPassword: String, salt: ByteArray, expectedKey: ByteArray): Boolean {
+        return try {
+            val (derivedKey, _) = deriveKey(userPassword, salt)
+            derivedKey.contentEquals(expectedKey)
+        } catch (e: Exception) {
+            false
+        }
     }
 }

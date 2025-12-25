@@ -1,66 +1,113 @@
 package com.jcb.passbook.core.di
 
 import android.content.Context
-import android.os.Build
-import androidx.annotation.RequiresApi
-import com.jcb.passbook.data.repository.AuditRepository
-import com.jcb.passbook.data.repository.ItemRepository
-import com.jcb.passbook.data.repository.UserRepository
-import com.jcb.passbook.data.local.database.dao.AuditDao
-import com.jcb.passbook.data.local.database.dao.ItemDao
-import com.jcb.passbook.data.local.database.dao.UserDao
-import com.jcb.passbook.security.crypto.CryptoManager
-import com.jcb.passbook.data.local.database.dao.CategoryDao
+import androidx.room.Room
 import com.jcb.passbook.data.local.database.AppDatabase
-import com.lambdapioneer.argon2kt.Argon2Kt
+import com.jcb.passbook.data.local.database.dao.*
+import com.jcb.passbook.security.crypto.CryptoManager
+import com.jcb.passbook.security.crypto.KeystorePassphraseManager
+import com.jcb.passbook.security.crypto.PasswordEncryptionService
+import com.jcb.passbook.security.session.SessionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import net.sqlcipher.database.SupportFactory
+import timber.log.Timber
 import javax.inject.Singleton
 
-/**
- * AppModule provides application-level dependencies.
- * FIXED: Removed provideSecureMemoryUtils (now only in SecurityModule)
- */
 @Module
 @InstallIn(SingletonComponent::class)
-object AppModule {
-
-    // ============================================================================================
-    // CRYPTOGRAPHY PROVIDERS
-    // ============================================================================================
+object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideArgon2Kt(): Argon2Kt = Argon2Kt()
+    fun provideAppDatabase(
+        @ApplicationContext context: Context,
+        keystoreManager: KeystorePassphraseManager
+    ): AppDatabase {
+        Timber.i("📦 Initializing encrypted database...")
+
+        return try {
+            val passphrase = keystoreManager.retrievePassphrase(context)
+                ?: throw SecurityException("Failed to retrieve passphrase")
+
+            Room.databaseBuilder(
+                context.applicationContext,
+                AppDatabase::class.java,
+                "passbook_vault.db"
+            )
+                .openHelperFactory(SupportFactory(passphrase))
+                // ✅ CRITICAL: Include migration
+                .addMigrations(AppDatabase.MIGRATION_1_2)
+                .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+                .enableMultiInstanceInvalidation()
+                .build()
+                .also {
+                    Timber.i("✅ Database initialized")
+                }
+        } catch (e: Exception) {
+            Timber.e(e, "❌ Database initialization failed")
+            throw RuntimeException("Database init failed: ${e.message}", e)
+        }
+    }
 
     @Provides
     @Singleton
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun provideCryptoManager(): CryptoManager = CryptoManager()
-
-    // ❌ REMOVED: provideSecureMemoryUtils() - Now only in SecurityModule
-
-    // ============================================================================================
-    // REPOSITORY PROVIDERS
-    // ============================================================================================
+    fun provideUserDao(database: AppDatabase): UserDao = database.userDao()
 
     @Provides
     @Singleton
-    fun provideItemRepository(
-        itemDao: ItemDao,
-        categoryDao: CategoryDao, // ✅ FIXED: Added missing parameter
-        database: AppDatabase // ✅ FIXED: Added missing parameter
-    ): ItemRepository = ItemRepository(itemDao, categoryDao, database) // ✅ FIXED: Pass all parameters
+    fun provideItemDao(database: AppDatabase): ItemDao = database.itemDao()
 
     @Provides
     @Singleton
-    fun provideUserRepository(userDao: UserDao): UserRepository =
-        UserRepository(userDao)
+    fun provideCategoryDao(database: AppDatabase): CategoryDao = database.categoryDao()
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object SecurityModule {
+
+    /**
+     * ✅ NEW: Provide CryptoManager for encryption metadata
+     */
+    @Provides
+    @Singleton
+    fun provideCryptoManager(): CryptoManager {
+        Timber.d("🔐 Initializing CryptoManager")
+        return CryptoManager()
+    }
 
     @Provides
     @Singleton
-    fun provideAuditRepository(auditDao: AuditDao): AuditRepository =
-        AuditRepository(auditDao)
+    fun provideKeystorePassphraseManager(
+        @ApplicationContext context: Context
+    ): KeystorePassphraseManager {
+        Timber.d("🔑 Initializing KeystorePassphraseManager")
+        return KeystorePassphraseManager(context)
+    }
+
+    /**
+     * ✅ UPDATED: Now depends on CryptoManager
+     */
+    @Provides
+    @Singleton
+    fun providePasswordEncryptionService(
+        cryptoManager: CryptoManager
+    ): PasswordEncryptionService {
+        Timber.d("🔐 Initializing PasswordEncryptionService")
+        return PasswordEncryptionService(cryptoManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSessionManager(
+        @ApplicationContext context: Context,
+        keystoreManager: KeystorePassphraseManager
+    ): SessionManager {
+        Timber.d("🔐 Initializing SessionManager")
+        return SessionManager(context, keystoreManager)
+    }
 }
