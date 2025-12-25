@@ -4,10 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.dao.*
-import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
-import com.jcb.passbook.security.crypto.PasswordEncryptionService
-import com.jcb.passbook.security.session.SessionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -17,9 +14,12 @@ import net.sqlcipher.database.SupportFactory
 import timber.log.Timber
 import javax.inject.Singleton
 
+/**
+ * ✅ FIXED: DatabaseModule with proper SQLCipher encryption and migration
+ */
 @Module
 @InstallIn(SingletonComponent::class)
-object DatabaseModule {
+object AppModule {
 
     @Provides
     @Singleton
@@ -30,32 +30,32 @@ object DatabaseModule {
         Timber.i("📦 Initializing encrypted database...")
 
         return try {
-            val passphrase = keystoreManager.retrievePassphrase(context)
-                ?: throw SecurityException("Failed to retrieve passphrase")
+            // Get passphrase from keystore for SQLCipher encryption
+            val passphrase = keystoreManager.getPassphrase()
+                ?: throw SecurityException("Failed to retrieve database passphrase")
 
             Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "passbook_vault.db"
             )
+                // ✅ Enable SQLCipher encryption
                 .openHelperFactory(SupportFactory(passphrase))
-                // ✅ CRITICAL: Include migration
+                // ✅ Add migration 1→2
                 .addMigrations(AppDatabase.MIGRATION_1_2)
+                // Enable Write-Ahead Logging for better concurrency
                 .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+                // Enable multi-instance invalidation
                 .enableMultiInstanceInvalidation()
                 .build()
                 .also {
-                    Timber.i("✅ Database initialized")
+                    Timber.i("✅ Database initialized successfully")
                 }
         } catch (e: Exception) {
             Timber.e(e, "❌ Database initialization failed")
-            throw RuntimeException("Database init failed: ${e.message}", e)
+            throw RuntimeException("Failed to initialize database: ${e.message}", e)
         }
     }
-
-    @Provides
-    @Singleton
-    fun provideUserDao(database: AppDatabase): UserDao = database.userDao()
 
     @Provides
     @Singleton
@@ -63,51 +63,21 @@ object DatabaseModule {
 
     @Provides
     @Singleton
+    fun provideUserDao(database: AppDatabase): UserDao = database.userDao()
+
+    @Provides
+    @Singleton
     fun provideCategoryDao(database: AppDatabase): CategoryDao = database.categoryDao()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object SecurityModule {
-
-    /**
-     * ✅ NEW: Provide CryptoManager for encryption metadata
-     */
-    @Provides
-    @Singleton
-    fun provideCryptoManager(): CryptoManager {
-        Timber.d("🔐 Initializing CryptoManager")
-        return CryptoManager()
-    }
 
     @Provides
     @Singleton
-    fun provideKeystorePassphraseManager(
-        @ApplicationContext context: Context
-    ): KeystorePassphraseManager {
-        Timber.d("🔑 Initializing KeystorePassphraseManager")
-        return KeystorePassphraseManager(context)
-    }
-
-    /**
-     * ✅ UPDATED: Now depends on CryptoManager
-     */
-    @Provides
-    @Singleton
-    fun providePasswordEncryptionService(
-        cryptoManager: CryptoManager
-    ): PasswordEncryptionService {
-        Timber.d("🔐 Initializing PasswordEncryptionService")
-        return PasswordEncryptionService(cryptoManager)
-    }
+    fun provideAuditDao(database: AppDatabase): AuditDao = database.auditDao()
 
     @Provides
     @Singleton
-    fun provideSessionManager(
-        @ApplicationContext context: Context,
-        keystoreManager: KeystorePassphraseManager
-    ): SessionManager {
-        Timber.d("🔐 Initializing SessionManager")
-        return SessionManager(context, keystoreManager)
-    }
+    fun provideAuditMetadataDao(database: AppDatabase): AuditMetadataDao = database.auditMetadataDao()
+
+    @Provides
+    @Singleton
+    fun providePasswordCategoryDao(database: AppDatabase): PasswordCategoryDao = database.passwordCategoryDao()
 }

@@ -1,267 +1,143 @@
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
-import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Base64
-import androidx.annotation.RequiresApi
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import timber.log.Timber
-import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import java.security.SecureRandom
-import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
-@RequiresApi(Build.VERSION_CODES.M)
-object KeystorePassphraseManager {
-    private const val KEY_ALIAS = "passbook_db_key"
-    private const val PREF_NAME = "db_key_prefs"
-    private const val ENC_KEY = "enc_pass"
-    private const val ENC_KEY_BACKUP = "enc_pass_backup"
-
-    // ✅ Track rotation state
-    private const val ROTATION_NEEDED = "rotation_needed"
-    private const val LAST_ROTATION_TIME = "last_rotation_ms"
-
-    /**
-     * Get or create the current database passphrase
-     */
-    fun getOrCreatePassphrase(context: Context): String {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val encrypted = prefs.getString(ENC_KEY, null)
-
-        return if (encrypted != null) {
-            try {
-                decryptPassphrase(encrypted)
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to decrypt passphrase, attempting backup recovery")
-                tryRecoverFromBackup(context) ?: run {
-                    Timber.e("Backup recovery failed, generating new passphrase (DATA LOSS!)")
-                    createNewPassphrase(context)
-                }
-            }
-        } else {
-            createNewPassphrase(context)
-        }
+class KeystorePassphraseManager(
+    private val context: Context
+) {
+    companion object {
+        private const val KEYSTORE_ALIAS = "passbook_master_key"
+        private const val PREFS_NAME = "passbook_secure_prefs"
+        private const val KEY_PASSPHRASE = "database_passphrase"
+        private const val PASSPHRASE_LENGTH = 32 // 256 bits
     }
 
     /**
-     * ✅ Get current passphrase WITHOUT creating new one
+     * ✅ NEW: Get or generate database passphrase
+     * This is called by DatabaseModule during initialization
      */
-    fun getCurrentPassphrase(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val encrypted = prefs.getString(ENC_KEY, null) ?: return null
-
+    fun getPassphrase(): ByteArray? {
         return try {
-            decryptPassphrase(encrypted)
+            // Try to retrieve existing passphrase
+            val storedPassphrase = retrievePassphrase()
+            if (storedPassphrase != null) {
+                Timber.d("✓ Retrieved existing passphrase")
+                return storedPassphrase
+            }
+
+            // Generate new passphrase if none exists
+            val newPassphrase = generatePassphrase()
+            storePassphrase(newPassphrase)
+            Timber.i("✅ Generated and stored new passphrase")
+            newPassphrase
+
         } catch (e: Exception) {
-            Timber.e(e, "Failed to decrypt current passphrase")
+            Timber.e(e, "❌ Failed to get passphrase")
             null
         }
     }
 
     /**
-     * ✅ Mark that key rotation is needed on next login
+     * Retrieve stored passphrase from EncryptedSharedPreferences
      */
-    fun markRotationNeeded(context: Context) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(ROTATION_NEEDED, true).apply()
-        Timber.d("🔄 Key rotation marked as needed")
-    }
-
-    /**
-     * ✅ Check if rotation is needed
-     */
-    fun isRotationNeeded(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean(ROTATION_NEEDED, false)
-    }
-
-    /**
-     * ✅ PUBLIC: Clear rotation flag after successful rotation or initialization
-     */
-    fun clearRotationFlag(context: Context) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean(ROTATION_NEEDED, false)
-            .putLong(LAST_ROTATION_TIME, System.currentTimeMillis())
-            .apply()
-        Timber.d("✅ Rotation flag cleared")
-    }
-
-    /**
-     * ✅ Create backup of current passphrase before rotation
-     */
-    private fun backupCurrentPassphrase(context: Context): Boolean {
+    fun retrievePassphrase(): ByteArray? {
         return try {
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val currentEncrypted = prefs.getString(ENC_KEY, null)
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-            if (currentEncrypted != null) {
-                prefs.edit().putString(ENC_KEY_BACKUP, currentEncrypted).commit()
-                Timber.d("✅ Current passphrase backed up")
-                true
-            } else {
-                Timber.w("No current passphrase to backup")
-                false
-            }
+            val sharedPreferences = EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+
+            val passphraseHex = sharedPreferences.getString(KEY_PASSPHRASE, null)
+            passphraseHex?.let { hexStringToByteArray(it) }
+
         } catch (e: Exception) {
-            Timber.e(e, "Failed to backup passphrase")
-            false
-        }
-    }
-
-    /**
-     * ✅ Restore passphrase from backup (rollback mechanism)
-     */
-    fun rollbackToBackup(context: Context): Boolean {
-        return try {
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val backup = prefs.getString(ENC_KEY_BACKUP, null)
-
-            if (backup != null) {
-                prefs.edit().putString(ENC_KEY, backup).commit()
-                Timber.i("✅ Rolled back to backup passphrase")
-                true
-            } else {
-                Timber.e("No backup available for rollback")
-                false
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to rollback passphrase")
-            false
-        }
-    }
-
-    /**
-     * ✅ Generate and return new passphrase WITHOUT storing it
-     */
-    fun generateNewPassphrase(): String {
-        val random = SecureRandom()
-        val bytes = ByteArray(32)
-        random.nextBytes(bytes)
-        return Base64.encodeToString(bytes, Base64.NO_WRAP)
-    }
-
-    /**
-     * ✅ Commit new passphrase to storage (call ONLY after rekey success)
-     */
-    fun commitNewPassphrase(context: Context, newPassphrase: String): Boolean {
-        return try {
-            // First backup current passphrase
-            backupCurrentPassphrase(context)
-
-            // Encrypt and store new passphrase
-            val encryptedPass = encryptPassphrase(newPassphrase)
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val success = prefs.edit().putString(ENC_KEY, encryptedPass).commit()
-
-            if (success) {
-                Timber.i("✅ New passphrase committed to storage")
-                clearRotationFlag(context)
-            } else {
-                Timber.e("❌ Failed to commit new passphrase")
-            }
-
-            success
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to commit new passphrase")
-            false
-        }
-    }
-
-    /**
-     * ✅ Clear backup after successful rotation
-     */
-    fun clearBackup(context: Context) {
-        try {
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(ENC_KEY_BACKUP).apply()
-            Timber.d("Backup cleared")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to clear backup")
-        }
-    }
-
-    /**
-     * Try to recover from backup
-     */
-    private fun tryRecoverFromBackup(context: Context): String? {
-        return try {
-            val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            val backup = prefs.getString(ENC_KEY_BACKUP, null)
-
-            if (backup != null) {
-                val recovered = decryptPassphrase(backup)
-                Timber.i("✅ Recovered passphrase from backup")
-                // Restore as current
-                prefs.edit().putString(ENC_KEY, backup).commit()
-                recovered
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Backup recovery failed")
+            Timber.e(e, "Error retrieving passphrase")
             null
         }
     }
 
     /**
-     * Create new passphrase and store it
+     * Generate a new random passphrase
      */
-    private fun createNewPassphrase(context: Context): String {
-        val newPass = generateNewPassphrase()
-        val encryptedPass = encryptPassphrase(newPass)
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(ENC_KEY, encryptedPass).commit()
-        Timber.i("✅ New passphrase created and stored")
-        return newPass
+    private fun generatePassphrase(): ByteArray {
+        val passphrase = ByteArray(PASSPHRASE_LENGTH)
+        SecureRandom().nextBytes(passphrase)
+        return passphrase
     }
 
-    private fun getAesKey(): SecretKey {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        val existingKey = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
-        if (existingKey != null) return existingKey
-
-        val keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
-        val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-        )
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(256)
-            .setUserAuthenticationRequired(false)
+    /**
+     * Store passphrase in EncryptedSharedPreferences
+     */
+    private fun storePassphrase(passphrase: ByteArray) {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
 
-        keyGenerator.init(keyGenParameterSpec)
-        return keyGenerator.generateKey()
+        val sharedPreferences = EncryptedSharedPreferences.create(
+            context,
+            PREFS_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+
+        sharedPreferences.edit()
+            .putString(KEY_PASSPHRASE, byteArrayToHexString(passphrase))
+            .apply()
     }
 
-    private fun encryptPassphrase(pass: String): String {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val key = getAesKey()
-        cipher.init(Cipher.ENCRYPT_MODE, key)
-        val iv = cipher.iv
-        val encrypted = cipher.doFinal(pass.toByteArray(StandardCharsets.UTF_8))
-        val combined = iv + encrypted
-        return Base64.encodeToString(combined, Base64.NO_WRAP)
+    /**
+     * Convert byte array to hex string
+     */
+    private fun byteArrayToHexString(bytes: ByteArray): String {
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    private fun decryptPassphrase(enc: String): String {
-        val data = Base64.decode(enc, Base64.NO_WRAP)
-        if (data.size <= 12) throw IllegalArgumentException("Invalid encrypted data")
+    /**
+     * Convert hex string to byte array
+     */
+    private fun hexStringToByteArray(hex: String): ByteArray {
+        return hex.chunked(2)
+            .map { it.toInt(16).toByte() }
+            .toByteArray()
+    }
 
-        val iv = data.copyOfRange(0, 12)
-        val encrypted = data.copyOfRange(12, data.size)
+    /**
+     * Delete stored passphrase (use during app reset/uninstall)
+     */
+    fun deletePassphrase() {
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
 
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getAesKey(), GCMParameterSpec(128, iv))
-        val decryptedBytes = cipher.doFinal(encrypted)
+            val sharedPreferences = EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
 
-        return String(decryptedBytes, StandardCharsets.UTF_8)
+            sharedPreferences.edit().remove(KEY_PASSPHRASE).apply()
+            Timber.i("✅ Passphrase deleted")
+        } catch (e: Exception) {
+            Timber.e(e, "Error deleting passphrase")
+        }
     }
 }
