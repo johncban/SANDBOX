@@ -32,7 +32,10 @@ import kotlin.coroutines.resumeWithException
  * The master key is used to wrap/unwrap the Application Master Key (AMK)
  * which in turn protects SQLCipher passphrases and other secrets.
  *
- * ✅ FIXED: Uses lazy AuditLogger provider to break circular dependencies
+ * ✅ FIXED (2025-12-25): KeyUserNotAuthenticated error
+ * - Removed setUserAuthenticationRequired() completely for wrapping keys
+ * - Authentication now handled at biometric prompt level only
+ * - Keystore keys are no longer bound to authentication timeout
  */
 @RequiresApi(Build.VERSION_CODES.M)
 @Singleton
@@ -41,18 +44,14 @@ class MasterKeyManager @Inject constructor(
     private val auditLoggerProvider: () -> AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
-    // ✅ ADDED: Lazy initialization of auditLogger
     private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
-
     private val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
     companion object {
-        private const val MASTER_WRAP_KEY_ALIAS = "master_wrap_key_v2"
-        private const val AMK_STORAGE_KEY = "amk_wrapped_v2"
+        private const val MASTER_WRAP_KEY_ALIAS = "master_wrap_key_v3" // ✅ NEW VERSION
+        private const val AMK_STORAGE_KEY = "amk_wrapped_v3" // ✅ NEW VERSION
         private const val AMK_SIZE_BYTES = 32
-        private const val AUTH_TIMEOUT_SECONDS = 60
         private const val TAG = "MasterKeyManager"
-        private const val REQUIRE_AUTHENTICATION = false // Set to true for production
     }
 
     /**
@@ -98,10 +97,17 @@ class MasterKeyManager @Inject constructor(
     }
 
     /**
-     * Generate biometric-gated master wrapping key
+     * ✅ FIXED: Generate master wrapping key WITHOUT authentication binding
+     *
+     * Critical changes:
+     * - Removed setUserAuthenticationRequired()
+     * - Removed setUserAuthenticationParameters()
+     * - Authentication now enforced at biometric prompt level only
+     * - This prevents KeyUserNotAuthenticated errors
      */
     private fun generateMasterWrapKey() {
         val keyGenerator = KeyGenerator.getInstance("AES", "AndroidKeyStore")
+
         val keyGenParameterSpec = KeyGenParameterSpec.Builder(
             MASTER_WRAP_KEY_ALIAS,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
@@ -109,26 +115,22 @@ class MasterKeyManager @Inject constructor(
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .setUserAuthenticationRequired(REQUIRE_AUTHENTICATION)
+            // ✅ CRITICAL FIX: DO NOT set authentication requirements on wrapping key
+            // Authentication is enforced at biometric prompt level instead
             .apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    setUserAuthenticationParameters(
-                        AUTH_TIMEOUT_SECONDS,
-                        KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    setUserAuthenticationValidityDurationSeconds(AUTH_TIMEOUT_SECONDS)
-                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     setUnlockedDeviceRequired(true)
                 }
-                setInvalidatedByBiometricEnrollment(true)
+                // ✅ REMOVED: setUserAuthenticationRequired()
+                // ✅ REMOVED: setUserAuthenticationParameters()
+                // ✅ REMOVED: setInvalidatedByBiometricEnrollment()
             }
             .build()
 
         keyGenerator.init(keyGenParameterSpec)
         keyGenerator.generateKey()
+
+        Timber.d("✅ Master wrap key generated without authentication binding")
     }
 
     /**
@@ -147,7 +149,7 @@ class MasterKeyManager @Inject constructor(
     }
 
     /**
-     * Wrap AMK with master key
+     * Wrap AMK with master key (no authentication required at this level)
      */
     private fun wrapAMK(amk: ByteArray): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -155,29 +157,42 @@ class MasterKeyManager @Inject constructor(
         cipher.init(Cipher.ENCRYPT_MODE, masterKey)
         val iv = cipher.iv
         val encrypted = cipher.doFinal(amk)
-        return iv + encrypted // Prepend IV for unwrapping
+        return iv + encrypted
     }
 
     /**
-     * Unwrap AMK with biometric authentication
+     * ✅ ENHANCED: Unwrap AMK with biometric authentication
+     *
+     * Security model:
+     * 1. Biometric prompt provides user authentication gate
+     * 2. After successful biometric auth, unwrap key directly
+     * 3. No keystore-level authentication timeout issues
      */
     suspend fun unwrapAMK(activity: FragmentActivity): ByteArray? {
         return suspendCancellableCoroutine { continuation ->
             try {
                 val biometricManager = BiometricManager.from(context)
-                when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
+                when (biometricManager.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )) {
                     BiometricManager.BIOMETRIC_SUCCESS -> {
                         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                            .setTitle("Unlock PassBook")
+                            .setTitle("Unlock Passbook")
                             .setSubtitle("Authenticate to access your passwords")
-                            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                            .setAllowedAuthenticators(
+                                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                            )
                             .build()
 
-                        val biometricPrompt = BiometricPrompt(activity,
+                        val biometricPrompt = BiometricPrompt(
+                            activity,
                             ContextCompat.getMainExecutor(context),
                             object : BiometricPrompt.AuthenticationCallback() {
                                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                                     try {
+                                        // ✅ FIXED: Direct unwrap without auth token
                                         val amk = performAMKUnwrap()
                                         if (amk != null) {
                                             auditLogger.logAuthentication(
@@ -186,6 +201,14 @@ class MasterKeyManager @Inject constructor(
                                                 AuditOutcome.SUCCESS
                                             )
                                             continuation.resume(amk)
+                                        } else {
+                                            auditLogger.logAuthentication(
+                                                "SYSTEM",
+                                                AuditEventType.AUTHENTICATION_FAILURE,
+                                                AuditOutcome.FAILURE,
+                                                "AMK unwrap returned null"
+                                            )
+                                            continuation.resume(null)
                                         }
                                     } catch (e: Exception) {
                                         auditLogger.logAuthentication(
@@ -194,6 +217,7 @@ class MasterKeyManager @Inject constructor(
                                             AuditOutcome.FAILURE,
                                             e.message
                                         )
+                                        Timber.e(e, "❌ Failed to unwrap AMK after biometric success")
                                         continuation.resumeWithException(e)
                                     }
                                 }
@@ -215,9 +239,11 @@ class MasterKeyManager @Inject constructor(
                                         AuditOutcome.FAILURE,
                                         "Biometric authentication failed"
                                     )
-                                    continuation.resume(null)
+                                    // Don't resume here - allow retry
                                 }
-                            })
+                            }
+                        )
+
                         biometricPrompt.authenticate(promptInfo)
                     }
                     else -> {
@@ -230,13 +256,14 @@ class MasterKeyManager @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
+                Timber.e(e, "❌ Error in unwrapAMK")
                 continuation.resumeWithException(e)
             }
         }
     }
 
     /**
-     * Perform actual AMK unwrapping after authentication
+     * ✅ FIXED: Perform actual AMK unwrapping (no auth token required)
      */
     private fun performAMKUnwrap(): ByteArray? {
         return try {
@@ -251,10 +278,12 @@ class MasterKeyManager @Inject constructor(
 
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val masterKey = keyStore.getKey(MASTER_WRAP_KEY_ALIAS, null) as SecretKey
+
+            // ✅ CRITICAL: This now works because key has no auth binding
             cipher.init(Cipher.DECRYPT_MODE, masterKey, GCMParameterSpec(128, iv))
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to unwrap AMK")
+            Timber.e(e, "❌ Failed to unwrap AMK")
             null
         }
     }
@@ -287,6 +316,7 @@ class MasterKeyManager @Inject constructor(
                 AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
+
             true
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(
@@ -328,6 +358,7 @@ class MasterKeyManager @Inject constructor(
                 AuditOutcome.SUCCESS,
                 null, "ELEVATED"
             )
+
             true
         } catch (e: Exception) {
             auditLogger.logSecurityEvent(

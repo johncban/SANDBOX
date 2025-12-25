@@ -1,273 +1,158 @@
-package com.jcb.passbook.security.crypto
+package com.jcb.passbook.security.session
 
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import androidx.annotation.RequiresApi
-import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
+import android.content.Context
 import com.jcb.passbook.data.local.database.entities.AuditEventType
 import com.jcb.passbook.data.local.database.entities.AuditOutcome
 import com.jcb.passbook.security.audit.AuditLogger
-import kotlinx.coroutines.*
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import timber.log.Timber
-import java.util.*
-import javax.crypto.spec.SecretKeySpec
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * SessionManager handles ephemeral session keys and manages their lifecycle.
- * Session keys are derived from AMK and wiped on inactivity or app backgrounding.
- *
- * ✅ FIXED (2025-12-22): Biometric delay issue after successful login
- *
- * Critical fixes:
- * - Added 300ms delay before biometric prompt to allow screen state to stabilize
- * - Implemented proper memory object cleanup for fingerprint service
- * - Added screen state monitoring before authentication
- * - Fixed memory leak in biometric callback
- */
-@RequiresApi(Build.VERSION_CODES.M)
 @Singleton
 class SessionManager @Inject constructor(
-    private val masterKeyManager: MasterKeyManager,
-    private val auditLoggerProvider: () -> AuditLogger,
+    @ApplicationContext private val context: Context,
+    private val auditLogger: AuditLogger,
     private val secureMemoryUtils: SecureMemoryUtils
-) : DefaultLifecycleObserver {
+) {
+    private val _sessionState = MutableStateFlow<SessionState>(SessionState.Inactive)
+    val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
 
-    private val auditLogger: AuditLogger by lazy { auditLoggerProvider() }
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private var sessionAMK: ByteArray? = null
+    private var sessionStartTime: Long = 0
+    private val isOperationInProgress = AtomicBoolean(false) // ✅ NEW
 
     companion object {
         private const val SESSION_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
-        private const val ESK_SIZE_BYTES = 32
-        private const val TAG = "SessionManager"
-        private const val BIOMETRIC_DELAY_MS = 300L // ✅ NEW: Delay before biometric prompt
-    }
-
-    @Volatile private var amk: ByteArray? = null
-    @Volatile private var esk: ByteArray? = null
-    @Volatile private var sessionId: String? = null
-    @Volatile private var currentUserId: Long? = null
-    @Volatile private var sessionStartTime: Long = 0
-    @Volatile private var lastActivityTime: Long = 0
-    private var timeoutJob: Job? = null
-    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    @Volatile private var isSessionActive = false
-    private var onLogoutCallback: (suspend () -> Unit)? = null
-
-    init {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-    }
-
-    fun setOnLogoutCallback(callback: suspend () -> Unit) {
-        onLogoutCallback = callback
+        private const val OPERATION_GRACE_PERIOD_MS = 30 * 1000L // ✅ 30 seconds grace
     }
 
     /**
-     * ✅ FIXED: Start session with delayed biometric authentication
-     *
-     * This fixes the biometric fingerprint delay by:
-     * 1. Waiting for screen state to stabilize (300ms delay)
-     * 2. Ensuring biometric service memory objects are ready
-     * 3. Proper cleanup of biometric callbacks
-     *
-     * @param activity FragmentActivity for biometric authentication UI
-     * @param userId User ID to associate with this session
+     * ✅ FIXED: Start active operation - extends session timeout
      */
-    suspend fun startSession(activity: FragmentActivity, userId: Long): SessionResult {
-        var unwrappedAMK: ByteArray? = null
+    fun startOperation() {
+        isOperationInProgress.set(true)
+        Timber.d("✅ Operation started - session timeout extended")
+    }
+
+    /**
+     * ✅ FIXED: End active operation
+     */
+    fun endOperation() {
+        isOperationInProgress.set(false)
+        Timber.d("✅ Operation completed")
+    }
+
+    /**
+     * Start secure session with AMK
+     */
+    suspend fun startSession(amk: ByteArray, username: String): Boolean {
         return try {
-            if (isSessionActive) {
-                auditLogger.logSecurityEvent(
-                    "Attempted to start session while one is already active",
-                    "WARNING",
-                    AuditOutcome.WARNING
-                )
-                return SessionResult.AlreadyActive
+            if (_sessionState.value is SessionState.Active) {
+                Timber.w("Session already active")
+                return true
             }
 
-            // ✅ FIX: Add delay to allow screen state and biometric service to stabilize
-            // This prevents the "mem obj with id 20 not found" error
-            Timber.d("⏳ Waiting for biometric service to stabilize...")
-            delay(BIOMETRIC_DELAY_MS)
+            sessionAMK = amk.copyOf()
+            sessionStartTime = System.currentTimeMillis()
+            _sessionState.value = SessionState.Active(username)
 
-            // ✅ Unwrap AMK with biometric authentication
-            unwrappedAMK = withContext(Dispatchers.Main) {
-                // Execute biometric prompt on Main thread
-                masterKeyManager.unwrapAMK(activity)
-            }
-
-            if (unwrappedAMK == null) {
-                auditLogger.logAuthentication(
-                    "SYSTEM",
-                    AuditEventType.AUTHENTICATION_FAILURE,
-                    AuditOutcome.FAILURE,
-                    "Failed to unwrap AMK"
-                )
-                return SessionResult.AuthenticationFailed
-            }
-
-            // Store session data
-            synchronized(this) {
-                amk = secureMemoryUtils.secureCopy(unwrappedAMK)
-                deriveEphemeralSessionKey()
-                sessionId = UUID.randomUUID().toString()
-                currentUserId = userId
-                sessionStartTime = System.currentTimeMillis()
-                lastActivityTime = sessionStartTime
-                isSessionActive = true
-            }
-
-            // Start inactivity timeout
-            startTimeoutTimer()
-
-            auditLogger.logUserAction(
-                userId, "SYSTEM", AuditEventType.LOGIN,
-                "Session started successfully",
-                "SESSION", sessionId,
-                AuditOutcome.SUCCESS,
-                null, "NORMAL"
+            auditLogger.logAuthentication(
+                username,
+                AuditEventType.LOGIN,
+                AuditOutcome.SUCCESS
             )
 
-            Timber.i("✅ Session started: $sessionId for userId: $userId")
-            SessionResult.Success(sessionId!!, userId)
-
+            Timber.i("✅ Session started for user: $username")
+            true
         } catch (e: Exception) {
-            auditLogger.logSecurityEvent(
-                "Failed to start session: ${e.message}",
-                "CRITICAL",
-                AuditOutcome.FAILURE
-            )
             Timber.e(e, "❌ Failed to start session")
-            SessionResult.Error(e.message ?: "Unknown error")
-        } finally {
-            // ✅ Always clean up unwrapped AMK
-            unwrappedAMK?.let { secureMemoryUtils.secureWipe(it) }
+            auditLogger.logAuthentication(
+                username,
+                AuditEventType.LOGIN,
+                AuditOutcome.FAILURE,
+                e.message
+            )
+            false
         }
     }
 
     /**
-     * Derive ephemeral session key from AMK
+     * ✅ FIXED: Get AMK with operation-aware timeout check
      */
-    private fun deriveEphemeralSessionKey() {
-        val amkCopy = amk ?: throw IllegalStateException("AMK not available")
-        val sessionNonce = secureMemoryUtils.generateSecureRandom(16)
-        val combined = amkCopy + sessionNonce + "ESK".toByteArray()
-        try {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            val derived = digest.digest(combined)
-            esk = derived.copyOf(ESK_SIZE_BYTES)
-        } finally {
-            secureMemoryUtils.secureWipe(combined)
-            secureMemoryUtils.secureWipe(sessionNonce)
+    fun getSessionAMK(): ByteArray? {
+        // Check if session is still valid with grace period for active operations
+        if (!isSessionValid()) {
+            Timber.w("❌ Session expired or inactive")
+            endSession()
+            return null
         }
-    }
 
-    fun getEphemeralSessionKey(): SecretKeySpec? {
-        updateLastActivity()
-        return esk?.let { SecretKeySpec(it, "AES") }
-    }
-
-    fun getApplicationMasterKey(): ByteArray? {
-        updateLastActivity()
-        return amk?.let { secureMemoryUtils.secureCopy(it) }
-    }
-
-    fun getCurrentUserId(): Long? = currentUserId
-
-    fun updateLastActivity() {
-        if (isSessionActive) {
-            lastActivityTime = System.currentTimeMillis()
-            startTimeoutTimer()
-        }
-    }
-
-    private fun startTimeoutTimer() {
-        timeoutJob?.cancel()
-        timeoutJob = sessionScope.launch {
-            delay(SESSION_TIMEOUT_MS)
-            if (System.currentTimeMillis() - lastActivityTime >= SESSION_TIMEOUT_MS) {
-                endSession("Inactivity timeout")
-            }
-        }
+        return sessionAMK?.copyOf()
     }
 
     /**
-     * ✅ ENHANCED: End session with proper memory cleanup
+     * ✅ FIXED: Check session validity with operation grace period
      */
-    suspend fun endSession(reason: String = "Manual") {
-        if (!isSessionActive) return
-
-        val currentSessionId = sessionId
-        val duration = System.currentTimeMillis() - sessionStartTime
-
-        // Cancel timeout timer
-        timeoutJob?.cancel()
-
-        // ✅ Wipe sensitive data
-        synchronized(this) {
-            amk?.let { secureMemoryUtils.secureWipe(it) }
-            esk?.let { secureMemoryUtils.secureWipe(it) }
-            amk = null
-            esk = null
-            isSessionActive = false
-            sessionId = null
-            currentUserId = null
+    fun isSessionValid(): Boolean {
+        val currentState = _sessionState.value
+        if (currentState !is SessionState.Active) {
+            return false
         }
 
-        auditLogger.logUserAction(
-            null, "SYSTEM", AuditEventType.LOGOUT,
-            "Session ended: $reason (duration: ${duration}ms)",
-            "SESSION", currentSessionId,
-            AuditOutcome.SUCCESS,
-            null, "NORMAL"
-        )
-
-        Timber.i("🚪 Session ended: $currentSessionId, reason: $reason, duration: ${duration}ms")
-
-        // Trigger key rotation callback
-        if (reason == "Manual" || reason == "User logout") {
-            onLogoutCallback?.invoke()
-        }
-    }
-
-    fun isSessionActive(): Boolean = isSessionActive
-    fun getCurrentSessionId(): String? = sessionId
-    fun getSessionDuration(): Long {
-        return if (isSessionActive) {
-            System.currentTimeMillis() - sessionStartTime
+        val elapsed = System.currentTimeMillis() - sessionStartTime
+        val timeout = if (isOperationInProgress.get()) {
+            SESSION_TIMEOUT_MS + OPERATION_GRACE_PERIOD_MS // ✅ Extended timeout
         } else {
-            0L
+            SESSION_TIMEOUT_MS
+        }
+
+        return elapsed < timeout
+    }
+
+    /**
+     * Refresh session timestamp
+     */
+    fun refreshSession() {
+        if (_sessionState.value is SessionState.Active) {
+            sessionStartTime = System.currentTimeMillis()
+            Timber.d("Session refreshed")
         }
     }
 
-    suspend fun renewSession(activity: FragmentActivity, userId: Long): SessionResult {
-        endSession("Session renewal")
-        return startSession(activity, userId)
-    }
+    /**
+     * End secure session and wipe secrets
+     */
+    fun endSession() {
+        try {
+            val currentState = _sessionState.value
+            if (currentState is SessionState.Active) {
+                auditLogger.logAuthentication(
+                    currentState.username,
+                    AuditEventType.LOGOUT,
+                    AuditOutcome.SUCCESS
+                )
+            }
 
-    override fun onStop(owner: LifecycleOwner) {
-        sessionScope.launch {
-            endSession("App backgrounded")
+            sessionAMK?.let { secureMemoryUtils.secureWipe(it) }
+            sessionAMK = null
+            sessionStartTime = 0
+            isOperationInProgress.set(false) // ✅ Reset operation flag
+            _sessionState.value = SessionState.Inactive
+
+            Timber.i("Session ended, secrets wiped")
+        } catch (e: Exception) {
+            Timber.e(e, "Error ending session")
         }
     }
+}
 
-    override fun onDestroy(owner: LifecycleOwner) {
-        sessionScope.launch {
-            endSession("App destroyed")
-        }
-        sessionScope.cancel()
-        onLogoutCallback = null
-    }
-
-    sealed class SessionResult {
-        data class Success(val sessionId: String, val userId: Long) : SessionResult()
-        object AuthenticationFailed : SessionResult()
-        object AlreadyActive : SessionResult()
-        data class Error(val message: String) : SessionResult()
-    }
+sealed class SessionState {
+    object Inactive : SessionState()
+    data class Active(val username: String) : SessionState()
 }

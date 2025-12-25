@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.jcb.passbook.data.local.database.entities.Item
-import com.jcb.passbook.data.local.database.entities.PasswordCategory
+import com.jcb.passbook.data.local.database.entities.PasswordCategoryEnum
 import com.jcb.passbook.presentation.ui.components.AccessibleCard
 import com.jcb.passbook.presentation.ui.components.AccessibleIconButton
 import com.jcb.passbook.presentation.ui.responsive.getRecommendedColumnCount
@@ -31,8 +31,6 @@ import com.jcb.passbook.presentation.ui.responsive.rememberScreenInfo
 import com.jcb.passbook.presentation.ui.theme.getResponsiveDimensions
 import com.jcb.passbook.presentation.viewmodel.vault.ItemUiState
 import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
-
-
 import kotlinx.coroutines.launch
 
 /**
@@ -212,9 +210,11 @@ private fun ItemListContentList(
                     CircularProgressIndicator()
                 }
             }
+
             uiState.items.isEmpty() -> {
                 EmptyVaultMessage(modifier = Modifier.fillMaxSize())
             }
+
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -269,9 +269,11 @@ private fun ItemListContentGrid(
                     CircularProgressIndicator()
                 }
             }
+
             uiState.items.isEmpty() -> {
                 EmptyVaultMessage(modifier = Modifier.fillMaxSize())
             }
+
             else -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
@@ -337,8 +339,8 @@ fun SearchBar(
 
 @Composable
 fun CategoryFilterRow(
-    selectedCategory: PasswordCategory?,
-    onCategorySelected: (PasswordCategory?) -> Unit,
+    selectedCategory: PasswordCategoryEnum?,
+    onCategorySelected: (PasswordCategoryEnum?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyRow(
@@ -356,8 +358,8 @@ fun CategoryFilterRow(
             )
         }
 
-        items(PasswordCategory.entries.size) { index ->
-            val category = PasswordCategory.entries[index]
+        items(PasswordCategoryEnum.entries.size) { index ->
+            val category = PasswordCategoryEnum.entries[index]
             FilterChip(
                 selected = selectedCategory == category,
                 onClick = { onCategorySelected(category) },
@@ -536,13 +538,11 @@ fun EmptyVaultMessage(modifier: Modifier = Modifier) {
                 modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
             Text(
                 text = "No passwords yet",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
             Text(
                 text = "Tap + to add your first password",
                 style = MaterialTheme.typography.bodyMedium,

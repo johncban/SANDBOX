@@ -16,7 +16,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jcb.passbook.data.local.database.entities.Item
-import com.jcb.passbook.data.local.database.entities.PasswordCategory
+import com.jcb.passbook.data.local.database.entities.PasswordCategoryEnum
 import com.jcb.passbook.presentation.ui.components.AccessiblePasswordField
 
 /**
@@ -46,6 +46,7 @@ fun ItemBottomSheetContent(
     var notes by remember(item) { mutableStateOf(item.notes ?: "") }
     var selectedCategory by remember(item) { mutableStateOf(item.getPasswordCategoryEnum()) }
     var isFavorite by remember(item) { mutableStateOf(item.isFavorite) }
+
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
 
@@ -77,15 +78,25 @@ fun ItemBottomSheetContent(
                     // Save button in edit mode
                     IconButton(
                         onClick = {
+                            // ✅ FIXED: Ensure all fields are validated before save
+                            if (title.isBlank()) {
+                                return@IconButton
+                            }
+                            if (password.isBlank()) {
+                                return@IconButton
+                            }
+
+                            // Save with proper data
                             onSave(
                                 item.copy(
-                                    title = title,
-                                    username = username.takeIf { it.isNotBlank() },
-                                    encryptedPassword = password.toByteArray(), // TODO: Encrypt
-                                    url = url.takeIf { it.isNotBlank() },
-                                    notes = notes.takeIf { it.isNotBlank() },
+                                    title = title.trim(),
+                                    username = username.takeIf { it.isNotBlank() }?.trim(),
+                                    encryptedPassword = password.toByteArray(), // TODO: Add actual encryption
+                                    url = url.takeIf { it.isNotBlank() }?.trim(),
+                                    notes = notes.takeIf { it.isNotBlank() }?.trim(),
                                     passwordCategory = selectedCategory.name,
-                                    isFavorite = isFavorite
+                                    isFavorite = isFavorite,
+                                    updatedAt = System.currentTimeMillis()
                                 )
                             )
                         }
@@ -108,42 +119,13 @@ fun ItemBottomSheetContent(
                 }
 
                 // Delete button (always visible)
-                // Line 109-121: Replace the IconButton onClick handler
-                IconButton(
-                    onClick = {
-                        // ✅ FIXED: Ensure all fields are validated before save
-                        if (title.isBlank()) {
-                            // Show error snackbar
-                            return@IconButton
-                        }
-
-                        if (password.isBlank()) {
-                            // Show error snackbar
-                            return@IconButton
-                        }
-
-                        // ✅ Save with proper data
-                        onSave(
-                            item.copy(
-                                title = title.trim(),
-                                username = username.takeIf { it.isNotBlank() }?.trim(),
-                                encryptedPassword = password.toByteArray(), // TODO: Add actual encryption
-                                url = url.takeIf { it.isNotBlank() }?.trim(),
-                                notes = notes.takeIf { it.isNotBlank() }?.trim(),
-                                passwordCategory = selectedCategory.name,
-                                isFavorite = isFavorite,
-                                updatedAt = System.currentTimeMillis() // ✅ Update timestamp
-                            )
-                        )
-                    }
-                ) {
+                IconButton(onClick = { showDeleteConfirmation = true }) {
                     Icon(
-                        Icons.Default.Check,
-                        contentDescription = "Save",
-                        tint = MaterialTheme.colorScheme.primary
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error
                     )
                 }
-
             }
         }
 
@@ -199,8 +181,8 @@ fun ItemBottomSheetContent(
             title = { Text("Select Category") },
             text = {
                 LazyColumn {
-                    items(PasswordCategory.entries.size) { index ->
-                        val category = PasswordCategory.entries[index]
+                    items(PasswordCategoryEnum.entries.size) { index ->
+                        val category = PasswordCategoryEnum.entries[index]
                         ListItem(
                             headlineContent = { Text(category.displayName) },
                             leadingContent = { Text(category.icon) },
@@ -237,7 +219,9 @@ fun ItemBottomSheetContent(
                 )
             },
             title = { Text("Delete Password?") },
-            text = { Text("Are you sure you want to delete \"$title\"? This action cannot be undone.") },
+            text = {
+                Text("Are you sure you want to delete \"$title\"? This action cannot be undone.")
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -267,7 +251,7 @@ private fun ViewModeContent(
     password: String,
     url: String,
     notes: String,
-    category: PasswordCategory,
+    category: PasswordCategoryEnum,
     isFavorite: Boolean
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -286,9 +270,7 @@ private fun ViewModeContent(
             label = "Username / Email",
             value = username,
             icon = Icons.Default.Person,
-            onCopy = {
-                clipboardManager.setText(AnnotatedString(username))
-            }
+            onCopy = { clipboardManager.setText(AnnotatedString(username)) }
         )
     }
 
@@ -298,9 +280,7 @@ private fun ViewModeContent(
         password = password,
         isVisible = isPasswordVisible,
         onVisibilityToggle = { isPasswordVisible = !isPasswordVisible },
-        onCopy = {
-            clipboardManager.setText(AnnotatedString(password))
-        }
+        onCopy = { clipboardManager.setText(AnnotatedString(password)) }
     )
 
     // URL field with copy button
@@ -309,9 +289,7 @@ private fun ViewModeContent(
             label = "Website URL",
             value = url,
             icon = Icons.Default.Language,
-            onCopy = {
-                clipboardManager.setText(AnnotatedString(url))
-            }
+            onCopy = { clipboardManager.setText(AnnotatedString(url)) }
         )
     }
 
@@ -389,7 +367,6 @@ private fun ViewField(
                     maxLines = maxLines
                 )
             }
-
             if (onCopy != null) {
                 IconButton(onClick = onCopy) {
                     Icon(
@@ -441,7 +418,6 @@ private fun ViewPasswordField(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-
             Row {
                 IconButton(onClick = onVisibilityToggle) {
                     Icon(
@@ -450,7 +426,6 @@ private fun ViewPasswordField(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-
                 IconButton(onClick = onCopy) {
                     Icon(
                         Icons.Default.ContentCopy,
@@ -475,7 +450,7 @@ private fun EditModeContent(
     onUrlChange: (String) -> Unit,
     notes: String,
     onNotesChange: (String) -> Unit,
-    selectedCategory: PasswordCategory,
+    selectedCategory: PasswordCategoryEnum,
     onCategoryClick: () -> Unit,
     isFavorite: Boolean,
     onFavoriteChange: (Boolean) -> Unit
@@ -483,7 +458,7 @@ private fun EditModeContent(
     OutlinedTextField(
         value = title,
         onValueChange = onTitleChange,
-        label = { Text("Title *") },
+        label = { Text("Title") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true
     )
@@ -502,7 +477,7 @@ private fun EditModeContent(
     AccessiblePasswordField(
         value = password,
         onValueChange = onPasswordChange,
-        label = "Password *",
+        label = "Password",
         modifier = Modifier.fillMaxWidth()
     )
 
@@ -538,7 +513,10 @@ private fun EditModeContent(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Mark as favorite", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "Mark as favorite",
+            style = MaterialTheme.typography.bodyLarge
+        )
         Switch(
             checked = isFavorite,
             onCheckedChange = onFavoriteChange
@@ -548,7 +526,7 @@ private fun EditModeContent(
 
 @Composable
 private fun CategoryCard(
-    selectedCategory: PasswordCategory,
+    selectedCategory: PasswordCategoryEnum,
     onClick: () -> Unit
 ) {
     OutlinedCard(

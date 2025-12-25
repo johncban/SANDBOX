@@ -1,5 +1,6 @@
 package com.jcb.passbook.security.audit
 
+import android.content.Context
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import kotlinx.coroutines.flow.first
@@ -14,6 +15,7 @@ import javax.inject.Singleton
 
 @Singleton
 class AuditChainManager @Inject constructor(
+    context: Context,
     private val auditDao: AuditDao
 ) {
     companion object {

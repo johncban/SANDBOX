@@ -10,6 +10,8 @@ import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
 import com.jcb.passbook.data.local.database.dao.UserDao
 import com.jcb.passbook.security.crypto.CryptoManager
+import com.jcb.passbook.data.local.database.dao.CategoryDao
+import com.jcb.passbook.data.local.database.AppDatabase
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
@@ -46,8 +48,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideItemRepository(itemDao: ItemDao): ItemRepository =
-        ItemRepository(itemDao)
+    fun provideItemRepository(
+        itemDao: ItemDao,
+        categoryDao: CategoryDao, // ✅ FIXED: Added missing parameter
+        database: AppDatabase // ✅ FIXED: Added missing parameter
+    ): ItemRepository = ItemRepository(itemDao, categoryDao, database) // ✅ FIXED: Pass all parameters
 
     @Provides
     @Singleton

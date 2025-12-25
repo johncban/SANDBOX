@@ -12,18 +12,23 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * DatabaseKeyManager - Manages database encryption keys
- * ✅ FIXED: Complete key rotation support with rollback
- * ✅ FIXED: Updated to use non-deprecated MasterKey API
+ * ✅ FIXED: Removed audit logger calls until AuditLogger is fully implemented
+ * ✅ FIXED: Uses non-deprecated MasterKey API
  * ✅ FIXED: Proper commit() return handling
  */
-class DatabaseKeyManager(
+@Singleton
+class DatabaseKeyManager @Inject constructor(
     private val context: Context,
     private val sessionManager: SessionManager,
     private val secureMemoryUtils: SecureMemoryUtils
+    // ✅ REMOVED: auditLoggerProvider until methods are implemented
 ) {
+
     private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     private val keyAlias = "passbook_database_key_wrapper"
 
@@ -34,29 +39,29 @@ class DatabaseKeyManager(
         private const val KEY_INITIALIZED_FLAG = "key_initialized"
         private const val TAG_LENGTH = 128
         private const val KEY_SIZE_BYTES = 32
-    }
 
-    /**
-     * Get encrypted SharedPreferences
-     * ✅ FIXED: Use new MasterKey API instead of deprecated MasterKeys
-     */
-    private fun getEncryptedPrefs(): SharedPreferences {
-        return try {
-            // ✅ Use new MasterKey API (not deprecated)
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
+        /**
+         * Get encrypted SharedPreferences
+         * ✅ FIXED: Use new MasterKey API instead of deprecated MasterKeys
+         */
+        private fun Context.getEncryptedPrefs(): SharedPreferences {
+            return try {
+                // ✅ Use new MasterKey API (not deprecated)
+                val masterKey = MasterKey.Builder(this)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
 
-            EncryptedSharedPreferences.create(
-                context,
-                DATABASE_KEY_PREF_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to create EncryptedSharedPreferences, falling back to regular")
-            context.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
+                EncryptedSharedPreferences.create(
+                    this,
+                    DATABASE_KEY_PREF_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to create EncryptedSharedPreferences, falling back to regular")
+                this.getSharedPreferences(DATABASE_KEY_PREF_NAME, Context.MODE_PRIVATE)
+            }
         }
     }
 
@@ -65,30 +70,33 @@ class DatabaseKeyManager(
      */
     suspend fun getOrCreateDatabasePassphrase(): ByteArray? {
         Timber.d("Getting or creating database passphrase...")
-
         return try {
             val existingKey = retrieveStoredKey()
             if (existingKey != null) {
                 Timber.i("✅ Successfully retrieved existing database key (${existingKey.size} bytes)")
+                // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyAccess(success = true)
                 return existingKey
             }
 
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             val wasInitialized = prefs.getBoolean(KEY_INITIALIZED_FLAG, false)
 
             if (wasInitialized) {
                 Timber.e("❌ CRITICAL: Key was initialized but retrieval failed!")
+                // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyAccess(success = false)
                 return attemptEmergencyKeyRecovery()
             }
 
             Timber.i("First-time initialization - generating NEW database key")
             val newKey = generateAndStoreNewKey()
             prefs.edit().putBoolean(KEY_INITIALIZED_FLAG, true).apply()
+            // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyGeneration()
             Timber.i("✅ NEW database key generated and stored (${newKey.size} bytes)")
             newKey
 
         } catch (e: Exception) {
             Timber.e(e, "❌ Fatal error in getOrCreateDatabasePassphrase")
+            // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyAccess(success = false)
             null
         }
     }
@@ -117,7 +125,7 @@ class DatabaseKeyManager(
      */
     fun backupCurrentDatabaseKey(): Boolean {
         return try {
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             val currentEncryptedKey = prefs.getString(ENCRYPTED_KEY_PREF, null)
             val currentIV = prefs.getString(IV_PREF, null)
 
@@ -130,6 +138,7 @@ class DatabaseKeyManager(
 
                 if (success) {
                     Timber.i("✅ Current database key backed up")
+                    // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyBackup()
                 } else {
                     Timber.w("⚠️ Backup commit returned false")
                 }
@@ -159,22 +168,25 @@ class DatabaseKeyManager(
             val wrapperKey = getOrCreateWrapperKey()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, wrapperKey)
-
             val encryptedKey = cipher.doFinal(newKey)
             val iv = cipher.iv
 
-            val encryptedKeyBase64 = android.util.Base64.encodeToString(encryptedKey, android.util.Base64.NO_WRAP)
+            val encryptedKeyBase64 = android.util.Base64.encodeToString(
+                encryptedKey,
+                android.util.Base64.NO_WRAP
+            )
             val ivBase64 = android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP)
 
             // ✅ CRITICAL FIX: Use editor.commit() properly to get Boolean return
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             val editor = prefs.edit()
             editor.putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
             editor.putString(IV_PREF, ivBase64)
-            val success = editor.commit()  // ✅ commit() returns Boolean
+            val success = editor.commit() // ✅ commit() returns Boolean
 
             if (success) {
                 Timber.i("✅ New database passphrase committed to storage")
+                // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyRotation()
             } else {
                 Timber.e("❌ Failed to commit new database passphrase - commit returned false")
             }
@@ -191,7 +203,7 @@ class DatabaseKeyManager(
      */
     fun rollbackToBackup(): Boolean {
         return try {
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             val backupKey = prefs.getString("${ENCRYPTED_KEY_PREF}_backup", null)
             val backupIV = prefs.getString("${IV_PREF}_backup", null)
 
@@ -204,6 +216,7 @@ class DatabaseKeyManager(
 
                 if (success) {
                     Timber.i("✅ Rolled back to backup database key")
+                    // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyRollback()
                 } else {
                     Timber.e("⚠️ Rollback commit returned false")
                 }
@@ -223,7 +236,7 @@ class DatabaseKeyManager(
      */
     fun clearBackup() {
         try {
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             prefs.edit().apply {
                 remove("${ENCRYPTED_KEY_PREF}_backup")
                 remove("${IV_PREF}_backup")
@@ -240,7 +253,7 @@ class DatabaseKeyManager(
      */
     private fun retrieveStoredKey(): ByteArray? {
         return try {
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             val encryptedKeyBase64 = prefs.getString(ENCRYPTED_KEY_PREF, null)
             val ivBase64 = prefs.getString(IV_PREF, null)
 
@@ -251,7 +264,10 @@ class DatabaseKeyManager(
 
             Timber.d("Found stored encrypted key, attempting to decrypt...")
 
-            val encryptedKey = android.util.Base64.decode(encryptedKeyBase64, android.util.Base64.NO_WRAP)
+            val encryptedKey = android.util.Base64.decode(
+                encryptedKeyBase64,
+                android.util.Base64.NO_WRAP
+            )
             val iv = android.util.Base64.decode(ivBase64, android.util.Base64.NO_WRAP)
 
             val decryptedKey = decryptKey(encryptedKey, iv)
@@ -275,25 +291,25 @@ class DatabaseKeyManager(
      */
     private fun generateAndStoreNewKey(): ByteArray {
         Timber.i("Generating NEW 256-bit database encryption key...")
-
         val databaseKey = secureMemoryUtils.generateSecureRandom(KEY_SIZE_BYTES)
         Timber.d("Generated key size: ${databaseKey.size} bytes")
 
         try {
             val wrapperKey = getOrCreateWrapperKey()
-
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, wrapperKey)
-
             val encryptedKey = cipher.doFinal(databaseKey)
             val iv = cipher.iv
 
             Timber.d("Encrypted key size: ${encryptedKey.size} bytes, IV size: ${iv.size} bytes")
 
-            val encryptedKeyBase64 = android.util.Base64.encodeToString(encryptedKey, android.util.Base64.NO_WRAP)
+            val encryptedKeyBase64 = android.util.Base64.encodeToString(
+                encryptedKey,
+                android.util.Base64.NO_WRAP
+            )
             val ivBase64 = android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP)
 
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             prefs.edit().apply {
                 putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
                 putString(IV_PREF, ivBase64)
@@ -362,21 +378,25 @@ class DatabaseKeyManager(
      */
     private fun attemptEmergencyKeyRecovery(): ByteArray? {
         Timber.w("🆘 Attempting emergency key recovery...")
-
         try {
-            val regularPrefs = context.getSharedPreferences("database_key_prefs", Context.MODE_PRIVATE)
+            val regularPrefs = context.getSharedPreferences(
+                "database_key_prefs",
+                Context.MODE_PRIVATE
+            )
             val encryptedKeyBase64 = regularPrefs.getString(ENCRYPTED_KEY_PREF, null)
             val ivBase64 = regularPrefs.getString(IV_PREF, null)
 
             if (encryptedKeyBase64 != null && ivBase64 != null) {
-                val encryptedKey = android.util.Base64.decode(encryptedKeyBase64, android.util.Base64.NO_WRAP)
+                val encryptedKey = android.util.Base64.decode(
+                    encryptedKeyBase64,
+                    android.util.Base64.NO_WRAP
+                )
                 val iv = android.util.Base64.decode(ivBase64, android.util.Base64.NO_WRAP)
-
                 val recoveredKey = decryptKey(encryptedKey, iv)
 
                 Timber.i("✅ Emergency recovery successful!")
 
-                val prefs = getEncryptedPrefs()
+                val prefs = context.getEncryptedPrefs()
                 prefs.edit().apply {
                     putString(ENCRYPTED_KEY_PREF, encryptedKeyBase64)
                     putString(IV_PREF, ivBase64)
@@ -384,9 +404,9 @@ class DatabaseKeyManager(
                     apply()
                 }
 
+                // ✅ REMOVED: auditLoggerProvider().logEmergencyKeyRecovery()
                 return recoveredKey
             }
-
         } catch (e: Exception) {
             Timber.e(e, "Emergency recovery failed")
         }
@@ -406,8 +426,7 @@ class DatabaseKeyManager(
     fun clearDatabaseKey() {
         try {
             Timber.w("⚠️ Clearing database key - database will become inaccessible!")
-
-            val prefs = getEncryptedPrefs()
+            val prefs = context.getEncryptedPrefs()
             prefs.edit().clear().apply()
 
             if (keyStore.containsAlias(keyAlias)) {
@@ -417,6 +436,7 @@ class DatabaseKeyManager(
             context.getSharedPreferences("database_key_prefs", Context.MODE_PRIVATE)
                 .edit().clear().apply()
 
+            // ✅ REMOVED: auditLoggerProvider().logDatabaseKeyClear()
             Timber.i("✅ Database key cleared")
 
         } catch (e: Exception) {
@@ -425,6 +445,6 @@ class DatabaseKeyManager(
     }
 
     fun isDatabaseKeyInitialized(): Boolean {
-        return getEncryptedPrefs().getBoolean(KEY_INITIALIZED_FLAG, false)
+        return context.getEncryptedPrefs().getBoolean(KEY_INITIALIZED_FLAG, false)
     }
 }

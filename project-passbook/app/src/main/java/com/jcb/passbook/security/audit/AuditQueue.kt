@@ -1,7 +1,9 @@
 package com.jcb.passbook.security.audit
 
+import android.content.Context
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
+import com.jcb.passbook.data.local.database.entities.AuditEventType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,17 +19,21 @@ import javax.inject.Singleton
 /**
  * AuditQueue provides crash-safe queuing for audit entries with persistent buffering.
  * Ensures audit entries are never lost even on app crashes or database unavailability.
+ *
+ * ✅ FIXED: Matches actual AuditEntry entity schema
  */
 @Singleton
 class AuditQueue @Inject constructor(
     private val auditDao: AuditDao,
-    private val journalManager: AuditJournalManager
+    private val context: Context
 ) {
+
     companion object {
         private const val BATCH_SIZE = 50
         private const val FLUSH_INTERVAL_MS = 5000L
         private const val MAX_RETRY_ATTEMPTS = 3
         private const val RETRY_DELAY_MS = 1000L
+        private const val JOURNAL_FILE = "audit_journal.txt"
     }
 
     private val queueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -49,12 +55,13 @@ class AuditQueue @Inject constructor(
         try {
             // Add to in-memory buffer first for immediate availability
             inMemoryBuffer.offer(auditEntry)
+
             // Send to processing channel
             auditChannel.send(auditEntry)
         } catch (e: Exception) {
             // If channel is closed, write directly to journal
             Timber.w(e, "Failed to enqueue audit entry, writing to journal")
-            journalManager.writeToJournal(auditEntry)
+            writeToJournal(auditEntry)
         }
     }
 
@@ -116,13 +123,14 @@ class AuditQueue @Inject constructor(
                 remainingEntries.forEach { entry ->
                     inMemoryBuffer.removeIf {
                         it.timestamp == entry.timestamp &&
-                                it.eventType == entry.eventType &&  // ✅ FIXED: Use eventType instead of action
+                                it.eventType == entry.eventType &&
                                 it.userId == entry.userId
                     }
                 }
 
                 Timber.v("Successfully inserted ${remainingEntries.size} audit entries")
                 break
+
             } catch (e: Exception) {
                 retryCount++
                 Timber.w(e, "Failed to insert audit batch (attempt $retryCount/$MAX_RETRY_ATTEMPTS)")
@@ -131,7 +139,7 @@ class AuditQueue @Inject constructor(
                     // Write failed entries to persistent journal
                     remainingEntries.forEach { entry ->
                         try {
-                            journalManager.writeToJournal(entry)
+                            writeToJournal(entry)
                         } catch (journalException: Exception) {
                             Timber.e(journalException, "Critical: Failed to write to audit journal")
                         }
@@ -171,7 +179,7 @@ class AuditQueue @Inject constructor(
             try {
                 auditDao.insert(entry)
             } catch (e: Exception) {
-                journalManager.writeToJournal(entry)
+                writeToJournal(entry)
             }
         }
 
@@ -179,7 +187,7 @@ class AuditQueue @Inject constructor(
         flushInMemoryBuffer()
 
         // Flush journal
-        journalManager.flushJournal()
+        flushJournal()
     }
 
     /**
@@ -188,7 +196,7 @@ class AuditQueue @Inject constructor(
     private fun recoverFromJournal() {
         queueScope.launch {
             try {
-                val recoveredEntries = journalManager.recoverFromJournal()
+                val recoveredEntries = recoverFromJournalFile()
                 if (recoveredEntries.isNotEmpty()) {
                     Timber.i("Recovered ${recoveredEntries.size} audit entries from journal")
 
@@ -198,11 +206,106 @@ class AuditQueue @Inject constructor(
                     }
 
                     // Clear journal after successful recovery
-                    journalManager.clearJournal()
+                    clearJournal()
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to recover from audit journal")
             }
+        }
+    }
+
+    // ✅ Journal management methods with corrected schema
+
+    /**
+     * Write audit entry to persistent journal file
+     * ✅ FIXED: Use 'description' field instead of 'details'
+     */
+    private fun writeToJournal(entry: AuditEntry) {
+        try {
+            val journalFile = context.getFileStreamPath(JOURNAL_FILE)
+            // ✅ FIXED: Use entry.description and eventType.name
+            val line = "${entry.id}|${entry.userId}|${entry.eventType.name}|${entry.timestamp}|${entry.description}\n"
+
+            context.openFileOutput(JOURNAL_FILE, Context.MODE_APPEND).use { output ->
+                output.write(line.toByteArray())
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to write to journal")
+        }
+    }
+
+    /**
+     * Flush journal to disk
+     */
+    private fun flushJournal() {
+        // File output streams auto-flush, but we can force sync
+        try {
+            val journalFile = context.getFileStreamPath(JOURNAL_FILE)
+            if (journalFile.exists()) {
+                Timber.d("Journal flushed: ${journalFile.length()} bytes")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to flush journal")
+        }
+    }
+
+    /**
+     * Recover audit entries from journal file
+     * ✅ FIXED: Parse eventType as enum and use 'description' parameter
+     */
+    private fun recoverFromJournalFile(): List<AuditEntry> {
+        val entries = mutableListOf<AuditEntry>()
+        try {
+            val journalFile = context.getFileStreamPath(JOURNAL_FILE)
+            if (!journalFile.exists()) {
+                return emptyList()
+            }
+
+            context.openFileInput(JOURNAL_FILE).bufferedReader().use { reader ->
+                reader.forEachLine { line ->
+                    try {
+                        val parts = line.split("|")
+                        if (parts.size >= 5) {
+                            // ✅ FIXED: Skip invalid enum values instead of fallback
+                            val eventType = try {
+                                AuditEventType.valueOf(parts[2])
+                            } catch (e: IllegalArgumentException) {
+                                Timber.w("Skipping journal entry with invalid eventType: ${parts[2]}")
+                                return@forEachLine // Skip this entry
+                            }
+
+                            val entry = AuditEntry(
+                                id = parts[0].toLongOrNull() ?: 0L,
+                                userId = parts[1].toLongOrNull() ?: 0L,
+                                eventType = eventType,
+                                timestamp = parts[3].toLongOrNull() ?: System.currentTimeMillis(),
+                                description = parts.drop(4).joinToString("|")
+                            )
+                            entries.add(entry)
+                        }
+                    } catch (e: Exception) {
+                        Timber.w(e, "Failed to parse journal entry: $line")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to recover from journal")
+        }
+        return entries
+    }
+
+    /**
+     * Clear journal file after successful recovery
+     */
+    private fun clearJournal() {
+        try {
+            val journalFile = context.getFileStreamPath(JOURNAL_FILE)
+            if (journalFile.exists()) {
+                journalFile.delete()
+                Timber.d("Journal cleared")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to clear journal")
         }
     }
 

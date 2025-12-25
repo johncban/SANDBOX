@@ -38,5 +38,7 @@ enum class AuditEventType {
     // Other
     SYSTEM_START,
     SYSTEM_STOP,
-    SYSTEM_EVENT        // ✅ ADDED
+    SYSTEM_EVENT,        // ✅ ADDED
+    PASSWORD_CHANGE,
+    DATABASE_KEY_ACCESS
 }

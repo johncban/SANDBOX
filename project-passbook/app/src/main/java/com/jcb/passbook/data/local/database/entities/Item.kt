@@ -6,6 +6,17 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/**
+ * Item - Password entry entity
+ *
+ * SECURITY:
+ * - encryptedPassword stored as ByteArray (encrypted via CryptoManager)
+ * - passwordCategory uses PasswordCategoryEnum (stored as String)
+ *
+ * RELATIONSHIPS:
+ * - Foreign key to User (CASCADE delete)
+ * - Optional foreign key to Category (SET NULL on delete)
+ */
 @Entity(
     tableName = "items",
     foreignKeys = [
@@ -25,7 +36,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["userId"]),
         Index(value = ["category_id"]),
-        Index(value = ["password_category"]),  // NEW: Index for enum category filtering
+        Index(value = ["password_category"]),
         Index(value = ["isFavorite"]),
         Index(value = ["createdAt"])
     ]
@@ -34,10 +45,10 @@ data class Item(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
 
+    @ColumnInfo(name = "userId")
     val userId: Long,
 
     val title: String,
-
     val username: String? = null,
 
     @ColumnInfo(name = "encryptedPassword")
@@ -46,7 +57,7 @@ data class Item(
     val url: String? = null,
 
     @ColumnInfo(name = "notes")
-    val notes: String? = null,  // EXISTING: Description field for password context
+    val notes: String? = null,
 
     @ColumnInfo(name = "category_id")
     val categoryId: Long? = null,
@@ -54,28 +65,24 @@ data class Item(
     @ColumnInfo(name = "category_name")
     val categoryName: String? = null,
 
-    @ColumnInfo(name = "password_category")  // NEW: Enum-based category stored as string
-    val passwordCategory: String = PasswordCategory.OTHER.name,
+    @ColumnInfo(name = "password_category")
+    val passwordCategory: String = PasswordCategoryEnum.OTHER.name,
 
     val isFavorite: Boolean = false,
-
     val createdAt: Long = System.currentTimeMillis(),
-
     val updatedAt: Long = System.currentTimeMillis(),
-
     val lastAccessedAt: Long? = null
 ) {
     /**
      * Convert stored string to enum for type-safe usage
      */
-    fun getPasswordCategoryEnum(): PasswordCategory {
-        return PasswordCategory.fromString(passwordCategory)
+    fun getPasswordCategoryEnum(): PasswordCategoryEnum {
+        return PasswordCategoryEnum.fromString(passwordCategory)
     }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
-
         other as Item
 
         if (id != other.id) return false

@@ -2,6 +2,7 @@ package com.jcb.passbook.security.audit
 
 import android.content.Context
 import android.os.Build
+import com.jcb.passbook.data.local.database.AppDatabase
 import com.jcb.passbook.data.local.database.entities.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -14,7 +15,8 @@ import javax.inject.Singleton
 class AuditLogger @Inject constructor(
     private val auditQueueProvider: () -> AuditQueue?,
     private val auditChainManagerProvider: () -> AuditChainManager?,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    database: AppDatabase
 ) {
     // ✅ FIX: Lazy initialization from providers
     private val auditQueue: AuditQueue? by lazy { auditQueueProvider() }

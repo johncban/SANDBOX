@@ -2,10 +2,11 @@ package com.jcb.passbook.presentation.viewmodel.vault
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.Transaction
 import com.jcb.passbook.data.local.database.entities.Item
-import com.jcb.passbook.data.local.database.entities.PasswordCategory
+import com.jcb.passbook.data.local.database.entities.PasswordCategoryEnum
 import com.jcb.passbook.data.repository.ItemRepository
+import com.jcb.passbook.security.session.SessionManager
+import com.jcb.passbook.security.crypto.PasswordEncryptionService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -15,76 +16,69 @@ import timber.log.Timber
 import javax.inject.Inject
 
 /**
- * UI state for password vault management
+ * UI state for vault management
  */
 data class ItemUiState(
     val items: List<Item> = emptyList(),
-    val selectedCategory: PasswordCategory? = null,
+    val selectedCategory: PasswordCategoryEnum? = null,
     val searchQuery: String = "",
     val isLoading: Boolean = false,
-    val isSaving: Boolean = false, // ✅ NEW: Track save operation state
+    val isSaving: Boolean = false,
     val error: String? = null,
-    val lastSaveSuccessful: Boolean? = null // ✅ NEW: Track last save result
+    val lastSaveSuccessful: Boolean? = null
 )
 
 /**
- * ItemViewModel - Manages password vault state and operations
- *
- * ✅ FIXED (2025-12-22): Complete refactor to fix save failures
- *
- * Critical fixes:
- * - Added proper transaction handling with @Transaction
- * - Implemented withContext(Dispatchers.IO) for database operations
- * - Added save operation state tracking (isSaving flag)
- * - Implemented retry logic for failed operations
- * - Added proper error handling and recovery
- * - Ensured database completion before UI callback
- *
- * Security considerations:
- * - Items only loaded after setCurrentUserId() called from MainActivity
- * - All repository queries filtered by authenticated userId
- * - Secrets cleared from memory in onCleared() and clearSecrets()
+ * SaveState - Tracks save operation status
+ */
+sealed class SaveState {
+    object Idle : SaveState()
+    object Loading : SaveState()
+    data class Success(val itemId: Long) : SaveState()
+    data class Error(val message: String) : SaveState()
+}
+
+/**
+ * ItemViewModel - Manages password vault with SessionManager integration
+ * ✅ FIXED: Added SessionManager and PasswordEncryptionService
  */
 @HiltViewModel
 class ItemViewModel @Inject constructor(
-    private val repository: ItemRepository
+    private val repository: ItemRepository,
+    private val sessionManager: SessionManager, // ✅ NEW: Session management
+    private val encryptionService: PasswordEncryptionService // ✅ NEW: Encryption service
 ) : ViewModel() {
 
-    // Current authenticated user ID - null until login succeeds
     private val _currentUserId = MutableStateFlow<Long?>(null)
     val currentUserId: StateFlow<Long?> = _currentUserId.asStateFlow()
 
-    // UI state exposed to composables
     private val _uiState = MutableStateFlow(ItemUiState())
     val uiState: StateFlow<ItemUiState> = _uiState.asStateFlow()
 
+    private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
+    val saveState: StateFlow<SaveState> = _saveState.asStateFlow()
+
     /**
-     * Set current authenticated user ID for vault queries
-     * Called from MainActivity after successful login or registration
-     *
-     * @param userId Authenticated user ID from AuthState.Success
+     * Set authenticated user ID
      */
     fun setCurrentUserId(userId: Long) {
-        Timber.d("Setting current userId: $userId")
+        Timber.d("Setting userId: $userId")
         _currentUserId.value = userId
         loadItems()
     }
 
     /**
-     * Load items with reactive filters for category and search
-     * Automatically triggered when userId, category, or search query changes
+     * Load items with reactive filters
      */
     fun loadItems() {
         val userId = _currentUserId.value
         if (userId == null) {
-            Timber.w("loadItems() called before userId set - skipping")
+            Timber.w("loadItems() skipped - userId not set")
             return
         }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-
-            // Combine category and search filters reactively
             combine(
                 _uiState.map { it.selectedCategory },
                 _uiState.map { it.searchQuery }
@@ -93,15 +87,12 @@ class ItemViewModel @Inject constructor(
             }.flatMapLatest { (category, query) ->
                 when {
                     query.isNotBlank() -> {
-                        Timber.d("Searching items: userId=$userId, query=$query, category=$category")
-                        repository.searchItems(userId, query, category)
+                        repository.searchItems(userId, query, category?.name)
                     }
                     category != null -> {
-                        Timber.d("Filtering by category: userId=$userId, category=$category")
-                        repository.getItemsByCategory(userId, category)
+                        repository.getItemsByCategory(userId, category.name)
                     }
                     else -> {
-                        Timber.d("Loading all items for userId=$userId")
                         repository.getItemsForUser(userId)
                     }
                 }
@@ -109,52 +100,33 @@ class ItemViewModel @Inject constructor(
                 Timber.e(e, "Error loading items")
                 _uiState.update { it.copy(error = e.message, isLoading = false) }
             }.collect { items ->
-                Timber.d("Loaded ${items.size} items")
                 _uiState.update { it.copy(items = items, isLoading = false, error = null) }
             }
         }
     }
 
     /**
-     * Filter vault items by password category
-     * Pass null to show all categories
-     *
-     * @param category PasswordCategory enum or null for all
+     * Filter by category
      */
-    fun filterByCategory(category: PasswordCategory?) {
-        Timber.d("Filtering by category: $category")
+    fun filterByCategory(category: PasswordCategoryEnum?) {
         _uiState.update { it.copy(selectedCategory = category) }
     }
 
     /**
-     * Update search query for filtering vault items
-     * Searches across title, username, and notes fields
-     *
-     * @param query Search string (case-insensitive)
+     * Update search query
      */
     fun updateSearchQuery(query: String) {
-        Timber.d("Updating search query: $query")
         _uiState.update { it.copy(searchQuery = query) }
     }
 
     /**
-     * ✅ FIXED: Insert new or update existing password entry with proper transaction handling
+     * ✅ FIXED: Insert or update with SessionManager integration
      *
      * Critical changes:
-     * - Added isSaving state flag to prevent concurrent saves
-     * - Implemented withContext(Dispatchers.IO) for database operation
-     * - Added try-catch-finally with proper state management
-     * - Ensured database write completion before returning
-     * - Added validation for userId and required fields
-     *
-     * @param id Item ID (0 for new, existing ID for update)
-     * @param title Password entry title (required)
-     * @param username Username or email (optional)
-     * @param encryptedPassword Encrypted password bytes (required)
-     * @param url Website URL (optional)
-     * @param notes Description or context notes (optional)
-     * @param passwordCategory PasswordCategory enum (required)
-     * @param isFavorite Mark as favorite (default false)
+     * 1. Start operation tracking to extend session timeout
+     * 2. Get AMK from SessionManager with grace period
+     * 3. Encrypt password using AMK
+     * 4. Always end operation tracking in finally block
      */
     fun insertOrUpdateItem(
         id: Long = 0,
@@ -163,262 +135,200 @@ class ItemViewModel @Inject constructor(
         encryptedPassword: ByteArray,
         url: String?,
         notes: String?,
-        passwordCategory: PasswordCategory,
+        passwordCategory: PasswordCategoryEnum,
         isFavorite: Boolean = false
     ) {
-        // ✅ VALIDATION: Check userId first
         val userId = _currentUserId.value
         if (userId == null) {
-            Timber.e("❌ Cannot insert/update item: userId not set")
-            _uiState.update {
-                it.copy(
-                    error = "User session expired. Please log in again.",
-                    lastSaveSuccessful = false
-                )
-            }
+            _saveState.value = SaveState.Error("User session expired")
             return
         }
 
-        // ✅ VALIDATION: Check if already saving
-        if (_uiState.value.isSaving) {
-            Timber.w("⚠️ Save operation already in progress, skipping duplicate request")
+        if (_saveState.value is SaveState.Loading) {
+            Timber.w("Save already in progress")
             return
         }
 
-        // ✅ VALIDATION: Check required fields
         if (title.isBlank()) {
-            Timber.e("❌ Cannot save: Title is required")
-            _uiState.update {
-                it.copy(
-                    error = "Title is required",
-                    lastSaveSuccessful = false
-                )
-            }
+            _saveState.value = SaveState.Error("Title is required")
             return
         }
 
         if (encryptedPassword.isEmpty()) {
-            Timber.e("❌ Cannot save: Password is required")
-            _uiState.update {
-                it.copy(
-                    error = "Password is required",
-                    lastSaveSuccessful = false
-                )
-            }
+            _saveState.value = SaveState.Error("Password is required")
             return
         }
 
         viewModelScope.launch {
             try {
-                // ✅ Set saving state BEFORE database operation
-                _uiState.update { it.copy(isSaving = true, lastSaveSuccessful = null) }
-                Timber.i("💾 Starting save operation: id=$id, title='$title', userId=$userId")
+                // ✅ CRITICAL: Start operation - extends session timeout
+                sessionManager.startOperation()
 
-                // ✅ CRITICAL: Execute database operation on IO dispatcher
-                val result = withContext(Dispatchers.IO) {
-                    try {
-                        val item = Item(
-                            id = id,
-                            userId = userId,
-                            title = title.trim(),
-                            username = username?.trim(),
-                            encryptedPassword = encryptedPassword,
-                            url = url?.trim(),
-                            notes = notes?.trim(),
-                            passwordCategory = passwordCategory.name,
-                            isFavorite = isFavorite,
-                            updatedAt = System.currentTimeMillis()
-                        )
+                _saveState.value = SaveState.Loading
+                _uiState.update { it.copy(isSaving = true) }
 
-                        if (id == 0L) {
-                            // Insert new item
-                            val newId = repository.insertItem(item)
-                            Timber.i("✅ Inserted new item: id=$newId, title='$title'")
-                            newId
-                        } else {
-                            // Update existing item
-                            repository.updateItem(item)
-                            Timber.i("✅ Updated item: id=$id, title='$title'")
-                            id
-                        }
-                    } catch (dbError: Exception) {
-                        Timber.e(dbError, "❌ Database operation failed")
-                        throw dbError // Re-throw to outer catch
+                // ✅ CRITICAL: Get AMK with extended timeout
+                val amk = sessionManager.getSessionAMK()
+                if (amk == null) {
+                    _saveState.value = SaveState.Error("User session expired")
+                    _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = false, error = "Session expired") }
+                    Timber.e("❌ Session expired during save")
+                    return@launch
+                }
+
+                val result: Long = withContext(Dispatchers.IO) {
+                    // ✅ Encrypt password with AMK
+                    val encryptedPasswordData = encryptionService.encryptPassword(
+                        password = String(encryptedPassword, Charsets.UTF_8),
+                        amk = amk
+                    )
+
+                    val item = Item(
+                        id = id,
+                        userId = userId,
+                        title = title.trim(),
+                        username = username?.trim(),
+                        encryptedPassword = encryptedPasswordData,
+                        url = url?.trim(),
+                        notes = notes?.trim(),
+                        passwordCategory = passwordCategory.name,
+                        isFavorite = isFavorite,
+                        updatedAt = System.currentTimeMillis()
+                    )
+
+                    if (id == 0L) {
+                        repository.insertItem(item)
+                    } else {
+                        repository.updateItem(item)
+                        id // Return the existing ID
                     }
                 }
 
-                // ✅ SUCCESS: Update UI state on Main dispatcher
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = true,
-                            error = null
-                        )
-                    }
-                    Timber.i("✅ Save operation completed successfully: resultId=$result")
-                }
+                _saveState.value = SaveState.Success(result)
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = true, error = null) }
+                Timber.i("✅ Password saved successfully: $title")
 
             } catch (e: Exception) {
-                // ✅ ERROR HANDLING: Update UI with error on Main dispatcher
-                withContext(Dispatchers.Main) {
-                    val errorMessage = when (e) {
-                        is android.database.sqlite.SQLiteConstraintException -> {
-                            "Duplicate password entry. Please use a different title."
-                        }
-                        is android.database.sqlite.SQLiteFullException -> {
-                            "Database is full. Please delete old passwords."
-                        }
-                        else -> {
-                            "Failed to save password: ${e.message}"
-                        }
-                    }
-
-                    Timber.e(e, "❌ Error inserting/updating item: $errorMessage")
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = false,
-                            error = errorMessage
-                        )
-                    }
+                val errorMessage = when (e) {
+                    is android.database.sqlite.SQLiteConstraintException -> "Duplicate entry"
+                    is android.database.sqlite.SQLiteFullException -> "Database full"
+                    else -> "Failed to save: ${e.message}"
                 }
+
+                _saveState.value = SaveState.Error(errorMessage)
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = false, error = errorMessage) }
+                Timber.e(e, "❌ Failed to save password")
+            } finally {
+                // ✅ CRITICAL: Always end operation tracking
+                sessionManager.endOperation()
             }
         }
     }
 
     /**
-     * ✅ FIXED: Update existing password item with proper error handling
-     *
-     * @param item Item entity with updated values
+     * ✅ FIXED: Update item with SessionManager integration
      */
     fun updateItem(item: Item) {
         viewModelScope.launch {
             try {
-                _uiState.update { it.copy(isSaving = true, lastSaveSuccessful = null) }
-                Timber.i("💾 Updating item: id=${item.id}, title='${item.title}'")
+                // ✅ CRITICAL: Start operation tracking
+                sessionManager.startOperation()
 
-                // ✅ Execute on IO dispatcher
-                withContext(Dispatchers.IO) {
-                    repository.updateItem(item)
+                _saveState.value = SaveState.Loading
+                _uiState.update { it.copy(isSaving = true) }
+
+                // ✅ CRITICAL: Get AMK with extended timeout
+                val amk = sessionManager.getSessionAMK()
+                if (amk == null) {
+                    _saveState.value = SaveState.Error("User session expired")
+                    _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = false, error = "Session expired") }
+                    Timber.e("❌ Session expired during update")
+                    return@launch
                 }
 
-                // ✅ Success
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = true,
-                            error = null
+                withContext(Dispatchers.IO) {
+                    // ✅ Re-encrypt password if it's plaintext
+                    val encryptedPasswordData = if (String(item.encryptedPassword, Charsets.UTF_8).startsWith("encrypted:")) {
+                        // Already encrypted, keep as is
+                        item.encryptedPassword
+                    } else {
+                        // Encrypt plaintext password
+                        encryptionService.encryptPassword(
+                            password = String(item.encryptedPassword, Charsets.UTF_8),
+                            amk = amk
                         )
                     }
-                    Timber.i("✅ Item updated successfully: id=${item.id}")
+
+                    val updatedItem = item.copy(
+                        encryptedPassword = encryptedPasswordData,
+                        updatedAt = System.currentTimeMillis()
+                    )
+
+                    repository.updateItem(updatedItem)
                 }
+
+                _saveState.value = SaveState.Success(itemId = item.id)
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = true, error = null) }
+                Timber.i("✅ Password updated successfully: ${item.title}")
 
             } catch (e: Exception) {
-                // ✅ Error handling
-                withContext(Dispatchers.Main) {
-                    Timber.e(e, "❌ Error updating item")
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = false,
-                            error = e.message ?: "Failed to update password"
-                        )
-                    }
-                }
+                _saveState.value = SaveState.Error(e.message ?: "Update failed")
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = false, error = e.message) }
+                Timber.e(e, "❌ Failed to update password")
+            } finally {
+                // ✅ CRITICAL: Always end operation tracking
+                sessionManager.endOperation()
             }
         }
     }
 
     /**
-     * ✅ FIXED: Delete password entry by ID with proper error handling
-     *
-     * @param itemId Item ID to delete
+     * Delete password entry by ID
      */
     fun deleteItem(itemId: Long) {
         viewModelScope.launch {
             try {
-                _uiState.update { it.copy(isSaving = true, lastSaveSuccessful = null) }
-                Timber.i("🗑️ Deleting item: id=$itemId")
-
-                // ✅ Execute on IO dispatcher
+                _uiState.update { it.copy(isSaving = true) }
                 withContext(Dispatchers.IO) {
                     repository.deleteById(itemId)
                 }
-
-                // ✅ Success
-                withContext(Dispatchers.Main) {
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = true,
-                            error = null
-                        )
-                    }
-                    Timber.i("✅ Item deleted successfully: id=$itemId")
-                }
-
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = true, error = null) }
+                Timber.i("✅ Password deleted: $itemId")
             } catch (e: Exception) {
-                // ✅ Error handling
-                withContext(Dispatchers.Main) {
-                    Timber.e(e, "❌ Error deleting item")
-                    _uiState.update {
-                        it.copy(
-                            isSaving = false,
-                            lastSaveSuccessful = false,
-                            error = e.message ?: "Failed to delete password"
-                        )
-                    }
-                }
+                _uiState.update { it.copy(isSaving = false, lastSaveSuccessful = false, error = e.message) }
+                Timber.e(e, "❌ Failed to delete password")
             }
         }
     }
 
     /**
-     * Delete password entry from vault (legacy method - kept for compatibility)
-     *
-     * @param item Item entity to delete
+     * Reset save state
      */
-    fun deleteItem(item: Item) {
-        deleteItem(item.id)
+    fun resetSaveState() {
+        _saveState.value = SaveState.Idle
+        _uiState.update { it.copy(lastSaveSuccessful = null, error = null) }
     }
 
     /**
-     * Clear vault data and user session
-     * Called on logout or session expiration from MainActivity
-     * Resets userId and UI state to initial values
+     * Clear vault data
      */
     fun clearVault() {
-        Timber.i("🧹 Clearing vault data and userId")
         _currentUserId.value = null
         _uiState.update { ItemUiState() }
+        _saveState.value = SaveState.Idle
     }
 
-    /**
-     * Clear sensitive password data from memory
-     * Called in onCleared() and from MainActivity onDestroy
-     * Keeps userId for potential re-authentication but clears item list
-     */
     fun clearSecrets() {
-        Timber.i("🔒 Clearing sensitive data from memory")
         _uiState.update { it.copy(items = emptyList(), error = null) }
     }
 
-    /**
-     * Clear error message from UI state
-     * Typically called after user dismisses error snackbar
-     */
     fun clearError() {
         _uiState.update { it.copy(error = null, lastSaveSuccessful = null) }
+        _saveState.value = SaveState.Idle
     }
 
-    /**
-     * ViewModel cleanup - clear secrets on destruction
-     */
     override fun onCleared() {
         super.onCleared()
         clearSecrets()
-        Timber.d("🧹 ItemViewModel cleared")
     }
 }
