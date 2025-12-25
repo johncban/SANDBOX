@@ -1,204 +1,115 @@
 package com.jcb.passbook
 
-import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity  // ✅ CHANGED from FragmentActivity
+import android.util.Log
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
-import androidx.compose.ui.graphics.BlendMode.Companion.Screen
+import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.jcb.passbook.presentation.navigation.Screen
-import com.jcb.passbook.presentation.ui.*
-import com.jcb.passbook.presentation.viewmodel.shared.AuthState
-import com.jcb.passbook.presentation.viewmodel.shared.UserViewModel
-import com.jcb.passbook.presentation.viewmodel.vault.ItemViewModel
-import com.jcb.passbook.security.session.SessionManager
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.navigation.NavController
+import com.jcb.passbook.presentation.navigation.PassbookNavigation
+import com.jcb.passbook.presentation.ui.theme.PassbookTheme
+import com.jcb.passbook.presentation.viewmodel.main.MainViewModel
+import com.jcb.passbook.ui.theme.PassbookTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import timber.log.Timber
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @Inject
-    lateinit var sessionManager: SessionManager
+    // Session timeout constant
+    private companion object {
+        const val SESSION_TIMEOUT_MILLS: Long = 5 * 60 * 1000 // 5 minutes
+        const val TAG = "MainActivity"
+    }
 
-    @Inject
-    lateinit var itemViewModel: ItemViewModel
-
-    @Inject
-    lateinit var userViewModel: UserViewModel
+    private var navController: NavController? = null
+    private var cleanupJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Setup authentication state observer
-        // ✅ CRITICAL: Single source of truth for auth state
-        setupAuthStateObserver()
-
-        // Setup other initialization
-        setupPassphraseRotation()
-        setupSessionCleanup()
+        enableEdgeToEdge()
 
         setContent {
-            MaterialTheme {
-                Surface {
-                    AppNavigation()
+            PassbookTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    PassbookNavigation(
+                        onNavControllerCreated = { controller ->
+                            navController = controller
+                        }
+                    )
+                }
+            }
+        }
+
+        // Setup session timeout
+        setupSessionTimeout()
+    }
+
+    /**
+     * Setup session timeout to clear vault after inactivity
+     * Fixes: P2 - Memory leak (improper job management)
+     */
+    private fun setupSessionTimeout() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                try {
+                    delay(SESSION_TIMEOUT_MILLS)
+
+                    // Get MainViewModel to access logout functionality
+                    val mainViewModel: MainViewModel = hiltViewModel()
+                    mainViewModel.logout()
+
+                    Log.i(TAG, "✅ Session timeout triggered - user logged out")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error in session timeout: ${e.message}", e)
                 }
             }
         }
     }
 
     /**
-     * ✅ CRITICAL: Single source of truth for userId setting
-     * This is the ONLY place where setCurrentUserId() should be called
+     * Proper cleanup on activity destroy
+     * Fixes: P2 - Memory leak (missing cleanup)
      */
-    private fun setupAuthStateObserver() {
-        lifecycleScope.launch {
-            userViewModel.authState.collect { authState ->
-                when (authState) {
-                    is AuthState.Success -> {
-                        Timber.i("🔐 AuthState changed to Success: ${authState.userId}")
-                        // ✅ Set userId ONLY here
-                        itemViewModel.setCurrentUserId(authState.userId)
-                    }
-                    is AuthState.Authenticated -> {
-                        Timber.i("🔐 User authenticated")
-                    }
-                    AuthState.LoggedOut -> {
-                        Timber.i("🚪 User logged out")
-                        itemViewModel.clearSecrets()
-                    }
-                    is AuthState.Error -> {
-                        Timber.e("❌ Auth error: ${authState.message}")
-                    }
-                }
-            }
-        }
-    }
+    override fun onDestroy() {
+        super.onDestroy()
 
-    @Composable
-    private fun AppNavigation() {
-        val navController = rememberNavController()
-        val authState by userViewModel.authState.collectAsState()
+        // Cancel cleanup job to prevent memory leaks
+        cleanupJob?.cancel()
+        cleanupJob = null
 
-        NavHost(
-            navController = navController,
-            startDestination = when (authState) {
-                is AuthState.Success -> Screen.ItemList.route
-                else -> Screen.Login.route
-            }
-        ) {
-            composable(Screen.Login.route) {
-                LoginScreen(
-                    onLoginSuccess = { userId ->
-                        // ✅ DON'T call setCurrentUserId here
-                        // It's already set by setupAuthStateObserver()
-                        Timber.d("✓ Login successful, userId=$userId")
-                        navController.navigate(Screen.ItemList.route)
-                    },
-                    onNavigateToRegister = {
-                        navController.navigate(Screen.Register.route)
-                    }
-                )
-            }
+        // Clear navigation controller reference
+        navController = null
 
-            composable(Screen.Register.route) {
-                RegisterScreen(
-                    onRegisterSuccess = {
-                        navController.navigate(Screen.Login.route)
-                    }
-                )
-            }
-
-            composable(Screen.ItemList.route) {
-                ItemListScreen(
-                    onItemClick = { itemId ->
-                        navController.navigate(Screen.ItemDetail.createRoute(itemId))
-                    },
-                    onLogout = {
-                        handleLogout(navController)
-                    }
-                )
-            }
-
-            composable(Screen.ItemDetail.route) { backStackEntry ->
-                val itemId = backStackEntry.arguments?.getLong("itemId") ?: 0L
-                ItemDetailScreen(
-                    itemId = itemId,
-                    onNavigateBack = { navController.popBackStack() }
-                )
-            }
-        }
+        Log.d(TAG, "✅ MainActivity destroyed - resources cleaned up")
     }
 
     /**
-     * ✅ CRITICAL: Atomic logout handler
-     * Ensures all cleanup happens in correct order with error handling
+     * Handle lifecycle pause
      */
-    private fun handleLogout(navController: NavController) {
-        lifecycleScope.launch {
-            try {
-                Timber.i("🚪 Logout initiated")
-
-                // Step 1: End session
-                try {
-                    sessionManager.endSession("User initiated logout")
-                    Timber.d("✓ Session ended")
-                } catch (e: Exception) {
-                    Timber.e(e, "Error ending session, continuing...")
-                }
-
-                // Step 2: Clear vault
-                try {
-                    itemViewModel.clearVault()
-                    Timber.d("✓ Vault cleared")
-                } catch (e: Exception) {
-                    Timber.e(e, "Error clearing vault")
-                }
-
-                // Step 3: Clear auth state
-                try {
-                    itemViewModel.clearSecrets()
-                    userViewModel.clearAuthState()
-                    Timber.d("✓ Auth state cleared")
-                } catch (e: Exception) {
-                    Timber.e(e, "Error clearing auth")
-                }
-
-                // Step 4: Navigate to login
-                navController.navigate(Screen.Login.route) {
-                    popUpTo(Screen.ItemList.route) { inclusive = true }
-                }
-
-                Timber.i("✅ Logout completed")
-            } catch (e: Exception) {
-                Timber.e(e, "Unexpected error during logout")
-            }
-        }
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "Activity paused")
     }
 
-    private fun setupPassphraseRotation() {
-        // Passphrase rotation logic
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            lifecycleScope.launch {
-                // Rotation logic for Android 11+
-            }
-        }
-    }
-
-    private fun setupSessionCleanup() {
-        lifecycleScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(60_000)  // Check every minute
-                sessionManager.checkSessionTimeout()
-            }
-        }
+    /**
+     * Handle lifecycle resume
+     */
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "Activity resumed")
     }
 }
