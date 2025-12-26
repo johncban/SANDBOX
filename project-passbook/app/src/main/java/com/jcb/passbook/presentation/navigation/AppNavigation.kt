@@ -1,6 +1,7 @@
 package com.jcb.passbook.presentation.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -11,19 +12,16 @@ import com.jcb.passbook.presentation.ui.screens.auth.RegistrationScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemDetailsScreen
 import com.jcb.passbook.presentation.ui.screens.vault.ItemListScreen
 
-/**
- * Main navigation graph for Passbook app
- * Uses actual existing screens from the repository
- */
 @Composable
 fun AppNavigation(navController: NavHostController) {
     NavHost(
         navController = navController,
         startDestination = "login"
     ) {
-        // Authentication screens
+        // ✅ FIXED: Authentication screens with correct parameters
         composable("login") {
             LoginScreen(
+                userViewModel = hiltViewModel(), // ✅ Added missing parameter
                 onLoginSuccess = {
                     navController.navigate("itemList") {
                         popUpTo("login") { inclusive = true }
@@ -38,7 +36,8 @@ fun AppNavigation(navController: NavHostController) {
 
         composable("registration") {
             RegistrationScreen(
-                onRegistrationSuccess = {
+                userViewModel = hiltViewModel(), // ✅ Added missing parameter
+                onRegisterSuccess = { // ✅ Fixed parameter name
                     navController.navigate("itemList") {
                         popUpTo("registration") { inclusive = true }
                         launchSingleTop = true
@@ -50,20 +49,17 @@ fun AppNavigation(navController: NavHostController) {
             )
         }
 
-        // Vault screens - using actual existing screens
+        // ✅ FIXED: Vault screens with correct parameters
         composable("itemList") {
             ItemListScreen(
-                onItemClick = { itemId ->
-                    navController.navigate("itemDetails/$itemId")
-                },
-                onAddNewItem = {
-                    navController.navigate("itemDetails/0") // 0 for new item
-                },
-                onLogout = {
+                onLogout = { // ✅ Fixed parameter name
                     navController.navigate("login") {
                         popUpTo(0) { inclusive = true }
                         launchSingleTop = true
                     }
+                },
+                onAddClick = { // ✅ Fixed parameter name
+                    navController.navigate("itemDetails/0")
                 }
             )
         }

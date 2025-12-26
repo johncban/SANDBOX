@@ -22,7 +22,7 @@ import java.security.SecureRandom
  * - Secure nonce generation
  * - Public API for encryption component extraction and validation
  */
-class CryptoManager(
+open class CryptoManager(
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
     companion object {
