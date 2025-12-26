@@ -19,6 +19,11 @@ object AppModule {
     private const val DATABASE_NAME = "passbook_database"
     private const val TAG = "DatabaseModule"
 
+    /**
+     * Provides the encrypted Room database instance
+     * CRITICAL: This is the ONLY database provider in the entire app
+     */
+    /***
     @Provides
     @Singleton
     fun provideDatabase(
@@ -46,4 +51,5 @@ object AppModule {
         Log.d(TAG, "📦 Providing ItemDao")
         return database.itemDao()
     }
+    ***/
 }

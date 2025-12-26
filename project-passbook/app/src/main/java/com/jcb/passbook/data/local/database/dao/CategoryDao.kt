@@ -1,3 +1,4 @@
+// File: app/src/main/java/com/jcb/passbook/data/local/database/dao/CategoryDao.kt
 package com.jcb.passbook.data.local.database.dao
 
 import androidx.room.*
@@ -7,8 +8,8 @@ import kotlinx.coroutines.flow.Flow
 /**
  * CategoryDao - Data Access Object for Category operations
  *
- * Provides CRUD operations and queries for categories
- * with support for hierarchical organization
+ * REFACTORED: Removed duplicate method signatures
+ * Provides CRUD operations with hierarchical organization support
  */
 @Dao
 interface CategoryDao {
@@ -42,25 +43,25 @@ interface CategoryDao {
     // ============================================
 
     /**
-     * Get all categories as Flow
+     * Get all visible categories as reactive Flow
      */
     @Query("SELECT * FROM categories WHERE is_visible = 1 ORDER BY sort_order ASC, name ASC")
     fun getAllCategories(): Flow<List<Category>>
 
     /**
-     * Get all categories (one-time query)
+     * Get all visible categories (one-time query)
      */
     @Query("SELECT * FROM categories WHERE is_visible = 1 ORDER BY sort_order ASC, name ASC")
     suspend fun getAllCategoriesOnce(): List<Category>
 
     /**
-     * Get category by ID
+     * Get category by ID (one-time query)
      */
     @Query("SELECT * FROM categories WHERE id = :categoryId")
     suspend fun getCategoryById(categoryId: Long): Category?
 
     /**
-     * Get category by ID as Flow
+     * Get category by ID as reactive Flow
      */
     @Query("SELECT * FROM categories WHERE id = :categoryId")
     fun getCategoryByIdFlow(categoryId: Long): Flow<Category?>
@@ -84,7 +85,7 @@ interface CategoryDao {
     fun getChildCategories(parentId: Long): Flow<List<Category>>
 
     /**
-     * Get categories for a specific user
+     * Get categories for a specific user (including shared/NULL user_id categories)
      */
     @Query("SELECT * FROM categories WHERE (user_id = :userId OR user_id IS NULL) AND is_visible = 1 ORDER BY sort_order ASC, name ASC")
     fun getCategoriesForUser(userId: Long): Flow<List<Category>>
@@ -115,11 +116,11 @@ interface CategoryDao {
     /**
      * Check if a category has children
      */
-    @Query("SELECT COUNT(*) FROM categories WHERE parent_id = :categoryId")
+    @Query("SELECT COUNT(*) > 0 FROM categories WHERE parent_id = :categoryId")
     suspend fun hasChildren(categoryId: Long): Boolean
 
     /**
-     * Get category count
+     * Get total category count
      */
     @Query("SELECT COUNT(*) FROM categories WHERE is_visible = 1")
     suspend fun getCategoryCount(): Int
@@ -127,7 +128,7 @@ interface CategoryDao {
     /**
      * Get total item count across all categories
      */
-    @Query("SELECT SUM(item_count) FROM categories WHERE is_visible = 1")
+    @Query("SELECT COALESCE(SUM(item_count), 0) FROM categories WHERE is_visible = 1")
     suspend fun getTotalItemCount(): Int
 
     // ============================================
@@ -135,7 +136,7 @@ interface CategoryDao {
     // ============================================
 
     /**
-     * Update a category
+     * Update a category entity
      */
     @Update
     suspend fun update(category: Category)
@@ -165,19 +166,19 @@ interface CategoryDao {
     suspend fun updateColor(categoryId: Long, color: String?, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Update item count for a category
+     * Set item count for a category
      */
     @Query("UPDATE categories SET item_count = :count, updated_at = :timestamp WHERE id = :categoryId")
     suspend fun updateItemCount(categoryId: Long, count: Int, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Increment item count
+     * Increment item count by 1
      */
     @Query("UPDATE categories SET item_count = item_count + 1, updated_at = :timestamp WHERE id = :categoryId")
     suspend fun incrementItemCount(categoryId: Long, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Decrement item count
+     * Decrement item count by 1 (prevents negative values)
      */
     @Query("UPDATE categories SET item_count = CASE WHEN item_count > 0 THEN item_count - 1 ELSE 0 END, updated_at = :timestamp WHERE id = :categoryId")
     suspend fun decrementItemCount(categoryId: Long, timestamp: Long = System.currentTimeMillis())
@@ -189,7 +190,7 @@ interface CategoryDao {
     suspend fun updateSortOrder(categoryId: Long, sortOrder: Int, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Toggle visibility
+     * Toggle visibility (show/hide)
      */
     @Query("UPDATE categories SET is_visible = NOT is_visible, updated_at = :timestamp WHERE id = :categoryId")
     suspend fun toggleVisibility(categoryId: Long, timestamp: Long = System.currentTimeMillis())
@@ -199,26 +200,26 @@ interface CategoryDao {
     // ============================================
 
     /**
-     * Delete a category
-     * Note: Will fail if category has items due to foreign key constraint
+     * Delete a category entity
+     * WARNING: Will fail if category has items due to foreign key constraint
      */
     @Delete
     suspend fun delete(category: Category)
 
     /**
-     * Delete category by ID
+     * Delete category by ID (only non-system categories)
      */
     @Query("DELETE FROM categories WHERE id = :categoryId AND is_system = 0")
     suspend fun deleteById(categoryId: Long)
 
     /**
-     * Delete all non-system categories
+     * Delete all user-created (non-system) categories
      */
     @Query("DELETE FROM categories WHERE is_system = 0")
     suspend fun deleteAllUserCategories()
 
     /**
-     * Soft delete (hide) a category
+     * Soft delete - hide category instead of deleting
      */
     @Query("UPDATE categories SET is_visible = 0, updated_at = :timestamp WHERE id = :categoryId")
     suspend fun softDelete(categoryId: Long, timestamp: Long = System.currentTimeMillis())
@@ -229,7 +230,7 @@ interface CategoryDao {
 
     /**
      * Recalculate item counts for all categories
-     * Should be called after bulk item operations
+     * Use after bulk item operations to ensure accuracy
      */
     @Query("""
         UPDATE categories 
@@ -256,7 +257,8 @@ interface CategoryDao {
     suspend fun recalculateItemCount(categoryId: Long, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Get the maximum sort order value (for adding new categories at the end)
+     * Get the maximum sort order value
+     * Use when adding new categories to position them at the end
      */
     @Query("SELECT COALESCE(MAX(sort_order), 0) FROM categories")
     suspend fun getMaxSortOrder(): Int
