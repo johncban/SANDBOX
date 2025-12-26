@@ -12,6 +12,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import timber.log.Timber
 import javax.inject.Singleton
+import com.jcb.passbook.security.audit.MasterAuditLogger
+import com.jcb.passbook.security.audit.AuditJournalManager
+import com.jcb.passbook.security.audit.AuditChainManager
+import com.jcb.passbook.security.crypto.SessionManager
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
+
+
 
 /**
  * ✅ REFACTORED: Complete DI configuration for PassBook security
@@ -176,11 +183,21 @@ object SecurityModule {
     @Singleton
     fun provideMasterAuditLogger(
         @ApplicationContext context: Context,
-        auditJournal: AuditJournalManager,
-        auditChain: AuditChainManager
-    ): MasterAuditLogger {
-        return MasterAuditLogger(context, auditJournal, auditChain)
+        auditJournalManager: AuditJournalManager,
+        auditChainManager: AuditChainManager,
+        sessionManager: SessionManager,
+        secureMemoryUtils: SecureMemoryUtils
+    ): MasterAuditLogger {  // ✅ NOW RESOLVED
+        return MasterAuditLogger(
+            context,
+            auditJournalManager,
+            auditChainManager,
+            sessionManager,
+            secureMemoryUtils
+        )
     }
+
+
 
     // ========== TIER 4: Database & Persistence ==========
 
