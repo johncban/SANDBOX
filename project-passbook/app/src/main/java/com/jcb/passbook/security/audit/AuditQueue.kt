@@ -4,6 +4,7 @@ import android.content.Context
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.entities.AuditEntry
 import com.jcb.passbook.data.local.database.entities.AuditEventType
+import com.jcb.passbook.security.crypto.SessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,7 +26,7 @@ import javax.inject.Singleton
 @Singleton
 class AuditQueue @Inject constructor(
     private val auditDao: AuditDao,
-    private val context: Context
+    private val context: SessionManager
 ) {
 
     companion object {
