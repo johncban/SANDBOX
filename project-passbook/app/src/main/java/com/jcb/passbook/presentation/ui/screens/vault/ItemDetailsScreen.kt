@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -126,9 +127,9 @@ fun ItemDetailsScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
-                        enabled = !isLoading  // Disable during save
+                        enabled = !isLoading // Disable during save
                     ) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -138,12 +139,13 @@ fun ItemDetailsScreen(
                             // ✅ Construct complete Item object
                             val item = Item(
                                 id = itemId,
+                                userId = 0L,
                                 title = title,
                                 username = username.takeIf { it.isNotBlank() },
-                                encryptedPassword = password.toByteArray(),  // TODO: Replace with actual encryption via PasswordEncryptionService
+                                encryptedPassword = password.toByteArray(), // TODO: Replace with actual encryption via PasswordEncryptionService
                                 url = url.takeIf { it.isNotBlank() },
                                 notes = notes.takeIf { it.isNotBlank() },
-                                passwordCategory = selectedCategory.name,  // ✅ Store as string in Room
+                                passwordCategory = selectedCategory.name, // ✅ Store as string in Room
                                 isFavorite = isFavorite
                             )
                             // ✅ Call ViewModel with complete object
@@ -278,7 +280,7 @@ private fun LandscapeLayout(
                 singleLine = true,
                 enabled = !isLoading,
                 isError = title.isBlank(),
-                supportingText = if (title.isBlank()) {{ Text("Required") }} else null
+                supportingText = if (title.isBlank()) { { Text("Required") } } else null
             )
 
             OutlinedTextField(
@@ -331,7 +333,7 @@ private fun LandscapeLayout(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !isLoading,
                 isError = password.isBlank(),
-                supportingText = if (password.isBlank()) "Required" else ""
+                supportingText = if (password.isBlank()) { { Text("Required") } } else null
             )
 
             OutlinedTextField(
@@ -401,7 +403,7 @@ private fun PortraitLayout(
             singleLine = true,
             enabled = !isLoading,
             isError = title.isBlank(),
-            supportingText = if (title.isBlank()) {{ Text("Required") }} else null
+            supportingText = if (title.isBlank()) { { Text("Required") } } else null
         )
 
         OutlinedTextField(
@@ -423,7 +425,7 @@ private fun PortraitLayout(
             modifier = Modifier.fillMaxWidth(),
             enabled = !isLoading,
             isError = password.isBlank(),
-            supportingText = if (password.isBlank()) "Required" else ""
+            supportingText = if (password.isBlank()) { { Text("Required") } } else null
         )
 
         OutlinedTextField(
@@ -472,7 +474,7 @@ private fun PortraitLayout(
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))  // Extra space for floating button
+        Spacer(modifier = Modifier.height(32.dp)) // Extra space for floating button
     }
 }
 

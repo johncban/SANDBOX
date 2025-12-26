@@ -160,7 +160,8 @@ fun ItemListScreen(
                 isEditMode = isEditMode,
                 onEditModeChange = { isEditMode = it },
                 onSave = { updatedItem ->
-                    viewModel.updateItem(updatedItem)
+                    // ✅ FIXED: Changed from updateItem to insertOrUpdateItem
+                    viewModel.insertOrUpdateItem(updatedItem)
                     scope.launch {
                         sheetState.hide()
                     }.invokeOnCompletion {

@@ -277,4 +277,5 @@ dependencies {
 
 
     implementation("androidx.compose.material3:material3-window-size-class:1.2.0")
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
 }

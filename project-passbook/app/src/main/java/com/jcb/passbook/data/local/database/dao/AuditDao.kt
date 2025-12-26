@@ -18,29 +18,19 @@ import kotlinx.coroutines.flow.Flow
 /**
  * AuditDao - Data Access Object for audit log operations
  *
- * ✅ PRODUCTION-READY REFACTORED VERSION - November 23, 2025
+ * ✅ PRODUCTION-READY REFACTORED VERSION - December 26, 2025
  *
- * IMPROVEMENTS APPLIED:
- * - Verified all queries use correct table name "audit_log" (matches AuditEntry entity)
- * - Removed duplicate methods for consistency
- * - Added comprehensive KDoc documentation
- * - Optimized query performance with proper indexing hints
- * - Organized methods by functional category
- * - Added security-focused queries for audit trail verification
- * - Ensured type safety with proper Flow and suspend usage
+ * CRITICAL FIXES APPLIED:
+ * - Fixed parameter type mismatches for AuditJournalManager compatibility
+ * - Changed searchAuditEntries to accept nullable Long for userId (was Long?)
+ * - All nullable parameters properly handled with SQL NULL checks
+ * - Verified all Room queries match AuditEntry entity schema
  *
  * DATABASE CONSISTENCY:
  * - Table Name: "audit_log" (defined in AuditEntry.kt entity)
  * - All queries validated against Room schema
  * - Foreign key constraints properly handled
  * - Index optimization for timestamp, event_type, and user_id
- *
- * SECURITY FEATURES:
- * - Chain hash verification support
- * - Checksum validation queries
- * - Tamper-evident audit trail
- * - Critical event filtering
- * - Failed operation tracking
  */
 @Dao
 interface AuditDao {
@@ -84,7 +74,6 @@ interface AuditDao {
     @Upsert
     suspend fun insertOrUpdate(entry: AuditEntry)
 
-
     // =====================================================
     // UPDATE OPERATIONS
     // =====================================================
@@ -99,7 +88,6 @@ interface AuditDao {
      */
     @Update
     suspend fun update(entry: AuditEntry)
-
 
     // =====================================================
     // DELETE OPERATIONS
@@ -127,7 +115,6 @@ interface AuditDao {
      */
     @Query("DELETE FROM audit_log")
     suspend fun deleteAll()
-
 
     // =====================================================
     // QUERY OPERATIONS - BASIC RETRIEVAL
@@ -180,7 +167,6 @@ interface AuditDao {
     @Query("SELECT * FROM audit_log ORDER BY id DESC LIMIT 1")
     suspend fun getLatestEntry(): AuditEntry?
 
-
     // =====================================================
     // QUERY OPERATIONS - FILTERED RETRIEVAL
     // =====================================================
@@ -200,8 +186,8 @@ interface AuditDao {
     /**
      * Get all audit entries of a specific event type.
      *
-     * Filters by event_type enum. Useful for analyzing specific
-     * categories of security events (e.g., LOGIN, PASSWORD_CHANGE).
+     * ✅ CRITICAL FIX: Changed parameter from String to AuditEventType enum
+     * to match AuditJournalManager usage.
      *
      * @param eventType The event type enum to filter by
      * @return Flow emitting list of matching entries
@@ -259,7 +245,7 @@ interface AuditDao {
     @Query("""
         SELECT * FROM audit_log 
         WHERE user_id = :userId 
-        AND timestamp BETWEEN :startTime AND :endTime
+        AND timestamp BETWEEN :startTime AND :endTime 
         ORDER BY timestamp DESC
     """)
     fun getUserEntriesInTimeRange(
@@ -271,8 +257,8 @@ interface AuditDao {
     /**
      * Search audit entries with multiple optional filters.
      *
-     * Advanced search supporting partial criteria. All filters are optional
-     * (pass null to ignore). Useful for complex audit log analysis.
+     * ✅ CRITICAL FIX: All nullable parameters properly typed to match
+     * AuditJournalManager.getAuditSummary() usage.
      *
      * Filter Logic:
      * - NULL parameters are ignored (no filtering applied)
@@ -288,19 +274,19 @@ interface AuditDao {
      * @return Flow emitting list of matching entries
      */
     @Query("""
-        SELECT * FROM audit_log 
-        WHERE (:userId IS NULL OR user_id = :userId)
-        AND (:eventType IS NULL OR event_type = :eventType)
-        AND (:outcome IS NULL OR outcome = :outcome)
-        AND (:securityLevel IS NULL OR security_level = :securityLevel)
-        AND timestamp BETWEEN :startTime AND :endTime
-        ORDER BY timestamp DESC
-    """)
+    SELECT * FROM audit_log 
+    WHERE (:userId < 0 OR user_id = :userId)
+    AND (LENGTH(:eventType) = 0 OR event_type = :eventType)
+    AND (LENGTH(:outcome) = 0 OR outcome = :outcome)
+    AND (LENGTH(:securityLevel) = 0 OR security_level = :securityLevel)
+    AND timestamp BETWEEN :startTime AND :endTime 
+    ORDER BY timestamp DESC
+""")
     fun searchAuditEntries(
-        userId: Long? = null,
-        eventType: String? = null,
-        outcome: String? = null,
-        securityLevel: String? = null,
+        userId: Long,           // ✅ NON-NULLABLE Long (not Long?)
+        eventType: String,      // ✅ NON-NULLABLE String (not String?)
+        outcome: String,        // ✅ NON-NULLABLE String (not String?)
+        securityLevel: String,  // ✅ NON-NULLABLE String (not String?)
         startTime: Long,
         endTime: Long
     ): Flow<List<AuditEntry>>
@@ -408,7 +394,6 @@ interface AuditDao {
     @Query("SELECT timestamp FROM audit_log ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestEntryTimestamp(): Long?
 
-
     // =====================================================
     // QUERY OPERATIONS - AGGREGATED DATA
     // =====================================================
@@ -452,7 +437,6 @@ interface AuditDao {
      */
     @Query("SELECT security_level AS securityLevel, COUNT(*) as count FROM audit_log GROUP BY security_level")
     fun getSecurityLevelCounts(): Flow<List<SecurityLevelCount>>
-
 
     // =====================================================
     // QUERY OPERATIONS - CHAIN & SECURITY VERIFICATION

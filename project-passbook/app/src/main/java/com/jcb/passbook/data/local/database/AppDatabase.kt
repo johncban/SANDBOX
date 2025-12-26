@@ -3,12 +3,15 @@ package com.jcb.passbook.data.local.database
 import android.util.Log
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.jcb.passbook.data.local.database.dao.AuditDao
 import com.jcb.passbook.data.local.database.dao.ItemDao
+import com.jcb.passbook.data.local.database.entities.AuditEntry
+import com.jcb.passbook.data.local.database.entities.Category
 import com.jcb.passbook.data.local.database.entities.Item
 import com.jcb.passbook.data.local.database.entities.User
-import com.jcb.passbook.data.local.database.entities.Category
 
 /**
  * Room Database for Passbook
@@ -17,20 +20,24 @@ import com.jcb.passbook.data.local.database.entities.Category
  * - Item (has foreign keys to User and Category)
  * - User (referenced by Item)
  * - Category (referenced by Item)
+ * - AuditEntry (security audit logging)
  *
  * Schema Versions:
  * v1: Initial schema
  * v2: Added userId column and multi-user support
+ * v3: Added audit_entries table for security logging
  */
 @Database(
     entities = [
-        Item::class,      // ✅ FIXED: Correct import path
-        User::class,      // ✅ ADDED: Required for foreign key
-        Category::class   // ✅ ADDED: Required for foreign key
+        Item::class,        // ✅ FIXED: Correct import path
+        User::class,        // ✅ ADDED: Required for foreign key
+        Category::class,    // ✅ ADDED: Required for foreign key
+        AuditEntry::class   // ✅ ADDED: Audit logging support
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     companion object {
@@ -48,7 +55,6 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 Log.i(TAG, "🔄 Running migration v1->v2...")
-
                 try {
                     database.beginTransaction()
 
@@ -64,7 +70,6 @@ abstract class AppDatabase : RoomDatabase() {
                             is_active INTEGER NOT NULL DEFAULT 1
                         )
                     """.trimIndent())
-
                     database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_users_username ON users(username)")
 
                     // Step 2: Create categories table
@@ -85,7 +90,6 @@ abstract class AppDatabase : RoomDatabase() {
                             updated_at INTEGER NOT NULL DEFAULT ${System.currentTimeMillis()}
                         )
                     """.trimIndent())
-
                     database.execSQL("CREATE INDEX IF NOT EXISTS index_categories_user_id ON categories(user_id)")
                     database.execSQL("CREATE INDEX IF NOT EXISTS index_categories_parent_id ON categories(parent_id)")
                     database.execSQL("CREATE INDEX IF NOT EXISTS index_categories_sort_order ON categories(sort_order)")
@@ -126,11 +130,11 @@ abstract class AppDatabase : RoomDatabase() {
                     if (itemsTableExists) {
                         database.execSQL("""
                             INSERT INTO items_new (
-                                id, userId, title, username, encryptedPassword, 
+                                id, userId, title, username, encryptedPassword,
                                 url, notes, category_id, category_name, password_category,
                                 isFavorite, createdAt, updatedAt, lastAccessedAt
                             )
-                            SELECT 
+                            SELECT
                                 id,
                                 1 AS userId,
                                 title,
@@ -147,7 +151,6 @@ abstract class AppDatabase : RoomDatabase() {
                                 NULL AS lastAccessedAt
                             FROM items
                         """.trimIndent())
-
                         database.execSQL("DROP TABLE items")
                     }
 
@@ -163,7 +166,6 @@ abstract class AppDatabase : RoomDatabase() {
 
                     database.setTransactionSuccessful()
                     Log.i(TAG, "✅ Migration v1->v2 completed successfully")
-
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ Migration v1->v2 failed: ${e.message}", e)
                     throw e
@@ -172,10 +174,67 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
         }
+
+        /**
+         * Migration from schema v2 to v3
+         * CRITICAL: Adds audit_entries table for security logging
+         *
+         * Changes:
+         * - Creates audit_entries table with comprehensive logging fields
+         * - Adds indices for performance optimization
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.i(TAG, "🔄 Running migration v2->v3...")
+                try {
+                    database.beginTransaction()
+
+                    // Create audit_entries table
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS audit_entries (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            userId INTEGER NOT NULL,
+                            action TEXT NOT NULL,
+                            eventType TEXT NOT NULL,
+                            timestamp INTEGER NOT NULL,
+                            description TEXT,
+                            outcome TEXT NOT NULL,
+                            securityLevel TEXT NOT NULL,
+                            sessionId TEXT,
+                            ipAddress TEXT,
+                            deviceInfo TEXT,
+                            checksum TEXT,
+                            chainHash TEXT,
+                            chainPrevHash TEXT,
+                            FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
+                        )
+                    """.trimIndent())
+
+                    // Create indices for audit_entries table
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_userId ON audit_entries(userId)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_eventType ON audit_entries(eventType)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_timestamp ON audit_entries(timestamp)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_sessionId ON audit_entries(sessionId)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_outcome ON audit_entries(outcome)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_audit_entries_securityLevel ON audit_entries(securityLevel)")
+
+                    database.setTransactionSuccessful()
+                    Log.i(TAG, "✅ Migration v2->v3 completed successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Migration v2->v3 failed: ${e.message}", e)
+                    throw e
+                } finally {
+                    database.endTransaction()
+                }
+            }
+        }
     }
 
-    // Abstract DAO methods
+    // ✅ Abstract DAO methods
     abstract fun itemDao(): ItemDao
+
+    // ✅ ADD THIS METHOD - THIS IS WHAT WAS MISSING
+    abstract fun auditDao(): AuditDao
 
     // TODO: Add these when you create the DAOs
     // abstract fun userDao(): UserDao
