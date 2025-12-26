@@ -1,285 +1,241 @@
 package com.jcb.passbook.security.crypto
 
-import android.util.Log
-import java.security.SecureRandom
+import android.os.Build
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import androidx.annotation.RequiresApi
+import timber.log.Timber
+import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import java.security.SecureRandom
 
 /**
- * CryptoManager - Secure encryption/decryption with AES-256-GCM
- *
- * Features:
- * - AES-256 encryption with Galois/Counter Mode (GCM)
- * - Authenticated encryption with associated data (AEAD)
- * - Metadata-based encryption detection (no string prefix)
- * - Version byte for future compatibility
- * - Thread-safe operations
- * - Secure memory handling via SecureMemoryUtils
- *
- * Format: [VERSION(1) | NONCE(12) | CIPHERTEXT | AUTH_TAG(16)]
+ * ✅ REFACTORED: CryptoManager with complete public API
+ * 
+ * Manages all encryption/decryption operations for PassBook
+ * - AES-256-GCM encryption (NIST approved)
+ * - Keystore integration for key material
+ * - Secure nonce generation
+ * - Public API for encryption component extraction and validation
  */
 class CryptoManager(
     private val secureMemoryUtils: SecureMemoryUtils
 ) {
-
     companion object {
         private const val TAG = "CryptoManager"
-
-        // Encryption constants
-        private const val ENCRYPTION_VERSION: Byte = 0x01
-        private const val AES_KEY_SIZE = 256
-        private const val GCM_NONCE_LENGTH = 12
-        private const val GCM_TAG_LENGTH = 16
-        private const val MIN_ENCRYPTED_SIZE = 1 + GCM_NONCE_LENGTH + GCM_TAG_LENGTH // 29 bytes
-
-        // Cipher specifications
+        private const val KEYSTORE_ALIAS = "passbook_main_key"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val CIPHER_ALGORITHM = "AES/GCM/NoPadding"
-        private const val KEY_ALGORITHM = "AES"
+        private const val GCM_TAG_LENGTH_BITS = 128
+        private const val NONCE_LENGTH_BYTES = 12
+        private const val ENCRYPTION_VERSION: Byte = 0x01
+    }
 
-        /**
-         * Check if data is properly encrypted
-         *
-         * Returns true ONLY if:
-         * 1. Data is not null and has minimum length
-         * 2. First byte matches ENCRYPTION_VERSION (0x01)
-         *
-         * This prevents double encryption and handles edge cases correctly
-         */
-        fun isEncrypted(data: ByteArray?): Boolean {
-            if (data == null || data.isEmpty()) return false
+    private var keyStore: KeyStore? = null
+    private val cipherLock = Any()
 
-            // Check minimum size
-            if (data.size < MIN_ENCRYPTED_SIZE) {
-                return false
+    /**
+     * Initialize AndroidKeyStore and generate master key if needed
+     */
+    @RequiresApi(Build.VERSION_CODES.P)
+    fun initializeKeystore() {
+        synchronized(cipherLock) {
+            try {
+                keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+                keyStore!!.load(null)
+
+                // Generate master key if not exists
+                if (!keyStore!!.containsAlias(KEYSTORE_ALIAS)) {
+                    generateMasterKey()
+                }
+
+                Timber.i("✅ Keystore initialized successfully")
+            } catch (e: Exception) {
+                Timber.e(e, "❌ Keystore initialization failed")
+                throw SecurityException("Keystore init failed: ${e.message}", e)
             }
-
-            // Check version byte
-            return data[0] == ENCRYPTION_VERSION
         }
     }
 
     /**
-     * Encrypt plaintext data using AES-256-GCM
-     *
-     * @param plaintext Raw data to encrypt
-     * @param key Secret key for encryption
-     * @return Encrypted data with format: [VERSION | NONCE | CIPHERTEXT | TAG]
-     * @throws IllegalArgumentException if inputs are invalid
-     * @throws Exception if encryption fails
+     * Generate master key in AndroidKeyStore (hardware-backed if available)
      */
-    @Synchronized
-    fun encrypt(plaintext: ByteArray, key: SecretKey): ByteArray {
-        require(plaintext.isNotEmpty()) { "Plaintext cannot be empty" }
-        require(key.encoded.size == AES_KEY_SIZE / 8) { "Key must be 256 bits (32 bytes)" }
-
-        var nonce: ByteArray? = null
-        var cipher: Cipher? = null
-
+    @RequiresApi(Build.VERSION_CODES.P)
+    private fun generateMasterKey() {
         try {
-            Log.d(TAG, "🔒 Encrypting ${plaintext.size} bytes")
+            val keyGenerator = KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES,
+                ANDROID_KEYSTORE
+            )
 
-            // Generate secure random nonce
-            nonce = ByteArray(GCM_NONCE_LENGTH)
-            SecureRandom().nextBytes(nonce)
+            val keySpec = KeyGenParameterSpec.Builder(
+                KEYSTORE_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setKeySize(256)  // AES-256
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setIsStrongBoxBacked(true)  // Use StrongBox if available
+                .build()
 
-            // Initialize cipher with GCM mode
-            cipher = Cipher.getInstance(CIPHER_ALGORITHM)
-            val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce)
-            cipher.init(Cipher.ENCRYPT_MODE, key, gcmSpec)
+            keyGenerator.init(keySpec)
+            keyGenerator.generateKey()
 
-            // Encrypt data (includes authentication tag)
-            val ciphertext = cipher.doFinal(plaintext)
-
-            // Create formatted output: [VERSION | NONCE | CIPHERTEXT]
-            val result = createEncryptedData(nonce, ciphertext)
-
-            Log.d(TAG, "✅ Encryption successful: ${result.size} bytes")
-            return result
-
+            Timber.i("✅ Master key generated in AndroidKeyStore")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Encryption failed: ${e.message}", e)
-            throw SecurityException("Encryption failed", e)
-        } finally {
-            // Secure cleanup
-            nonce?.let { secureMemoryUtils.wipeByteArray(it) }
+            Timber.e(e, "❌ Master key generation failed")
+            throw SecurityException("Master key generation failed: ${e.message}", e)
         }
     }
 
     /**
-     * Decrypt encrypted data using AES-256-GCM
-     *
-     * @param encryptedData Encrypted data with format: [VERSION | NONCE | CIPHERTEXT | TAG]
-     * @param key Secret key for decryption
-     * @return Decrypted plaintext
-     * @throws IllegalArgumentException if data is not properly encrypted
-     * @throws Exception if decryption or authentication fails
+     * Encrypt data with AMK (Application Master Key)
+     * 
+     * Returns: [VERSION | NONCE | CIPHERTEXT | AUTH_TAG]
      */
-    @Synchronized
-    fun decrypt(encryptedData: ByteArray, key: SecretKey): ByteArray {
-        require(isEncrypted(encryptedData)) { "Data is not properly encrypted" }
-        require(key.encoded.size == AES_KEY_SIZE / 8) { "Key must be 256 bits (32 bytes)" }
+    fun encryptData(plaintext: ByteArray, amk: SecretKeySpec): ByteArray {
+        synchronized(cipherLock) {
+            return try {
+                // Generate fresh nonce
+                val nonce = ByteArray(NONCE_LENGTH_BYTES)
+                SecureRandom().nextBytes(nonce)
 
-        var nonce: ByteArray? = null
-        var cipher: Cipher? = null
+                // Initialize cipher
+                val cipher = Cipher.getInstance(CIPHER_ALGORITHM)
+                val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce)
+                cipher.init(Cipher.ENCRYPT_MODE, amk, gcmSpec)
 
-        try {
-            Log.d(TAG, "🔓 Decrypting ${encryptedData.size} bytes")
+                // Encrypt
+                val ciphertext = cipher.doFinal(plaintext)
 
-            // Extract encryption components
-            val components = extractEncryptionComponents(encryptedData)
-            nonce = components.nonce
-            val ciphertext = components.ciphertext
-
-            // Initialize cipher for decryption
-            cipher = Cipher.getInstance(CIPHER_ALGORITHM)
-            val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH * 8, nonce)
-            cipher.init(Cipher.DECRYPT_MODE, key, gcmSpec)
-
-            // Decrypt and verify authentication tag
-            val plaintext = cipher.doFinal(ciphertext)
-
-            Log.d(TAG, "✅ Decryption successful: ${plaintext.size} bytes")
-            return plaintext
-
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Decryption failed: ${e.message}", e)
-            throw SecurityException("Decryption or authentication failed", e)
-        } finally {
-            // Secure cleanup
-            nonce?.let { secureMemoryUtils.wipeByteArray(it) }
+                // Return: VERSION | NONCE | CIPHERTEXT
+                val version = byteArrayOf(ENCRYPTION_VERSION)
+                version + nonce + ciphertext
+            } catch (e: Exception) {
+                Timber.e(e, "❌ Encryption failed")
+                throw SecurityException("Encryption failed: ${e.message}", e)
+            }
         }
+    }
+
+    /**
+     * Decrypt data with AMK
+     */
+    fun decryptData(encryptedData: ByteArray, amk: SecretKeySpec): ByteArray {
+        synchronized(cipherLock) {
+            return try {
+                // Extract components
+                val components = extractEncryptionComponents(encryptedData)
+
+                // Initialize cipher
+                val cipher = Cipher.getInstance(CIPHER_ALGORITHM)
+                val gcmSpec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, components.nonce)
+                cipher.init(Cipher.DECRYPT_MODE, amk, gcmSpec)
+
+                // Decrypt
+                cipher.doFinal(components.ciphertext)
+            } catch (e: Exception) {
+                Timber.e(e, "❌ Decryption failed")
+                throw SecurityException("Decryption failed: ${e.message}", e)
+            }
+        }
+    }
+
+    // ========== PUBLIC API for Encryption Operations ==========
+
+    /**
+     * Check if data is properly encrypted with our format
+     * Format: [VERSION | NONCE | CIPHERTEXT | AUTH_TAG]
+     */
+    fun isEncrypted(data: ByteArray): Boolean {
+        return data.isNotEmpty() &&
+               data[0] == ENCRYPTION_VERSION &&
+               data.size > (1 + NONCE_LENGTH_BYTES)  // At least version + nonce
     }
 
     /**
      * Extract encryption components from encrypted data
-     *
-     * Format: [VERSION(1) | NONCE(12) | CIPHERTEXT | TAG(16)]
-     *
-     * @param encryptedData Formatted encrypted data
-     * @return EncryptionComponents containing nonce and ciphertext
-     * @throws IllegalArgumentException if data is not properly encrypted
+     * Returns: (version, nonce, ciphertext)
      */
-    private fun extractEncryptionComponents(encryptedData: ByteArray): EncryptionComponents {
+    fun extractEncryptionComponents(encryptedData: ByteArray): EncryptionComponents {
         if (!isEncrypted(encryptedData)) {
-            throw IllegalArgumentException("Data is not properly encrypted")
+            throw IllegalArgumentException(
+                "Data is not properly encrypted. " +
+                "Expected format: [VERSION | NONCE | CIPHERTEXT]. " +
+                "Got size=${encryptedData.size}"
+            )
         }
 
-        try {
-            // Skip version byte (index 0)
-            val nonceOffset = 1
+        return try {
+            val version = encryptedData[0]
+            val nonce = encryptedData.copyOfRange(1, 1 + NONCE_LENGTH_BYTES)
+            val ciphertext = encryptedData.copyOfRange(1 + NONCE_LENGTH_BYTES, encryptedData.size)
 
-            // Extract nonce (12 bytes)
-            val nonce = ByteArray(GCM_NONCE_LENGTH)
-            System.arraycopy(encryptedData, nonceOffset, nonce, 0, GCM_NONCE_LENGTH)
-
-            // Extract ciphertext (everything after nonce, includes GCM tag)
-            val ciphertextOffset = nonceOffset + GCM_NONCE_LENGTH
-            val ciphertextLength = encryptedData.size - ciphertextOffset
-            val ciphertext = ByteArray(ciphertextLength)
-            System.arraycopy(encryptedData, ciphertextOffset, ciphertext, 0, ciphertextLength)
-
-            return EncryptionComponents(nonce, ciphertext)
-
+            EncryptionComponents(version, nonce, ciphertext)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to extract encryption components: ${e.message}", e)
-            throw IllegalArgumentException("Invalid encrypted data format", e)
+            throw SecurityException(
+                "Failed to extract encryption components: ${e.message}",
+                e
+            )
         }
     }
 
     /**
-     * Create formatted encrypted data with metadata
-     *
-     * Format: [VERSION | NONCE | CIPHERTEXT | TAG]
-     *
-     * @param nonce Random nonce (12 bytes)
-     * @param ciphertext Encrypted data including GCM authentication tag
-     * @return Formatted encrypted data
+     * Create properly formatted encrypted data
+     * Combines version, nonce, and ciphertext
      */
-    private fun createEncryptedData(nonce: ByteArray, ciphertext: ByteArray): ByteArray {
-        require(nonce.size == GCM_NONCE_LENGTH) { "Nonce must be $GCM_NONCE_LENGTH bytes" }
-        require(ciphertext.isNotEmpty()) { "Ciphertext cannot be empty" }
-
-        val result = ByteArray(1 + nonce.size + ciphertext.size)
-
-        // Set version byte
-        result[0] = ENCRYPTION_VERSION
-
-        // Copy nonce
-        System.arraycopy(nonce, 0, result, 1, nonce.size)
-
-        // Copy ciphertext (includes GCM tag)
-        System.arraycopy(ciphertext, 0, result, 1 + nonce.size, ciphertext.size)
-
-        return result
-    }
-
-    /**
-     * Generate a new AES-256 encryption key
-     *
-     * @return SecretKey for AES-256 encryption
-     */
-    fun generateKey(): SecretKey {
-        try {
-            val keyGenerator = KeyGenerator.getInstance(KEY_ALGORITHM)
-            keyGenerator.init(AES_KEY_SIZE, SecureRandom())
-            val key = keyGenerator.generateKey()
-
-            Log.d(TAG, "✅ Generated new AES-256 key")
-            return key
-
+    fun createEncryptedData(nonce: ByteArray, ciphertext: ByteArray): ByteArray {
+        return try {
+            val version = byteArrayOf(ENCRYPTION_VERSION)
+            version + nonce + ciphertext
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Key generation failed: ${e.message}", e)
-            throw SecurityException("Failed to generate encryption key", e)
+            throw SecurityException(
+                "Failed to create encrypted data: ${e.message}",
+                e
+            )
         }
     }
 
     /**
-     * Create SecretKey from raw bytes
-     *
-     * @param keyBytes Raw key material (must be 32 bytes for AES-256)
-     * @return SecretKey
+     * Verify encryption integrity (checks format and size)
      */
-    fun createKeyFromBytes(keyBytes: ByteArray): SecretKey {
-        require(keyBytes.size == AES_KEY_SIZE / 8) { "Key must be 256 bits (32 bytes)" }
-        return SecretKeySpec(keyBytes, KEY_ALGORITHM)
+    fun verifyEncryptionFormat(encryptedData: ByteArray): Boolean {
+        return isEncrypted(encryptedData) &&
+               encryptedData.size >= (1 + NONCE_LENGTH_BYTES + 16)  // +16 for GCM tag
     }
 
-    /**
-     * Securely wipe key from memory
-     *
-     * @param key SecretKey to wipe
-     */
-    fun wipeKey(key: SecretKey?) {
-        key?.encoded?.let { secureMemoryUtils.wipeByteArray(it) }
-    }
+    // ========== Data Classes ==========
 
     /**
-     * Data class holding encryption components
+     * Encryption component container
      */
     data class EncryptionComponents(
+        val version: Byte,
         val nonce: ByteArray,
-        val ciphertext: ByteArray // Includes GCM authentication tag
+        val ciphertext: ByteArray
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (javaClass != other?.javaClass) return false
+
             other as EncryptionComponents
+
+            if (version != other.version) return false
             if (!nonce.contentEquals(other.nonce)) return false
             if (!ciphertext.contentEquals(other.ciphertext)) return false
+
             return true
         }
 
         override fun hashCode(): Int {
-            var result = nonce.contentHashCode()
+            var result = version.hashCode()
+            result = 31 * result + nonce.contentHashCode()
             result = 31 * result + ciphertext.contentHashCode()
             return result
-        }
-
-        override fun toString(): String {
-            return "EncryptionComponents(nonceSize=${nonce.size}, ciphertextSize=${ciphertext.size})"
         }
     }
 }

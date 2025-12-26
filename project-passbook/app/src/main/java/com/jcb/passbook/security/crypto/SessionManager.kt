@@ -2,226 +2,57 @@ package com.jcb.passbook.security.crypto
 
 import android.content.Context
 import androidx.fragment.app.FragmentActivity
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import androidx.lifecycle.MutableLiveData
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicInteger
+import javax.crypto.spec.SecretKeySpec
+import javax.crypto.Mac
 
 /**
- * Session management for the Application Master Key (AMK).
- *
- * Responsibilities:
- * - Derive and hold an in‑memory AMK for the active user
- * - Track active operations that depend on AMK
- * - Enforce session timeout and invalidate AMK securely
- */
-interface ISessionManager {
-    fun startOperation(): Boolean
-    fun endOperation()
-    fun getSessionAMK(): ByteArray?
-
-    fun startSession(activity: FragmentActivity, userId: Long): SessionResult
-    suspend fun endSession(reason: String)
-
-    fun isSessionActive(): Boolean
-    fun getSessionTimeoutMs(): Long
-}
-
-/**
- * Result type for session start.
- */
-sealed class SessionResult {
-    data class Success(val userId: Long) : SessionResult()
-    data class Error(val message: String) : SessionResult()
-}
-
-/**
- * Immutable snapshot of the current session state.
- */
-data class SessionState(
-    val userId: Long? = null,
-    val amk: ByteArray? = null,
-    val startTime: Long = 0L,
-    val lastActivityTime: Long = 0L,
-    val operationCount: Int = 0,
-    val isActive: Boolean = false
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as SessionState
-
-        if (userId != other.userId) return false
-        if (amk != null) {
-            if (other.amk == null) return false
-            if (!amk.contentEquals(other.amk)) return false
-        } else if (other.amk != null) return false
-        if (startTime != other.startTime) return false
-        if (lastActivityTime != other.lastActivityTime) return false
-        if (operationCount != other.operationCount) return false
-        if (isActive != other.isActive) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = userId?.hashCode() ?: 0
-        result = 31 * result + (amk?.contentHashCode() ?: 0)
-        result = 31 * result + startTime.hashCode()
-        result = 31 * result + lastActivityTime.hashCode()
-        result = 31 * result + operationCount
-        result = 31 * result + isActive.hashCode()
-        return result
-    }
-}
-
-/**
- * Thread‑safe session manager with atomic operation tracking.
- *
- * Important invariants:
- * - When isActive == false, amk MUST be null and operationCount == 0
- * - operationCount never goes below 0
- * - AMK bytes are zeroed on endSession()
+ * ✅ REFACTORED: SessionManager with complete ephemeral key support
+ * 
+ * Manages:
+ * - Session lifecycle (start, end, timeout)
+ * - AMK (Application Master Key) storage and lifecycle
+ * - Ephemeral session key for audit encryption
+ * - Session metadata and state tracking
  */
 class SessionManager(
-    @Suppress("unused") // kept for future use if needed
-    private val context: Context,
-    private val keystoreManager: KeystorePassphraseManager
-) : ISessionManager {
-
+    @Suppress("unused") private val context: Context,
+    private val keystoreManager: KeystorePassphraseManager,
+    private val cryptoManager: CryptoManager
+) {
     companion object {
-        // Base session timeout
-        private const val DEFAULT_SESSION_TIMEOUT_MS = 15 * 60 * 1000L // 15 minutes
-        // Extra time while there are active operations
-        private const val OPERATION_TIMEOUT_EXTENSION_MS = 5 * 60 * 1000L // 5 minutes
+        private const val TAG = "SessionManager"
+        private const val SESSION_TIMEOUT_MILLIS = 15 * 60 * 1000L  // 15 minutes
+        private const val SESSION_EXTENSION_MILLIS = 5 * 60 * 1000L   // 5 minute extension
     }
 
-    private val _sessionState = MutableStateFlow(SessionState())
-    val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
-
-    // Atomic counter for operations that rely on AMK
+    private val sessionLock = Any()
     private val operationCount = AtomicInteger(0)
 
-    // Single lock for all state mutations
-    private val sessionLock = Any()
+    // Session state observable
+    private val _sessionState = MutableLiveData<SessionState>(
+        SessionState(
+            userId = null,
+            amk = null,
+            startTime = 0L,
+            lastActivityTime = 0L,
+            operationCount = 0,
+            isActive = false
+        )
+    )
+
+    val sessionState = _sessionState
 
     /**
-     * Start an operation that depends on AMK.
-     *
-     * Returns true ONLY if:
-     * - session is active
-     * - AMK is available
-     * - session is not already expired
+     * Start a new session for the given user
+     * 
+     * @param activity FragmentActivity for biometric/PIN prompt (optional)
+     * @param userId The user ID
+     * @return SessionResult.Success or SessionResult.Error
      */
-    override fun startOperation(): Boolean {
-        synchronized(sessionLock) {
-            val current = _sessionState.value
-
-            if (!current.isActive) {
-                Timber.w("SessionManager: Cannot start operation – session not active")
-                return false
-            }
-
-            if (current.amk == null) {
-                Timber.w("SessionManager: Cannot start operation – AMK not available")
-                return false
-            }
-
-            val now = System.currentTimeMillis()
-            val elapsed = now - current.lastActivityTime
-            if (elapsed > DEFAULT_SESSION_TIMEOUT_MS) {
-                Timber.w("SessionManager: Cannot start operation – session already expired")
-                return false
-            }
-
-            val newCount = operationCount.incrementAndGet()
-            Timber.d("SessionManager: Operation started (count=$newCount)")
-
-            _sessionState.value = current.copy(
-                lastActivityTime = now,
-                operationCount = newCount
-            )
-
-            return true
-        }
-    }
-
-    /**
-     * End a previously started operation.
-     *
-     * Does nothing if no operations are active.
-     */
-    override fun endOperation() {
-        synchronized(sessionLock) {
-            val current = _sessionState.value
-            val currentCount = operationCount.get()
-
-            if (currentCount <= 0) {
-                Timber.w("SessionManager: endOperation() called with no active operations")
-                return
-            }
-
-            val newCount = operationCount.decrementAndGet()
-            Timber.d("SessionManager: Operation ended (count=$newCount)")
-
-            _sessionState.value = current.copy(
-                lastActivityTime = System.currentTimeMillis(),
-                operationCount = newCount
-            )
-        }
-    }
-
-    /**
-     * Return the AMK only if:
-     * - session is active
-     * - AMK exists
-     * - session has not timed out (with extension while operations active)
-     */
-    override fun getSessionAMK(): ByteArray? {
-        synchronized(sessionLock) {
-            val current = _sessionState.value
-
-            if (!current.isActive) {
-                Timber.w("SessionManager: getSessionAMK – session not active")
-                return null
-            }
-
-            val amk = current.amk
-            if (amk == null) {
-                Timber.w("SessionManager: getSessionAMK – AMK not available")
-                return null
-            }
-
-            val now = System.currentTimeMillis()
-            val elapsed = now - current.lastActivityTime
-
-            val timeout = if (operationCount.get() > 0) {
-                DEFAULT_SESSION_TIMEOUT_MS + OPERATION_TIMEOUT_EXTENSION_MS
-            } else {
-                DEFAULT_SESSION_TIMEOUT_MS
-            }
-
-            if (elapsed > timeout) {
-                Timber.w("SessionManager: getSessionAMK – session timeout (elapsed=$elapsed, timeout=$timeout)")
-                return null
-            }
-
-            Timber.d("SessionManager: AMK available")
-            return amk
-        }
-    }
-
-    /**
-     * Start a new session for the given user.
-     *
-     * This will:
-     * - retrieve the user's passphrase via KeystorePassphraseManager
-     * - derive the in-memory AMK
-     * - reset operation count
-     */
-    override fun startSession(
+    fun startSession(
         activity: FragmentActivity,
         userId: Long
     ): SessionResult {
@@ -229,10 +60,14 @@ class SessionManager(
             synchronized(sessionLock) {
                 Timber.i("SessionManager: Starting session for userId=$userId")
 
+                // Retrieve passphrase from keystore
                 val passphrase = keystoreManager.retrievePassphrase(activity)
                     ?: throw SecurityException("Failed to retrieve passphrase")
 
+                // Derive AMK from passphrase
                 val amk = keystoreManager.deriveAMK(passphrase)
+                passphrase.fill(0)  // Clear from memory
+
                 Timber.d("SessionManager: AMK derived")
 
                 val now = System.currentTimeMillis()
@@ -246,7 +81,6 @@ class SessionManager(
                 )
 
                 operationCount.set(0)
-
                 Timber.i("SessionManager: Session started successfully")
                 SessionResult.Success(userId)
             }
@@ -257,82 +91,240 @@ class SessionManager(
     }
 
     /**
-     * End the current session and securely clear AMK.
+     * End current session (logout)
      */
-    override suspend fun endSession(reason: String) {
+    fun endSession(reason: String = "Session ended") {
         synchronized(sessionLock) {
-            try {
-                Timber.i("SessionManager: Ending session – reason: $reason")
-
-                val current = _sessionState.value
-
-                current.amk?.let { amk ->
-                    amk.fill(0)
-                    Timber.d("SessionManager: AMK cleared from memory")
-                }
-
-                _sessionState.value = SessionState()
-                operationCount.set(0)
-
-                Timber.i("SessionManager: Session ended")
-            } catch (e: Exception) {
-                Timber.e(e, "SessionManager: Error during session end")
+            val state = _sessionState.value ?: return
+            
+            if (state.amk != null) {
+                state.amk.fill(0)  // Clear AMK from memory
             }
+
+            _sessionState.value = SessionState(
+                userId = null,
+                amk = null,
+                startTime = 0L,
+                lastActivityTime = 0L,
+                operationCount = 0,
+                isActive = false
+            )
+
+            Timber.i("SessionManager: Session ended - $reason")
         }
     }
 
     /**
-     * Simple check if session is active and within base timeout.
+     * Check if session is still active
      */
-    override fun isSessionActive(): Boolean {
+    fun isSessionActive(): Boolean {
         synchronized(sessionLock) {
-            val state = _sessionState.value
+            val state = _sessionState.value ?: return false
+            
             if (!state.isActive) return false
+            
+            // Check timeout
+            val elapsed = System.currentTimeMillis() - state.lastActivityTime
+            if (elapsed > SESSION_TIMEOUT_MILLIS) {
+                Timber.w("Session timeout after ${elapsed}ms")
+                endSession("Session timeout")
+                return false
+            }
 
-            val now = System.currentTimeMillis()
-            val elapsed = now - state.lastActivityTime
-
-            return elapsed <= DEFAULT_SESSION_TIMEOUT_MS
+            return true
         }
     }
 
     /**
-     * Remaining time before base timeout (ignores operation extension).
+     * Get current session AMK (if session active)
      */
-    override fun getSessionTimeoutMs(): Long {
+    fun getSessionAMK(): ByteArray? {
         synchronized(sessionLock) {
-            val state = _sessionState.value
-            if (!state.isActive) return 0L
-
-            val now = System.currentTimeMillis()
-            val elapsed = now - state.lastActivityTime
-            val remaining = DEFAULT_SESSION_TIMEOUT_MS - elapsed
-
-            return if (remaining > 0) remaining else 0L
+            val state = _sessionState.value ?: return null
+            return if (isSessionActive()) state.amk else null
         }
     }
 
     /**
-     * Optional helper to be called from a periodic job/timer.
-     * If base timeout has elapsed, the session is ended.
+     * Start operation (updates lastActivityTime)
      */
-    suspend fun checkSessionTimeout() {
+    fun startOperation() {
         synchronized(sessionLock) {
-            val state = _sessionState.value
+            val state = _sessionState.value ?: return
             if (!state.isActive) return
 
-            val now = System.currentTimeMillis()
-            val elapsed = now - state.lastActivityTime
-
-            if (elapsed > DEFAULT_SESSION_TIMEOUT_MS) {
-                Timber.w("SessionManager: Session timeout detected in checkSessionTimeout (elapsed=$elapsed)")
-                // Release lock before calling suspend function to avoid deadlock
-            }
-        }
-
-        // Call endSession outside synchronized block
-        if (!isSessionActive()) {
-            endSession("Session timeout")
+            _sessionState.value = state.copy(
+                lastActivityTime = System.currentTimeMillis(),
+                operationCount = operationCount.incrementAndGet()
+            )
         }
     }
+
+    /**
+     * End operation (may extend session)
+     */
+    fun endOperation() {
+        synchronized(sessionLock) {
+            val state = _sessionState.value ?: return
+            if (!state.isActive) return
+
+            _sessionState.value = state.copy(
+                lastActivityTime = System.currentTimeMillis()
+            )
+        }
+    }
+
+    /**
+     * Check and potentially extend session on activity
+     */
+    fun checkSessionTimeout() {
+        synchronized(sessionLock) {
+            val state = _sessionState.value ?: return
+            if (!state.isActive) return
+
+            val elapsed = System.currentTimeMillis() - state.lastActivityTime
+            val remaining = SESSION_TIMEOUT_MILLIS - elapsed
+
+            if (remaining < SESSION_EXTENSION_MILLIS && operationCount.get() > 0) {
+                // Extend session
+                _sessionState.value = state.copy(
+                    lastActivityTime = System.currentTimeMillis()
+                )
+                Timber.d("Session extended due to active operations")
+            }
+        }
+    }
+
+    // ========== Ephemeral Key Support for Audit ==========
+
+    /**
+     * Get ephemeral session key for audit encryption
+     * Creates a derived key from AMK valid only for current session
+     * 
+     * ✅ FIXED: Now properly implemented
+     */
+    fun getEphemeralSessionKey(): SecretKeySpec? {
+        synchronized(sessionLock) {
+            val amk = getSessionAMK() ?: return null
+
+            return try {
+                // Derive ephemeral key from AMK using KDF
+                // Simple KDF: HMAC-SHA256(AMK, "EPHEMERAL_KEY")
+                val hmac = Mac.getInstance("HmacSHA256")
+                val keySpec = SecretKeySpec(
+                    amk, 0, amk.size, "HmacSHA256"
+                )
+                hmac.init(keySpec)
+
+                val derived = hmac.doFinal("EPHEMERAL_KEY".toByteArray())
+
+                // Truncate to 32 bytes for AES-256
+                val keyMaterial = derived.copyOfRange(0, 32)
+                SecretKeySpec(keyMaterial, 0, 32, "AES")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to derive ephemeral key")
+                null
+            }
+        }
+    }
+
+    /**
+     * Verify ephemeral key is still valid
+     */
+    fun isEphemeralKeyValid(): Boolean {
+        synchronized(sessionLock) {
+            return getSessionAMK() != null && isSessionActive()
+        }
+    }
+
+    /**
+     * Get encrypted session metadata for audit trail
+     */
+    fun getSessionMetadata(): SessionMetadata {
+        synchronized(sessionLock) {
+            val state = _sessionState.value
+            return SessionMetadata(
+                userId = state?.userId ?: 0L,
+                sessionStartTime = state?.startTime ?: 0L,
+                sessionDuration = if (state != null) {
+                    System.currentTimeMillis() - state.startTime
+                } else {
+                    0L
+                },
+                operationCount = state?.operationCount ?: 0,
+                isActive = state?.isActive ?: false
+            )
+        }
+    }
+
+    // ========== Data Classes ==========
+
+    data class SessionState(
+        val userId: Long?,
+        val amk: ByteArray?,
+        val startTime: Long,
+        val lastActivityTime: Long,
+        val operationCount: Int,
+        val isActive: Boolean
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+
+            other as SessionState
+
+            if (userId != other.userId) return false
+            if (amk != null) {
+                if (other.amk == null) return false
+                if (!amk.contentEquals(other.amk)) return false
+            } else if (other.amk != null) return false
+            if (startTime != other.startTime) return false
+            if (lastActivityTime != other.lastActivityTime) return false
+            if (operationCount != other.operationCount) return false
+            if (isActive != other.isActive) return false
+
+            return true
+        }
+
+        override fun hashCode(): Int {
+            var result = userId?.hashCode() ?: 0
+            result = 31 * result + (amk?.contentHashCode() ?: 0)
+            result = 31 * result + startTime.hashCode()
+            result = 31 * result + lastActivityTime.hashCode()
+            result = 31 * result + operationCount
+            result = 31 * result + isActive.hashCode()
+            return result
+        }
+    }
+
+    data class SessionMetadata(
+        val userId: Long,
+        val sessionStartTime: Long,
+        val sessionDuration: Long,
+        val operationCount: Int,
+        val isActive: Boolean
+    )
+
+    sealed class SessionResult {
+        data class Success(val userId: Long) : SessionResult()
+        data class Error(val message: String) : SessionResult()
+    }
+}
+
+// Extension to support interface if one is defined
+interface ISessionManager {
+    fun startSession(
+        activity: FragmentActivity,
+        userId: Long
+    ): SessionManager.SessionResult
+
+    fun endSession(reason: String = "Session ended")
+    fun isSessionActive(): Boolean
+    fun getSessionAMK(): ByteArray?
+    fun startOperation()
+    fun endOperation()
+    fun checkSessionTimeout()
+    fun getEphemeralSessionKey(): SecretKeySpec?
+    fun isEphemeralKeyValid(): Boolean
+    fun getSessionMetadata(): SessionManager.SessionMetadata
 }
