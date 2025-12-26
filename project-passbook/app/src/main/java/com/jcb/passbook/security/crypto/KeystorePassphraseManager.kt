@@ -1,14 +1,11 @@
 package com.jcb.passbook.security.crypto
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
+import androidx.fragment.app.FragmentActivity
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import timber.log.Timber
-import java.security.KeyStore
 import java.security.SecureRandom
-import javax.crypto.KeyGenerator
 
 class KeystorePassphraseManager(
     private val context: Context
@@ -27,7 +24,7 @@ class KeystorePassphraseManager(
     fun getPassphrase(): ByteArray? {
         return try {
             // Try to retrieve existing passphrase
-            val storedPassphrase = retrievePassphrase()
+            val storedPassphrase = retrievePassphrase(activity)
             if (storedPassphrase != null) {
                 Timber.d("✓ Retrieved existing passphrase")
                 return storedPassphrase
@@ -48,7 +45,7 @@ class KeystorePassphraseManager(
     /**
      * Retrieve stored passphrase from EncryptedSharedPreferences
      */
-    fun retrievePassphrase(): ByteArray? {
+    fun retrievePassphrase(activity: FragmentActivity): ByteArray? {
         return try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)

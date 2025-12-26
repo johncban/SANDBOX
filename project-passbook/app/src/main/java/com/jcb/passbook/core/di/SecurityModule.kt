@@ -2,7 +2,7 @@ package com.jcb.passbook.core.di
 
 import android.content.Context
 import com.jcb.passbook.security.crypto.*
-import com.jcb.passbook.security.session.SessionManager
+import com.jcb.passbook.security.crypto.SessionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
