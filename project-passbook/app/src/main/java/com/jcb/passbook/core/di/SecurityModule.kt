@@ -1,8 +1,8 @@
 package com.jcb.passbook.core.di
 
 import android.content.Context
+import com.jcb.passbook.security.audit.AuditLogger
 import com.jcb.passbook.security.crypto.*
-import com.jcb.passbook.security.crypto.SessionManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -11,7 +11,8 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * ✅ FIXED: SecurityModule with correct dependency order
+ * Security Module - Provides all security-related dependencies
+ * Order matters: dependencies must be provided before dependents
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -23,16 +24,20 @@ object SecurityModule {
         return SecureMemoryUtils()
     }
 
-    /**
-     * ✅ CRITICAL: KeystorePassphraseManager MUST be provided before DatabaseKeyManager
-     * DatabaseModule depends on this to get the database passphrase
-     */
     @Provides
     @Singleton
     fun provideKeystorePassphraseManager(
         @ApplicationContext context: Context
     ): KeystorePassphraseManager {
         return KeystorePassphraseManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCryptoManager(
+        secureMemoryUtils: SecureMemoryUtils
+    ): CryptoManager {
+        return CryptoManager(secureMemoryUtils)
     }
 
     @Provides
@@ -48,28 +53,37 @@ object SecurityModule {
     @Provides
     @Singleton
     fun providePasswordEncryptionService(
-        secureMemoryUtils: SecureMemoryUtils
+        cryptoManager: CryptoManager
     ): PasswordEncryptionService {
-        return PasswordEncryptionService(secureMemoryUtils)
+        return PasswordEncryptionService(cryptoManager)
     }
 
     @Provides
     @Singleton
     fun provideSessionManager(
         @ApplicationContext context: Context,
-        secureMemoryUtils: SecureMemoryUtils
+        keystorePassphraseManager: KeystorePassphraseManager
     ): SessionManager {
-        return SessionManager(context, secureMemoryUtils)
+        return SessionManager(context, keystorePassphraseManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideAuditLogger(
+        @ApplicationContext context: Context,
+        cryptoManager: CryptoManager
+    ): AuditLogger {
+        return AuditLogger(context, cryptoManager)
     }
 
     @Provides
     @Singleton
     fun provideMasterKeyManager(
         @ApplicationContext context: Context,
-        databaseKeyManager: DatabaseKeyManager,
-        secureMemoryUtils: SecureMemoryUtils
+        keystorePassphraseManager: KeystorePassphraseManager,
+        auditLogger: AuditLogger
     ): MasterKeyManager {
-        return MasterKeyManager(context, databaseKeyManager, secureMemoryUtils)
+        return MasterKeyManager(context, keystorePassphraseManager) { auditLogger }
     }
 
     @Provides
