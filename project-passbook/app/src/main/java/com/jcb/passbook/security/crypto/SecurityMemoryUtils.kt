@@ -21,7 +21,6 @@ import kotlin.random.Random
  */
 @Singleton
 class SecurityMemoryUtils @Inject constructor() {
-
     private val secureRandom = SecureRandom()
 
     // ═══════════════════════════════════════════════════════════════════
@@ -36,10 +35,8 @@ class SecurityMemoryUtils @Inject constructor() {
      */
     fun generateSecureRandom(size: Int): ByteArray {
         require(size > 0) { "Size must be positive" }
-
         val random = ByteArray(size)
         secureRandom.nextBytes(random)
-
         Timber.d("Generated $size bytes of secure random data")
         return random
     }
@@ -81,14 +78,11 @@ class SecurityMemoryUtils @Inject constructor() {
      */
     fun secureWipe(data: ByteArray) {
         if (data.isEmpty()) return
-
         try {
             // First pass: overwrite with random data
             secureRandom.nextBytes(data)
-
             // Second pass: overwrite with zeros
             data.fill(0)
-
             Timber.v("Securely wiped ${data.size} bytes (2-pass)")
         } catch (e: Exception) {
             Timber.e(e, "Failed to securely wipe ByteArray")
@@ -112,10 +106,8 @@ class SecurityMemoryUtils @Inject constructor() {
      * ✅ NEW: Wipe ByteArray and return null (for cleanup patterns)
      *
      * Usage:
-     * ```
      * var sensitiveData: ByteArray? = getSensitiveData()
      * sensitiveData = secureMemoryUtils.wipeAndNull(sensitiveData)
-     * ```
      */
     fun wipeAndNull(data: ByteArray?): ByteArray? {
         data?.let { secureWipe(it) }
@@ -135,17 +127,14 @@ class SecurityMemoryUtils @Inject constructor() {
      */
     fun secureWipe(data: CharArray) {
         if (data.isEmpty()) return
-
         try {
             // First pass: overwrite with random characters
             val random = Random.Default
             for (i in data.indices) {
                 data[i] = random.nextInt(65536).toChar()
             }
-
             // Second pass: overwrite with null characters
             data.fill('\u0000')
-
             Timber.v("Securely wiped CharArray of ${data.size} characters")
         } catch (e: Exception) {
             Timber.e(e, "Failed to securely wipe CharArray")
@@ -213,12 +202,10 @@ class SecurityMemoryUtils @Inject constructor() {
      */
     fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean {
         if (a.size != b.size) return false
-
         var result = 0
         for (i in a.indices) {
             result = result or (a[i].toInt() xor b[i].toInt())
         }
-
         return result == 0
     }
 
@@ -232,13 +219,10 @@ class SecurityMemoryUtils @Inject constructor() {
     fun constantTimeEquals(a: String, b: String): Boolean {
         val aBytes = a.toByteArray()
         val bBytes = b.toByteArray()
-
         val result = constantTimeEquals(aBytes, bBytes)
-
         // Wipe temporary byte arrays
         secureWipe(aBytes)
         secureWipe(bBytes)
-
         return result
     }
 
@@ -277,7 +261,6 @@ class SecurityMemoryUtils @Inject constructor() {
     fun hexToBytes(hex: String): ByteArray {
         val cleanHex = hex.replace("x'", "").replace("'", "").replace(" ", "")
         require(cleanHex.length % 2 == 0) { "Hex string must have even length" }
-
         return ByteArray(cleanHex.length / 2) { i ->
             cleanHex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
         }
@@ -304,13 +287,9 @@ class SecurityMemoryUtils @Inject constructor() {
      * ✅ NEW: Execute a block with sensitive data and ensure cleanup
      *
      * Usage:
-     * ```
      * val result = secureMemoryUtils.withSensitiveData(sensitiveKey) { key ->
-     *     // Use key safely
      *     performOperation(key)
      * }
-     * // key is automatically wiped here
-     * ```
      */
     inline fun <T> withSensitiveData(data: ByteArray, block: (ByteArray) -> T): T {
         return try {
@@ -346,7 +325,6 @@ class SecurityMemoryUtils @Inject constructor() {
     fun validateByteArray(data: ByteArray?, expectedSize: Int? = null, name: String = "data") {
         requireNotNull(data) { "$name cannot be null" }
         require(data.isNotEmpty()) { "$name cannot be empty" }
-
         if (expectedSize != null) {
             require(data.size == expectedSize) {
                 "$name has invalid size: ${data.size} bytes (expected $expectedSize)"
@@ -367,7 +345,6 @@ class SecurityMemoryUtils @Inject constructor() {
      */
     fun calculateEntropy(data: ByteArray): Double {
         if (data.isEmpty()) return 0.0
-
         val frequencies = IntArray(256)
         data.forEach { byte ->
             frequencies[byte.toInt() and 0xFF]++
@@ -375,14 +352,12 @@ class SecurityMemoryUtils @Inject constructor() {
 
         var entropy = 0.0
         val length = data.size.toDouble()
-
         frequencies.forEach { count ->
             if (count > 0) {
                 val probability = count / length
                 entropy -= probability * Math.log(probability) / Math.log(2.0)
             }
         }
-
         // Normalize to 0.0 - 1.0 range (max entropy for byte is 8 bits)
         return entropy / 8.0
     }
@@ -398,7 +373,6 @@ class SecurityMemoryUtils @Inject constructor() {
     fun safeToString(data: ByteArray?): String {
         if (data == null) return "null"
         if (data.isEmpty()) return "empty"
-
         val entropy = calculateEntropy(data)
         return "ByteArray[size=${data.size}, entropy=${String.format("%.2f", entropy)}]"
     }
@@ -409,10 +383,8 @@ class SecurityMemoryUtils @Inject constructor() {
     fun maskedHex(data: ByteArray): String {
         if (data.isEmpty()) return "empty"
         if (data.size <= 8) return "***hidden***"
-
         val first4 = data.take(4).joinToString("") { "%02x".format(it) }
         val last4 = data.takeLast(4).joinToString("") { "%02x".format(it) }
-
         return "$first4...${data.size - 8} bytes...$last4"
     }
 }

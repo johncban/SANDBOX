@@ -9,7 +9,7 @@ import com.jcb.passbook.security.audit.MasterAuditLogger
 import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.PasswordEncryptionService
-import com.jcb.passbook.security.crypto.SecureMemoryUtils
+import com.jcb.passbook.security.crypto.SecurityMemoryUtils
 import com.jcb.passbook.security.crypto.SessionManager
 import com.jcb.passbook.data.local.database.AppDatabase
 import com.lambdapioneer.argon2kt.Argon2Kt
@@ -33,7 +33,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
+    fun provideSecureMemoryUtils(): SecurityMemoryUtils = SecurityMemoryUtils()
 
     @Provides
     @Singleton
@@ -52,7 +52,7 @@ object SecurityModule {
     @Provides
     @Singleton
     fun provideCryptoManager(
-        secureMemoryUtils: SecureMemoryUtils
+        secureMemoryUtils: SecurityMemoryUtils
     ): CryptoManager {
         val manager = CryptoManager(secureMemoryUtils)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -80,7 +80,7 @@ object SecurityModule {
     fun provideAuditJournalManager(
         @ApplicationContext context: Context,
         sessionManager: SessionManager,
-        secureMemoryUtils: SecureMemoryUtils
+        secureMemoryUtils: SecurityMemoryUtils
     ): AuditJournalManager = AuditJournalManager(context, sessionManager, secureMemoryUtils)
 
     @Provides
@@ -100,7 +100,7 @@ object SecurityModule {
         auditJournalManager: AuditJournalManager,
         auditChainManager: AuditChainManager,
         sessionManager: SessionManager,
-        secureMemoryUtils: SecureMemoryUtils
+        secureMemoryUtils: SecurityMemoryUtils
     ): MasterAuditLogger = MasterAuditLogger(
         context = context,
         auditJournalManager = auditJournalManager,
