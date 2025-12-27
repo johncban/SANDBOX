@@ -40,8 +40,14 @@ object AuditModule {
     @Provides
     @Singleton
     fun provideAuditJournalManager(
-        @ApplicationContext context: Context
-    ): AuditJournalManager = AuditJournalManager(context)
+        @ApplicationContext context: Context,
+        sessionManager: SessionManager,
+        secureMemoryUtils: SecureMemoryUtils
+    ): AuditJournalManager = AuditJournalManager(
+        context = context,
+        sessionManager = sessionManager,
+        secureMemoryUtils = secureMemoryUtils
+    )
 
     // ✅ FIXED: Completely rewrote with correct parameters and order
     @Provides
