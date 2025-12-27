@@ -7,7 +7,10 @@ import javax.inject.Singleton
 import kotlin.random.Random
 
 /**
- * SecurityMemoryUtils - Secure memory management utilities
+ * SecureMemoryUtils - Secure memory management utilities
+ *
+ * ✅ CLASS NAME FIXED: SecureMemoryUtils (not SecurityMemoryUtils)
+ * This matches the imports in AuditJournalManager, DatabaseKeyManager, and MasterKeyManager
  *
  * Provides cryptographically secure operations for:
  * - Secure random number generation
@@ -20,7 +23,7 @@ import kotlin.random.Random
  * ✅ FIXED: Enhanced security features for key rotation
  */
 @Singleton
-class SecurityMemoryUtils @Inject constructor() {
+class SecureMemoryUtils @Inject constructor() {
     private val secureRandom = SecureRandom()
 
     // ═══════════════════════════════════════════════════════════════════
