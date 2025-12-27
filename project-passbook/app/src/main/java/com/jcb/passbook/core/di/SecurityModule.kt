@@ -1,17 +1,12 @@
-// File: app/src/main/java/com/jcb/passbook/core/di/SecurityModule.kt
 package com.jcb.passbook.core.di
 
 import android.content.Context
 import android.os.Build
-import com.jcb.passbook.security.audit.AuditChainManager
-import com.jcb.passbook.security.audit.AuditJournalManager
-import com.jcb.passbook.security.audit.MasterAuditLogger
 import com.jcb.passbook.security.crypto.CryptoManager
 import com.jcb.passbook.security.crypto.KeystorePassphraseManager
 import com.jcb.passbook.security.crypto.PasswordEncryptionService
-import com.jcb.passbook.security.crypto.SecurityMemoryUtils
+import com.jcb.passbook.security.crypto.SecureMemoryUtils
 import com.jcb.passbook.security.crypto.SessionManager
-import com.jcb.passbook.data.local.database.AppDatabase
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
@@ -21,11 +16,14 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * SecurityModule - Provides all security-related dependencies
+ * SecurityModule - Provides ONLY crypto/security dependencies
  *
- * REFACTORED: Fixed missing closing braces
- * ✅ Argon2Kt provider added for password hashing
- * ✅ No database provider (moved to DatabaseModule)
+ * REFACTORED:
+ * ✅ Removed all audit providers (moved to AuditModule)
+ * ✅ Fixed missing closing braces
+ * ✅ Clear separation of concerns
+ *
+ * DO NOT add audit-related providers here!
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -33,7 +31,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideSecureMemoryUtils(): SecurityMemoryUtils = SecurityMemoryUtils()
+    fun provideSecureMemoryUtils(): SecureMemoryUtils = SecureMemoryUtils()
 
     @Provides
     @Singleton
@@ -52,7 +50,7 @@ object SecurityModule {
     @Provides
     @Singleton
     fun provideCryptoManager(
-        secureMemoryUtils: SecurityMemoryUtils
+        secureMemoryUtils: SecureMemoryUtils
     ): CryptoManager {
         val manager = CryptoManager(secureMemoryUtils)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -75,40 +73,6 @@ object SecurityModule {
         cryptoManager: CryptoManager
     ): PasswordEncryptionService = PasswordEncryptionService(cryptoManager)
 
-    @Provides
-    @Singleton
-    fun provideAuditJournalManager(
-        @ApplicationContext context: Context,
-        sessionManager: SessionManager,
-        secureMemoryUtils: SecurityMemoryUtils
-    ): AuditJournalManager = AuditJournalManager(context, sessionManager, secureMemoryUtils)
-
-    @Provides
-    @Singleton
-    fun provideAuditChainManager(
-        @ApplicationContext context: Context,
-        database: AppDatabase
-    ): AuditChainManager = AuditChainManager(
-        context = context,
-        auditDao = database.auditDao()
-    )
-
-    @Provides
-    @Singleton
-    fun provideMasterAuditLogger(
-        @ApplicationContext context: Context,
-        auditJournalManager: AuditJournalManager,
-        auditChainManager: AuditChainManager,
-        sessionManager: SessionManager,
-        secureMemoryUtils: SecurityMemoryUtils
-    ): MasterAuditLogger = MasterAuditLogger(
-        context = context,
-        auditJournalManager = auditJournalManager,
-        auditChainManager = auditChainManager,
-        sessionManager = sessionManager,
-        secureMemoryUtils = secureMemoryUtils
-    )
-
-    // ✅ NO DATABASE PROVIDER HERE
-    // Database is ONLY provided by DatabaseModule.kt to prevent duplicate binding
+    // ✅ NO AUDIT PROVIDERS HERE - MOVED TO AuditModule
+    // ✅ NO DATABASE PROVIDER HERE - USE DatabaseModule
 }
