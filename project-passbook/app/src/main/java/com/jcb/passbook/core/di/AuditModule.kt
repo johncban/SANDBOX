@@ -19,6 +19,7 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AuditModule {
 
+    // ✅ FIXED: Added auditDao parameter and explicit named parameters
     @Provides
     @Singleton
     fun provideAuditQueue(
@@ -35,12 +36,14 @@ object AuditModule {
     @Singleton
     fun provideAuditChainManager(): AuditChainManager = AuditChainManager()
 
+    // ✅ NEW: Added missing AuditJournalManager provider
     @Provides
     @Singleton
     fun provideAuditJournalManager(
         @ApplicationContext context: Context
     ): AuditJournalManager = AuditJournalManager(context)
 
+    // ✅ FIXED: Completely rewrote with correct parameters and order
     @Provides
     @Singleton
     fun provideMasterAuditLogger(
