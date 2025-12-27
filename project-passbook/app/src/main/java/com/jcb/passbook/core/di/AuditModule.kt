@@ -12,7 +12,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlin.jvm.functions.Function0
 import javax.inject.Singleton
 
 @Module
@@ -23,8 +22,9 @@ object AuditModule {
     @Singleton
     fun provideAuditQueue(
         @ApplicationContext context: Context,
+        auditDao: AuditDao,
         sessionManager: SessionManager
-    ): AuditQueue = AuditQueue(context, sessionManager)
+    ): AuditQueue = AuditQueue(auditDao, context, sessionManager)
 
     @Provides
     @Singleton
@@ -42,23 +42,23 @@ object AuditModule {
         context,
         sessionManager,
         secureMemoryUtils
-    )
+    ) // ✅ FIXED: Added missing closing parenthesis
 
     @Provides
     @Singleton
     fun provideAuditQueueProvider(
         auditQueue: AuditQueue
-    ): kotlin.jvm.functions.Function0<AuditQueue> = { auditQueue }
+    ): () -> AuditQueue = { auditQueue }
 
     @Provides
     @Singleton
     fun provideAuditChainManagerProvider(
         auditChainManager: AuditChainManager
-    ): kotlin.jvm.functions.Function0<AuditChainManager> = { auditChainManager }
+    ): () -> AuditChainManager = { auditChainManager }
 
     @Provides
     @Singleton
     fun provideMasterAuditLoggerProvider(
         masterAuditLogger: MasterAuditLogger
-    ): kotlin.jvm.functions.Function0<MasterAuditLogger> = { masterAuditLogger }
+    ): () -> MasterAuditLogger = { masterAuditLogger }
 }
