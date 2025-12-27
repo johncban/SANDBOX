@@ -35,7 +35,11 @@ object AuditModule {
 
     @Provides
     @Singleton
-    fun provideAuditChainManager(): AuditChainManager = AuditChainManager()
+    fun provideAuditChainManager(
+        @ApplicationContext context: Context,
+        auditDao: AuditDao
+    ): AuditChainManager = AuditChainManager(context, auditDao)
+
 
     @Provides
     @Singleton
