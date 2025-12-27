@@ -20,7 +20,7 @@ import kotlin.random.Random
  * ✅ FIXED: Enhanced security features for key rotation
  */
 @Singleton
-class SecureMemoryUtils @Inject constructor() {
+class SecurityMemoryUtils @Inject constructor() {
 
     private val secureRandom = SecureRandom()
 

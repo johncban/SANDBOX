@@ -5,7 +5,7 @@ import com.jcb.passbook.security.audit.AuditChainManager
 import com.jcb.passbook.security.audit.AuditJournalManager
 import com.jcb.passbook.security.audit.AuditQueue
 import com.jcb.passbook.security.audit.MasterAuditLogger
-import com.jcb.passbook.security.crypto.SecureMemoryUtils
+import com.jcb.passbook.security.crypto.SecurityMemoryUtils
 import com.jcb.passbook.security.crypto.SessionManager
 import com.jcb.passbook.data.local.database.dao.AuditDao
 import dagger.Module
@@ -19,37 +19,36 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object AuditModule {
 
-    // ✅ FIXED: Added auditDao parameter and explicit named parameters
     @Provides
     @Singleton
     fun provideAuditQueue(
         auditDao: AuditDao,
         @ApplicationContext context: Context,
         sessionManager: SessionManager
-    ): AuditQueue = AuditQueue(
-        auditDao = auditDao,
-        context = context,
-        sessionManager = sessionManager
-    )
+    ): AuditQueue {
+        return AuditQueue(
+            auditDao = auditDao,
+            context = context,
+            sessionManager = sessionManager
+        )
+    }
 
     @Provides
     @Singleton
     fun provideAuditChainManager(): AuditChainManager = AuditChainManager()
 
-    // ✅ NEW: Added missing AuditJournalManager provider
     @Provides
     @Singleton
     fun provideAuditJournalManager(
         @ApplicationContext context: Context,
         sessionManager: SessionManager,
-        secureMemoryUtils: SecureMemoryUtils
+        secureMemoryUtils: SecurityMemoryUtils
     ): AuditJournalManager = AuditJournalManager(
         context = context,
         sessionManager = sessionManager,
         secureMemoryUtils = secureMemoryUtils
     )
 
-    // ✅ FIXED: Completely rewrote with correct parameters and order
     @Provides
     @Singleton
     fun provideMasterAuditLogger(
@@ -57,7 +56,7 @@ object AuditModule {
         auditJournalManager: AuditJournalManager,
         auditChainManager: AuditChainManager,
         sessionManager: SessionManager,
-        secureMemoryUtils: SecureMemoryUtils
+        secureMemoryUtils: SecurityMemoryUtils
     ): MasterAuditLogger = MasterAuditLogger(
         context = context,
         auditJournalManager = auditJournalManager,
