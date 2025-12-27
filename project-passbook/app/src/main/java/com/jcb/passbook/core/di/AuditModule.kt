@@ -2,6 +2,7 @@ package com.jcb.passbook.core.di
 
 import android.content.Context
 import com.jcb.passbook.security.audit.AuditChainManager
+import com.jcb.passbook.security.audit.AuditJournalManager
 import com.jcb.passbook.security.audit.AuditQueue
 import com.jcb.passbook.security.audit.MasterAuditLogger
 import com.jcb.passbook.security.crypto.SecureMemoryUtils
@@ -21,10 +22,14 @@ object AuditModule {
     @Provides
     @Singleton
     fun provideAuditQueue(
-        @ApplicationContext context: Context,
         auditDao: AuditDao,
+        @ApplicationContext context: Context,
         sessionManager: SessionManager
-    ): AuditQueue = AuditQueue(auditDao, context, sessionManager)
+    ): AuditQueue = AuditQueue(
+        auditDao = auditDao,
+        context = context,
+        sessionManager = sessionManager
+    )
 
     @Provides
     @Singleton
@@ -32,17 +37,25 @@ object AuditModule {
 
     @Provides
     @Singleton
+    fun provideAuditJournalManager(
+        @ApplicationContext context: Context
+    ): AuditJournalManager = AuditJournalManager(context)
+
+    @Provides
+    @Singleton
     fun provideMasterAuditLogger(
-        auditDao: AuditDao,
         @ApplicationContext context: Context,
+        auditJournalManager: AuditJournalManager,
+        auditChainManager: AuditChainManager,
         sessionManager: SessionManager,
         secureMemoryUtils: SecureMemoryUtils
     ): MasterAuditLogger = MasterAuditLogger(
-        auditDao,
-        context,
-        sessionManager,
-        secureMemoryUtils
-    ) // ✅ FIXED: Added missing closing parenthesis
+        context = context,
+        auditJournalManager = auditJournalManager,
+        auditChainManager = auditChainManager,
+        sessionManager = sessionManager,
+        secureMemoryUtils = secureMemoryUtils
+    )
 
     @Provides
     @Singleton
