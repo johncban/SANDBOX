@@ -2,11 +2,9 @@ package com.jcb.passbook.core.di
 
 import android.content.Context
 import android.os.Build
-import com.jcb.passbook.security.crypto.CryptoManager
-import com.jcb.passbook.security.crypto.KeystorePassphraseManager
-import com.jcb.passbook.security.crypto.PasswordEncryptionService
-import com.jcb.passbook.security.crypto.SecureMemoryUtils
-import com.jcb.passbook.security.crypto.SessionManager
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.jcb.passbook.security.crypto.*
 import com.lambdapioneer.argon2kt.Argon2Kt
 import dagger.Module
 import dagger.Provides
@@ -15,16 +13,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-/**
- * SecurityModule - Provides ONLY crypto/security dependencies
- *
- * REFACTORED:
- * ✅ Removed all audit providers (moved to AuditModule)
- * ✅ Fixed missing closing braces
- * ✅ Clear separation of concerns
- *
- * DO NOT add audit-related providers here!
- */
 @Module
 @InstallIn(SingletonComponent::class)
 object SecurityModule {
@@ -39,10 +27,6 @@ object SecurityModule {
         @ApplicationContext context: Context
     ): KeystorePassphraseManager = KeystorePassphraseManager(context)
 
-    /**
-     * Provides Argon2Kt for password hashing
-     * CRITICAL: Required by UserViewModel for secure password hashing
-     */
     @Provides
     @Singleton
     fun provideArgon2Kt(): Argon2Kt = Argon2Kt()
@@ -73,6 +57,5 @@ object SecurityModule {
         cryptoManager: CryptoManager
     ): PasswordEncryptionService = PasswordEncryptionService(cryptoManager)
 
-    // ✅ NO AUDIT PROVIDERS HERE - MOVED TO AuditModule
-    // ✅ NO DATABASE PROVIDER HERE - USE DatabaseModule
+    // ✅ NO AUDIT PROVIDERS - MOVED TO AuditModule
 }
